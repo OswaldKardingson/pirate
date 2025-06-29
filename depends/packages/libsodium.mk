@@ -7,16 +7,21 @@ $(package)_dependencies=
 $(package)_config_opts=
 
 define $(package)_set_vars
-  $(package)_build_env=DO_NOT_UPDATE_CONFIG_SCRIPTS=1
+  # Previously prevented automatic config script refresh; removed to support new macOS targets
+  $(package)_build_env=
+  # On macOS, ensure deployment target is set and updated config scripts are available
   ifeq ($(build_os),darwin)
-  $(package)_build_env+=MACOSX_DEPLOYMENT_TARGET="$(OSX_MIN_VERSION)"
+  $(package)_build_env=MACOSX_DEPLOYMENT_TARGET="$(OSX_MIN_VERSION)"
   $(package)_cc=clang
   $(package)_cxx=clang++
+  else
+  $(package)_build_env=
   endif
 endef
 
 define $(package)_preprocess_cmds
-  cd $($(package)_build_subdir); ./autogen.sh
+  cd $($(package)_build_subdir); ./autogen.sh && \
+  cp -f $(BASEDIR)/config.guess $(BASEDIR)/config.sub build-aux
 endef
 
 define $(package)_config_cmds
