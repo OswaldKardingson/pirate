@@ -1,5 +1,5 @@
 CARGO_EXEC := cargo
-ifeq ($(build_os),mingw32)
+ifneq (,$(findstring mingw,$(build_os)))
 CARGO_EXEC := cargo.exe
 endif
 
