@@ -1,5 +1,28 @@
-# Enforce LF line endings for consistency across platforms
+# Enforce Unix (LF) line endings for all text files in this repository and prevent accidental CRLF commits.
+
+# Treat text files with LF on check-out and commit; Git will handle binary detection automatically, but we explicitly mark common binary types.
 * text=auto eol=lf
+
+# Explicit binary file declarations (Git will not attempt line ending conversions)
+*.png -text
+*.jpg -text
+*.jpeg -text
+*.gif -text
+*.tiff -text
+*.ico -text
+*.bmp -text
+*.zip -text
+*.gz -text
+*.7z -text
+*.tar -text
+*.xz -text
+*.rar -text
+*.pdf -text
+*.mp3 -text
+*.mp4 -text
+*.mov -text
+*.ogg -text
+*.wasm -text
 
 # Specific rules for file types
 *.mk text eol=lf
@@ -7,3 +30,6 @@ Makefile text eol=lf
 *.sh text eol=lf
 
 src/clientversion.cpp export-subst
+
+# Treat SVGs explicitly as text so they get LF endings on Windows
+*.svg text eol=lf
