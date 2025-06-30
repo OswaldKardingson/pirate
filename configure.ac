@@ -554,7 +554,13 @@ if test x$use_hardening != xno; then
 
   # RELRO.
   AX_CHECK_LINK_FLAG([-Wl,-z,relro], [
-      HARDENED_LDFLAGS="$HARDENED_LDFLAGS -Wl,-z,relro"
+      if test "x$host_os" != "xdarwin" && test "x$host_os" != "xmacos" && test "x$host_os" != "xmacosx"; then
+        HARDENED_LDFLAGS="$HARDENED_LDFLAGS -Wl,-z,relro"
+      fi
+  ],[
+    if test "x$host_os" != "xdarwin"; then
+      AC_MSG_ERROR(Cannot enable RELRO)
+    fi
   ])
   # BIND_NOW.
   AX_CHECK_LINK_FLAG([-Wl,-z,now], [
