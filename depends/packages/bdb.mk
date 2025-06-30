@@ -43,3 +43,9 @@ endef
 define $(package)_stage_cmds
   $(MAKE) DESTDIR=$($(package)_staging_dir) install_lib install_include
 endef
+
+define $(package)_postprocess_cmds
+  cd $($(package)_staging_dir)/lib && \
+  ln -sf libdb_cxx-6.2.a libdb_cxx.a && \
+  ln -sf libdb-6.2.a libdb.a
+endef
