@@ -66,7 +66,8 @@ endif
 # ---------------------------------------------------------------------------
 
 JSON_TEST_FILES = \
-	 test/data/sapling_key_components.json
+	 test/data/sapling_key_components.json \
+	 test/data/merkle_roots.json
 
 GENERATED_TEST_FILES = $(JSON_TEST_FILES:.json=.json.h)
 
