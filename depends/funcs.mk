@@ -49,11 +49,8 @@ define vendor_crate_deps
     if [ ! -x "$$$$CARGO_BIN" ]; then \
         CARGO_BIN="$$($(1)_download_dir)/bin/$(CARGO_EXEC)"; \
     fi; \
-    if [ ! -x "$$$$CARGO_BIN" ]; then \
-        CARGO_BIN="$(CARGO_EXEC)"; \
-    fi; \
-    if ! "$$$$CARGO_BIN" --version >/dev/null 2>&1; then \
-        CARGO_BIN="$(CARGO_EXEC)"; \
+    if ! type "$$$$CARGO_BIN" >/dev/null 2>&1; then \
+        CARGO_BIN="cargo"; \
     fi; \
     "$$$$CARGO_BIN" vendor --manifest-path $$($(1)_download_dir)/$(1)/$(4) $$($(1)_download_dir)/$(CRATE_REGISTRY) && \
     cd $$($(1)_download_dir) && \
