@@ -45,20 +45,20 @@ define vendor_crate_deps
     tar -xf $(native_rust_cached) -C $$($(1)_download_dir) && \
     tar --strip-components=1 -xf $$($(1)_source_dir)/$(2) -C $$($(1)_download_dir)/$(1) && \
 	cp $(3) $$($(1)_download_dir)/$(1)/Cargo.lock && \
-    CARGO_BIN="$$($(1)_download_dir)/native/bin/$(CARGO_EXEC)"; \
-    if [ ! -x "$$$$CARGO_BIN" ]; then \
-        CARGO_BIN="$$($(1)_download_dir)/bin/$(CARGO_EXEC)"; \
+    CARGO_BIN="$($(1)_download_dir)/native/bin/$(CARGO_EXEC)"; \
+    if [ ! -x "$$CARGO_BIN" ]; then \
+        CARGO_BIN="$($(1)_download_dir)/bin/$(CARGO_EXEC)"; \
     fi; \
-    if ! type "$$$$CARGO_BIN" >/dev/null 2>&1; then \
+    if ! type "$$CARGO_BIN" >/dev/null 2>&1; then \
         CARGO_BIN="cargo"; \
     fi; \
-    if [ "$$$$CARGO_BIN" = "cargo" ]; then \
+    if [ "$$CARGO_BIN" = "cargo" ]; then \
         found_path=`find "$($(1)_download_dir)" -type f \( -name 'cargo' -o -name 'cargo.exe' \) -print -quit`; \
         if [ -n "$$found_path" ]; then \
             CARGO_BIN="$$found_path"; \
         fi; \
     fi; \
-    "$$$$CARGO_BIN" vendor --manifest-path $$($(1)_download_dir)/$(1)/$(4) $$($(1)_download_dir)/$(CRATE_REGISTRY) && \
+    "$$CARGO_BIN" vendor --manifest-path $$($(1)_download_dir)/$(1)/$(4) $$($(1)_download_dir)/$(CRATE_REGISTRY) && \
     cd $$($(1)_download_dir) && \
     find $(CRATE_REGISTRY) | sort | tar --no-recursion -czf $$($(1)_download_dir)/$(5).temp -T - && \
     mv $$($(1)_download_dir)/$(5).temp $$($(1)_source_dir)/$(5) && \
