@@ -52,7 +52,6 @@ define vendor_crate_deps
     if [ ! -x "$${CARGO_BIN}" ]; then \
         CARGO_BIN="$(CARGO_EXEC)"; \
     fi; \
-    # Verify the selected cargo can execute; if not, fall back to one on PATH
     if ! "$${CARGO_BIN}" --version >/dev/null 2>&1; then \
         CARGO_BIN="$(CARGO_EXEC)"; \
     fi; \
