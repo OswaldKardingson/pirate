@@ -70,7 +70,8 @@ JSON_TEST_FILES = \
 
 GENERATED_TEST_FILES = $(JSON_TEST_FILES:.json=.json.h)
 
-# Tell Automake that the generated headers are build artefacts, not source
+BUILT_SOURCES += $(GENERATED_TEST_FILES)
+
 nodist_pirate_gtest_SOURCES = $(GENERATED_TEST_FILES)
 
 # Ensure the primary target depends on them
