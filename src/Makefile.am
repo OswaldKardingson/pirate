@@ -31,7 +31,8 @@ else
 LIBRUSTZCASH=$(top_builddir)/target/$(RUST_TARGET)/release/librustzcash.la
 endif
 
-LIBBITCOIN_SERVER=libbitcoin_server.a -lcurl -larchive
+LIBBITCOIN_SERVER=libbitcoin_server.a
+LIBBITCOIN_SERVER_LIBS = -lcurl -larchive
 LIBBITCOIN_WALLET=libbitcoin_wallet.a
 LIBBITCOIN_COMMON=libbitcoin_common.a
 LIBBITCOIN_CLI=libbitcoin_cli.a
@@ -203,6 +204,7 @@ EXTRA_LIBRARIES += \
   $(LIBBITCOIN_UTIL) \
   $(LIBBITCOIN_COMMON) \
   $(LIBBITCOIN_SERVER) \
+  $(LIBBITCOIN_SERVER_LIBS) \
   $(LIBBITCOIN_CLI) \
 	$(LIBCXXBRIDGE) \
   $(LIBZCASH) \
@@ -700,13 +702,9 @@ pirated_LDADD = \
   $(LIBUNIVALUE) \
   $(LIBBITCOIN_UTIL) \
   $(LIBBITCOIN_ZMQ) \
-  $(LIBBITCOIN_CRYPTO)
-
-if ENABLE_WALLET
-pirated_LDADD += $(LIBBITCOIN_WALLET)
-endif
-
-pirated_LDADD += \
+  $(LIBBITCOIN_CRYPTO) \
+  $(if ENABLE_WALLET,$(LIBBITCOIN_WALLET)) \
+  $(LIBBITCOIN_SERVER_LIBS) \
   $(LIBZCASH) \
 	$(LIBTLS) \
 	$(LIBRUSTZCASH) \
@@ -714,7 +712,7 @@ pirated_LDADD += \
   $(LIBLEVELDB) \
   $(LIBMEMENV) \
   $(LIBSECP256K1) \
-  $(LIBCRYPTOCONDITIONS) \
+	$(LIBCRYPTOCONDITIONS) \
 	$(LIBCJSON) \
   $(BOOST_LIBS) \
   $(BDB_LIBS) \
@@ -726,7 +724,11 @@ pirated_LDADD += \
   $(LIBBITCOIN_CRYPTO) \
   $(LIBZCASH_LIBS) \
   $(LIBSECP256K1) \
-  $(LIBCRYPTOCONDITIONS)
+	$(LIBCRYPTOCONDITIONS)
+
+if ENABLE_WALLET
+pirated_LDADD += $(LIBBITCOIN_WALLET)
+endif
 
 # if TARGET_DARWIN
 # pirated_LDADD += libcc.dylib $(LIBSECP256K1)
