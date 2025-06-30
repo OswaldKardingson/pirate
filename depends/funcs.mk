@@ -53,9 +53,9 @@ define vendor_crate_deps
         CARGO_BIN="cargo"; \
     fi; \
     if [ "$$$$CARGO_BIN" = "cargo" ]; then \
-        _found=$(find $$($(1)_download_dir) -type f -name 'cargo*' | head -n 1); \
-        if [ -n "$_found" ]; then \
-            CARGO_BIN="$_found"; \
+        found_path=`find "$($(1)_download_dir)" -type f \( -name 'cargo' -o -name 'cargo.exe' \) -print -quit`; \
+        if [ -n "$$found_path" ]; then \
+            CARGO_BIN="$$found_path"; \
         fi; \
     fi; \
     "$$$$CARGO_BIN" vendor --manifest-path $$($(1)_download_dir)/$(1)/$(4) $$($(1)_download_dir)/$(CRATE_REGISTRY) && \
@@ -87,11 +87,11 @@ endef
 
 define int_get_build_id
 $(eval $(1)_dependencies += $($(1)_$(host_arch)_$(host_os)_dependencies) $($(1)_$(host_os)_dependencies))
-$(eval $(1)_all_dependencies:=$(call int_get_all_dependencies,$(1),$($($(1)_type)_native_toolchain) $($(1)_dependencies)))
+$(eval $(1)_all_dependencies:=$(call int_get_all_dependencies,$(1),$($(1)_dependencies)))
 $(foreach dep,$($(1)_all_dependencies),$(eval $(1)_build_id_deps+=$(dep)-$($(dep)_version)-$($(dep)_recipe_hash)))
 $(eval $(1)_build_id_long:=$(1)-$($(1)_version)-$($(1)_recipe_hash)-$(release_type) $($(1)_build_id_deps))
 $(eval $(1)_build_id:=$(shell echo -n "$($(1)_build_id_long)" | $(build_SHA256SUM) | cut -c-$(HASH_LENGTH)))
-final_build_id_long+=$($(package)_build_id_long)
+final_build_id_long+=$($(1)_build_id_long)
 
 #override platform specific files and hashes
 $(eval $(1)_file_name=$(if $($(1)_exact_file_name),$($(1)_exact_file_name),$(if $($(1)_file_name_$(host_os)),$($(1)_file_name_$(host_os)),$($(1)_file_name))))
