@@ -25,8 +25,18 @@ LD64_VERSION=711
 #         https://reviews.llvm.org/D64089, we should use that instead. Read the
 #         differential summary there for more details.
 #
-darwin_CC=clang -target $(host) -mmacosx-version-min=$(OSX_MIN_VERSION) --sysroot $(OSX_SDK) -mlinker-version=$(LD64_VERSION) -B$(build_prefix)/bin
-darwin_CXX=clang++ -target $(host) -mmacosx-version-min=$(OSX_MIN_VERSION) --sysroot $(OSX_SDK) -stdlib=libc++ -mlinker-version=$(LD64_VERSION) -B$(build_prefix)/bin -nostdinc++ -isystem $(OSX_SDK)/usr/include/c++/v1
+
+# Force universal cross-compile to x86_64 so that C/C++ objects match the Rust
+# standard libraries shipped in the depends toolchain (which are always built
+# for x86_64-apple-darwin). On Apple Silicon runners `$(host)` is `arm-apple-darwin*`,
+# leading to architecture mismatches at link-time. We instead hard-code the
+# target triple here; this is safe because the produced binaries are intended
+# for distribution to Intel macOS users.
+
+darwin_cross_target = x86_64-apple-darwin
+
+darwin_CC=clang -target $(darwin_cross_target) -mmacosx-version-min=$(OSX_MIN_VERSION) --sysroot $(OSX_SDK) -mlinker-version=$(LD64_VERSION) -B$(build_prefix)/bin
+darwin_CXX=clang++ -target $(darwin_cross_target) -mmacosx-version-min=$(OSX_MIN_VERSION) --sysroot $(OSX_SDK) -stdlib=libc++ -mlinker-version=$(LD64_VERSION) -B$(build_prefix)/bin -nostdinc++ -isystem $(OSX_SDK)/usr/include/c++/v1
 
 darwin_CFLAGS=-pipe
 darwin_CXXFLAGS=$(darwin_CFLAGS)
