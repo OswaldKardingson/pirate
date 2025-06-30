@@ -52,6 +52,13 @@ define vendor_crate_deps
     if ! type "$$$$CARGO_BIN" >/dev/null 2>&1; then \
         CARGO_BIN="cargo"; \
     fi; \
+    # Additional fallback: search the just-extracted Rust toolchain for a usable cargo binary.
+    if [ "$$$$CARGO_BIN" = "cargo" ]; then \
+        _found=$(find $$($(1)_download_dir) -type f -name 'cargo*' | head -n 1); \
+        if [ -n "$_found" ]; then \
+            CARGO_BIN="$_found"; \
+        fi; \
+    fi; \
     "$$$$CARGO_BIN" vendor --manifest-path $$($(1)_download_dir)/$(1)/$(4) $$($(1)_download_dir)/$(CRATE_REGISTRY) && \
     cd $$($(1)_download_dir) && \
     find $(CRATE_REGISTRY) | sort | tar --no-recursion -czf $$($(1)_download_dir)/$(5).temp -T - && \
