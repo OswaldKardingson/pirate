@@ -20,4 +20,6 @@ rustflags = [
 replace-with = "vendored-sources"
 
 [source.vendored-sources]
-directory = "/home/cryptoforge/Dev/pirate_dev/pirate_master/depends/x86_64-unknown-linux-gnu/share/../vendored-sources"
+# The actual path is provided at build time via the RUST_VENDORED_SOURCES environment
+# variable (set by the depends build system). Leaving this table empty avoids hard-
+# coding a directory which was breaking offline builds in CI.
