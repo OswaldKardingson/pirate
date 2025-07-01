@@ -49,14 +49,20 @@ define vendor_crate_deps
     if [ ! -x "$$CARGO_BIN" ]; then \
         CARGO_BIN="$($(1)_download_dir)/bin/$(CARGO_EXEC)"; \
     fi; \
-    if ! type "$$CARGO_BIN" >/dev/null 2>&1; then \
-        CARGO_BIN="cargo"; \
-    fi; \
-    if [ "$$CARGO_BIN" = "cargo" ]; then \
-        found_path=`find "$($(1)_download_dir)" -type f \( -name 'cargo' -o -name 'cargo.exe' \) -print -quit`; \
+    if [ ! -x "$$CARGO_BIN" ]; then \
+        found_path=`find "$($(1)_download_dir)" -type f \( -name 'cargo' -o -name 'cargo.exe' \) -perm -u+x -print -quit`; \
         if [ -n "$$found_path" ]; then \
             CARGO_BIN="$$found_path"; \
         fi; \
+    fi; \
+    if [ ! -x "$$CARGO_BIN" ]; then \
+        if command -v cargo >/dev/null 2>&1; then \
+            CARGO_BIN=`command -v cargo`; \
+        fi; \
+    fi; \
+    if [ ! -x "$$CARGO_BIN" ]; then \
+        echo "ERROR: Unable to locate a usable cargo binary (looked in $$($(1)_download_dir) and PATH)."; \
+        exit 127; \
     fi; \
     "$$CARGO_BIN" vendor --manifest-path $$($(1)_download_dir)/$(1)/$(4) $$($(1)_download_dir)/$(CRATE_REGISTRY) && \
     cd $$($(1)_download_dir) && \
