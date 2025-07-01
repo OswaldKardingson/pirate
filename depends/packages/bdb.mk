@@ -45,7 +45,7 @@ define $(package)_stage_cmds
 endef
 
 define $(package)_postprocess_cmds
-  cd $($(package)_staging_dir)/lib && \
+  cd lib && \
   ln -sf libdb_cxx-6.2.a libdb_cxx.a && \
   ln -sf libdb-6.2.a libdb.a
 endef
