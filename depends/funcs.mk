@@ -52,9 +52,15 @@ define vendor_crate_deps
     tar --strip-components=1 -xf $$($(1)_source_dir)/$(2) -C $$($(1)_download_dir)/$(1) && \
 	cp $(3) $$($(1)_download_dir)/$(1)/Cargo.lock && \
     DL_DIR="$($(1)_download_dir)"; \
+    if [ -f "$$$$HOME/.cargo/env" ]; then \
+        . "$$$$HOME/.cargo/env"; \
+    fi; \
         CARGO_BIN="$($(1)_download_dir)/native/bin/$(CARGO_EXEC)"; \
     if [ ! -x "$$$$CARGO_BIN" ]; then \
         CARGO_BIN="$($(1)_download_dir)/bin/$(CARGO_EXEC)"; \
+    fi; \
+    if ! type "$$$$CARGO_BIN" >/dev/null 2>&1; then \
+        CARGO_BIN="$$HOME/.cargo/bin/$(CARGO_EXEC)"; \
     fi; \
     if ! type "$$$$CARGO_BIN" >/dev/null 2>&1; then \
         CARGO_BIN="cargo"; \
