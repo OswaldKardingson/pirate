@@ -71,10 +71,14 @@ define vendor_crate_deps
         CARGO_BIN="cargo"; \
     fi; \
     if [ "$${CARGO_BIN}" = "cargo" ]; then \
-        _found=$$(find "$($(1)_download_dir)" -type f -name 'cargo*' | head -n 1); \
+        _found=$$(find "$($(1)_download_dir)" \
+                     -type f -perm /u+x -name 'cargo*' -print -quit); \
         if [ -n "$$_found" ]; then \
             CARGO_BIN="$$$_found"; \
         fi; \
+    fi; \
+    if [ -z "$${CARGO_BIN}" ]; then \
+        CARGO_BIN="$$(command -v $(CARGO_EXEC) 2>/dev/null || true)"; \
     fi; \
     echo "Using cargo at: $${CARGO_BIN}"; \
     "$${CARGO_BIN}" vendor \
