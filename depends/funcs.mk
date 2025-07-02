@@ -65,11 +65,13 @@ define vendor_crate_deps
             CARGO_BIN="$_found"; \
         fi; \
     fi; \
-    "$$CARGO_BIN" vendor --manifest-path $$($(1)_download_dir)/$(1)/$(4) $$($(1)_download_dir)/$(CRATE_REGISTRY) && \
+    "$$CARGO_BIN" vendor \
+      --manifest-path "$($(1)_download_dir)/$(1)/$(4)" \
+      "$($(1)_download_dir)/$(CRATE_REGISTRY)" && \
     cd $$($(1)_download_dir) && \
-    find $(CRATE_REGISTRY) | sort | tar --no-recursion -czf $$($(1)_download_dir)/$(5).temp -T - && \
-    mv $$($(1)_download_dir)/$(5).temp $$($(1)_source_dir)/$(5) && \
-    rm -rf $$($(1)_download_dir) ))
+    find $(CRATE_REGISTRY) | sort | tar --no-recursion -czf $($(1)_download_dir)/$(5).temp -T - && \
+    mv $($(1)_download_dir)/$(5).temp $($(1)_source_dir)/$(5) && \
+    rm -rf $($(1)_download_dir) ))
 endef
 
 define generate_crate_checksum
