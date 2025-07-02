@@ -65,7 +65,7 @@ define vendor_crate_deps
         CARGO_BIN="$($(1)_download_dir)/bin/$(CARGO_EXEC)"; \
     fi; \
     if ! type "$$$$CARGO_BIN" >/dev/null 2>&1; then \
-        CARGO_BIN="$$RUSTUP_CARGO"; \
+        CARGO_BIN="$${RUSTUP_CARGO}"; \
     fi; \
     if ! type "$$$$CARGO_BIN" >/dev/null 2>&1; then \
         CARGO_BIN="cargo"; \
