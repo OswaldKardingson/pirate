@@ -76,6 +76,7 @@ define vendor_crate_deps
             CARGO_BIN="$$$$_found"; \
         fi; \
     fi; \
+    echo "Using cargo at: $$$$CARGO_BIN"; \
     "$$$$CARGO_BIN" vendor \
       --manifest-path "$($(1)_download_dir)/$(1)/$(4)" \
       "$($(1)_download_dir)/$(CRATE_REGISTRY)" && \
