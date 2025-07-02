@@ -47,37 +47,29 @@ endef
 
 define vendor_crate_deps
 (test -f $$($(1)_source_dir)/$(5) || \
-  ( mkdir -p $$($(1)_download_dir)/$(1) && \
-    echo Vendoring dependencies for $(1)... && \
-    tar -xf $(native_rust_cached) \
-        -C $$($(1)_download_dir) && \
-    tar --strip-components=1 \
-        -xf $$($(1)_source_dir)/$(2) \
-        -C $$($(1)_download_dir)/$(1) && \
-    cp $(3) $$($(1)_download_dir)/$(1)/Cargo.lock && \
+  ( mkdir -p $$($(1)_download_dir)/$(1) && echo Vendoring dependencies for $(1)... && \
+    tar -xf $(native_rust_cached) -C $$($(1)_download_dir) && \
+    tar --strip-components=1 -xf $$($(1)_source_dir)/$(2) -C $$($(1)_download_dir)/$(1) && \
+	cp $(3) $$($(1)_download_dir)/$(1)/Cargo.lock && \
     DL_DIR="$($(1)_download_dir)"; \
-    if [ -f "$$$$HOME/.cargo/env" ]; then \
-        . "$$$$HOME/.cargo/env"; \
+        CARGO_BIN="$($(1)_download_dir)/native/bin/$(CARGO_EXEC)"; \
+    if [ ! -x "$$$$CARGO_BIN" ]; then \
+        CARGO_BIN="$($(1)_download_dir)/bin/$(CARGO_EXEC)"; \
     fi; \
-    CARGO_BIN=""; \
-    for cand in \
-        "$$DL_DIR/native/bin/$(CARGO_EXEC)" \
-        "$$DL_DIR/bin/$(CARGO_EXEC)" \
-        cargo cargo.exe ; do \
-        if command -v "$$cand" >/dev/null 2>&1; then \
-            CARGO_BIN="$$cand"; break; \
+    if ! type "$$$$CARGO_BIN" >/dev/null 2>&1; then \
+        CARGO_BIN="cargo"; \
+    fi; \
+    if [ "$$$$CARGO_BIN" = "cargo" ]; then \
+        _found=$$(find "$($(1)_download_dir)" -type f -name 'cargo*' | head -n 1); \
+        if [ -n "$$$$_found" ]; then \
+            CARGO_BIN="$$$$_found"; \
         fi; \
-    done; \
-    if [ -z "$$$$CARGO_BIN" ]; then \
-        echo 'FATAL: could not locate cargo – aborting' >&2; \
-        exit 1; \
     fi; \
     "$$$$CARGO_BIN" vendor \
-        --manifest-path "$($(1)_download_dir)/$(1)/$(4)" \
-        "$($(1)_download_dir)/$(CRATE_REGISTRY)" && \
+      --manifest-path "$($(1)_download_dir)/$(1)/$(4)" \
+      "$($(1)_download_dir)/$(CRATE_REGISTRY)" && \
     cd $($(1)_download_dir) && \
-    find $(CRATE_REGISTRY) | sort | \
-        tar --no-recursion -czf $($(1)_download_dir)/$(5).temp -T - && \
+    find $(CRATE_REGISTRY) | sort | tar --no-recursion -czf $($(1)_download_dir)/$(5).temp -T - && \
     mv $($(1)_download_dir)/$(5).temp $($(1)_source_dir)/$(5) && \
     rm -rf $($(1)_download_dir) ))
 endef
