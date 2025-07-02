@@ -53,19 +53,19 @@ define vendor_crate_deps
 	cp $(3) $$($(1)_download_dir)/$(1)/Cargo.lock && \
     DL_DIR="$($(1)_download_dir)"; \
         CARGO_BIN="$($(1)_download_dir)/native/bin/$(CARGO_EXEC)"; \
-    if [ ! -x "$$CARGO_BIN" ]; then \
+    if [ ! -x "$$$$CARGO_BIN" ]; then \
         CARGO_BIN="$($(1)_download_dir)/bin/$(CARGO_EXEC)"; \
     fi; \
-    if ! type "$$CARGO_BIN" >/dev/null 2>&1; then \
+    if ! type "$$$$CARGO_BIN" >/dev/null 2>&1; then \
         CARGO_BIN="cargo"; \
     fi; \
-    if [ "$$CARGO_BIN" = "cargo" ]; then \
-        _found=$(find "$($(1)_download_dir)" -type f -name 'cargo*' | head -n 1); \
-        if [ -n "$_found" ]; then \
-            CARGO_BIN="$_found"; \
+    if [ "$$$$CARGO_BIN" = "cargo" ]; then \
+        _found=$$(find "$($(1)_download_dir)" -type f -name 'cargo*' | head -n 1); \
+        if [ -n "$$$$_found" ]; then \
+            CARGO_BIN="$$$$_found"; \
         fi; \
     fi; \
-    "$$CARGO_BIN" vendor \
+    "$$$$CARGO_BIN" vendor \
       --manifest-path "$($(1)_download_dir)/$(1)/$(4)" \
       "$($(1)_download_dir)/$(CRATE_REGISTRY)" && \
     cd $($(1)_download_dir) && \
