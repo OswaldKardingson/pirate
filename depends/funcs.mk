@@ -55,10 +55,10 @@ define vendor_crate_deps
     if [ -n "$${USERPROFILE}" ] && \
        cygpath -u "$${USERPROFILE}" >/dev/null 2>&1 ; then \
         _uprofile=$$(cygpath -u "$${USERPROFILE}"); \
-        if [ -f "$$_profile/.cargo/env" ]; then \
-            . "$$_profile/.cargo/env"; \
+        if [ -f "$$_uprofile/.cargo/env" ]; then \
+            . "$$_uprofile/.cargo/env"; \
         fi; \
-        RUSTUP_CARGO="$$_profile/.cargo/bin/$(CARGO_EXEC)"; \
+        RUSTUP_CARGO="$$_uprofile/.cargo/bin/$(CARGO_EXEC)"; \
     fi; \
         CARGO_BIN="$($(1)_download_dir)/native/bin/$(CARGO_EXEC)"; \
     if [ ! -x "$$$$CARGO_BIN" ]; then \
