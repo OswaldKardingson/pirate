@@ -278,6 +278,18 @@ jobs:
     - name: Install Rust (stable)
       uses: dtolnay/rust-toolchain@stable
 
+    - name: Ensure Cargo is in PATH (Windows)
+      shell: msys2 {0}
+      run: |
+        echo "PATH before adding cargo:"
+        echo "$PATH"
+        export PATH="$PATH:$HOME/.cargo/bin"
+        echo "PATH after adding cargo:"
+        echo "$PATH"
+        echo "Verifying Cargo installation:"
+        which cargo || echo "cargo not found"
+        cargo --version || echo "cargo version check failed"
+
     - name: Make build script executable and Fetch Zcash Params (Windows)
       shell: msys2 {0}
       run: |
