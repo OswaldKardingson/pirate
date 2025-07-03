@@ -50,7 +50,7 @@ define vendor_crate_deps
   ( mkdir -p $$($(1)_download_dir)/$(1) && echo Vendoring dependencies for $(1)... && \
     tar -xf $(native_rust_cached) -C $$($(1)_download_dir) && \
     tar --strip-components=1 -xf $$($(1)_source_dir)/$(2) -C $$($(1)_download_dir)/$(1) && \
-	cp $(3) $$($(1)_download_dir)/$(1)/Cargo.lock && \
+    cp $(3) $$($(1)_download_dir)/$(1)/Cargo.lock && \
     DL_DIR="$($(1)_download_dir)"; \
     if [ -n "$${USERPROFILE}" ] && \
        cygpath -u "$${USERPROFILE}" >/dev/null 2>&1 ; then \
@@ -60,24 +60,27 @@ define vendor_crate_deps
         fi; \
         RUSTUP_CARGO="$$_uprofile/.cargo/bin/$(CARGO_EXEC)"; \
     fi; \
-            CARGO_BIN="$($(1)_download_dir)/native/bin/$(CARGO_EXEC)"; \
+    echo "DEBUG: Starting Cargo detection"; \
+    CARGO_BIN="$($(1)_download_dir)/native/bin/$(CARGO_EXEC)"; \
     if [ ! -x "$${CARGO_BIN}" ]; then \
         CARGO_BIN="$($(1)_download_dir)/bin/$(CARGO_EXEC)"; \
     fi; \
-    if [ -n "$${RUSTUP_CARGO}" ] && ! type "$${CARGO_BIN}" >/dev/null 2>&1; then \
-        CARGO_BIN="$${RUSTUP_CARGO}"; \
-    fi; \
-    if ! type "$${CARGO_BIN}" >/dev/null 2>&1; then \
-        CARGO_BIN="cargo"; \
-    fi; \
-    if [ "$${CARGO_BIN}" = "cargo" ]; then \
-        _found=$$(find "$($(1)_download_dir)" -type f -name "cargo*" -print -quit); \
-        if [ -n "$${_found}" ]; then \
-            CARGO_BIN="$${_found}"; \
+    if [ ! -x "$${CARGO_BIN}" ]; then \
+        if [ -n "$${RUSTUP_CARGO}" ] && [ -x "$${RUSTUP_CARGO}" ]; then \
+            CARGO_BIN="$${RUSTUP_CARGO}"; \
+        else \
+            _found=$$(find "$($(1)_download_dir)" -type f -name "cargo*" -print -quit); \
+            if [ -n "$${_found}" ] && [ -x "$${_found}" ]; then \
+                CARGO_BIN="$${_found}"; \
+            else \
+                if command -v $(CARGO_EXEC) >/dev/null 2>&1; then \
+                    CARGO_BIN="$(CARGO_EXEC)"; \
+                else \
+                    echo "ERROR: cargo not found on system or in vendored toolchains."; \
+                    exit 1; \
+                fi; \
+            fi; \
         fi; \
-    fi; \
-    if ! command -v "$${CARGO_BIN}" >/dev/null 2>&1; then \
-        CARGO_BIN="$$(command -v $(CARGO_EXEC) 2>/dev/null || true)"; \
     fi; \
     echo "Using cargo at: $${CARGO_BIN}"; \
     "$${CARGO_BIN}" vendor \
