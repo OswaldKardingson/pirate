@@ -246,6 +246,16 @@ jobs:
         find . -type f -name '*.sh' -exec dos2unix {} \;
         echo "Conversion attempt finished."
 
+    - name: Set up MSYS2
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: MINGW64 
+        update: true
+        install: >-
+          git make autoconf automake libtool pkg-config mingw-w64-x86_64-toolchain
+          mingw-w64-x86_64-boost mingw-w64-x86_64-python3 mingw-w64-x86_64-openssl 
+          mingw-w64-x86_64-zeromq mingw-w64-x86_64-libsodium mingw-w64-x86_64-curl zip
+
     - name: Display critical file line endings and content (Windows)
       shell: bash
       run: |
@@ -264,16 +274,6 @@ jobs:
           echo "depends/funcs.mk not found for awk."
         fi
         echo "-----------------------------------------------------------------"
-
-    - name: Set up MSYS2
-      uses: msys2/setup-msys2@v2
-      with:
-        msystem: MINGW64 
-        update: true
-        install: >-
-          git make autoconf automake libtool pkg-config mingw-w64-x86_64-toolchain
-          mingw-w64-x86_64-boost mingw-w64-x86_64-python3 mingw-w64-x86_64-openssl 
-          mingw-w64-x86_64-zeromq mingw-w64-x86_64-libsodium mingw-w64-x86_64-curl zip
 
     - name: Install Rust (stable)
       uses: dtolnay/rust-toolchain@stable
