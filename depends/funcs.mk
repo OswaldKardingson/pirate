@@ -60,26 +60,26 @@ define vendor_crate_deps
         fi; \
         RUSTUP_CARGO="$$_uprofile/.cargo/bin/$(CARGO_EXEC)"; \
     fi; \
-        CARGO_BIN="$($(1)_download_dir)/native/bin/$(CARGO_EXEC)";
-    if [ ! -x "$${CARGO_BIN}" ]; then 
-        CARGO_BIN="$($(1)_download_dir)/bin/$(CARGO_EXEC)"; 
-    fi; 
-    if [ -n "$${RUSTUP_CARGO}" ] && ! type "$${CARGO_BIN}" >/dev/null 2>&1; then 
-        CARGO_BIN="$${RUSTUP_CARGO}"; 
-    fi; 
-    if ! type "$${CARGO_BIN}" >/dev/null 2>&1; then 
-        CARGO_BIN="cargo"; 
-    fi; 
-    if [ "$${CARGO_BIN}" = "cargo" ]; then 
-        _found=$$(find "$($(1)_download_dir)" -type f \( -name "cargo" -o -name "cargo.exe" \) -print -quit); 
-        if [ -n "$${_found}" ]; then 
-            CARGO_BIN="$${_found}"; 
-        fi; 
-    fi; 
-    if ! command -v "$${CARGO_BIN}" >/dev/null 2>&1; then 
-        CARGO_BIN="$$(command -v $(CARGO_EXEC) 2>/dev/null || true)"; 
-    fi; 
-    echo "Using cargo at: $${CARGO_BIN}";
+        CARGO_BIN="$($(1)_download_dir)/native/bin/$(CARGO_EXEC)"; \
+    if [ ! -x "$${CARGO_BIN}" ]; then \
+        CARGO_BIN="$($(1)_download_dir)/bin/$(CARGO_EXEC)"; \
+    fi; \
+    if [ -n "$${RUSTUP_CARGO}" ] && ! type "$${CARGO_BIN}" >/dev/null 2>&1; then \
+        CARGO_BIN="$${RUSTUP_CARGO}"; \
+    fi; \
+    if ! type "$${CARGO_BIN}" >/dev/null 2>&1; then \
+        CARGO_BIN="cargo"; \
+    fi; \
+    if [ "$${CARGO_BIN}" = "cargo" ]; then \
+        _found=$$(find "$($(1)_download_dir)" -type f \( -name "cargo" -o -name "cargo.exe" \) -print -quit); \
+        if [ -n "$${_found}" ]; then \
+            CARGO_BIN="$${_found}"; \
+        fi; \
+    fi; \
+    if ! command -v "$${CARGO_BIN}" >/dev/null 2>&1; then \
+        CARGO_BIN="$$(command -v $(CARGO_EXEC) 2>/dev/null || true)"; \
+    fi; \
+    echo "Using cargo at: $${CARGO_BIN}"; \
     "$${CARGO_BIN}" vendor \
       --manifest-path "$($(1)_download_dir)/$(1)/$(4)" \
       "$($(1)_download_dir)/$(CRATE_REGISTRY)" && \
