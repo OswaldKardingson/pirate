@@ -278,10 +278,16 @@ jobs:
     - name: Install Rust (stable)
       uses: dtolnay/rust-toolchain@stable
 
-    - name: Check for .cargo/env existence
+    - name: Verify rustup-installed cargo in MSYS2
       shell: msys2 {0}
       run: |
-        ls -la $HOME/.cargo
+        MSYS_HOME=$(cygpath -u "$USERPROFILE")
+        echo "Listing $MSYS_HOME/.cargo"
+        ls -la "$MSYS_HOME/.cargo"
+        echo "Sourcing cargo env if present"
+        test -f "$MSYS_HOME/.cargo/env" && . "$MSYS_HOME/.cargo/env"
+        echo "Cargo version:"
+        cargo --version
 
     - name: Ensure Cargo is in PATH (Windows)
       shell: msys2 {0}
