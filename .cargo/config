@@ -21,6 +21,4 @@ rustflags = [
 # Added by Makefile.am for vendored offline build:
 
 [source.vendored-sources]
-# The actual path is provided at build time via the RUST_VENDORED_SOURCES environment
-# variable (set by the depends build system). Leaving this table empty avoids hard-
-# coding a directory which was breaking offline builds in CI.
+directory = "depends/rust-vendor"
