@@ -9319,9 +9319,9 @@ bool CWallet::SaplingWalletGetPathRootWithCMU(libzcash::MerklePath &merklePath, 
    return saplingWallet.GetPathRootWithCMU(merklePath, cmu, anchor);
 }
 
-void CWallet::SaplingWalletReset() {
+bool CWallet::SaplingWalletReset() {
    saplingWallet.Reset();
-   CWalletDB(strWalletFile).WriteSaplingWitnesses(saplingWallet);
+   return CWalletDB(strWalletFile).WriteSaplingWitnesses(saplingWallet);
 }
 
 bool CWallet::OrchardWalletGetMerklePathOfNote(const uint256 txid, int outidx, libzcash::MerklePath &merklePath) {
@@ -9332,9 +9332,9 @@ bool CWallet::OrchardWalletGetPathRootWithCMU(libzcash::MerklePath &merklePath, 
    return orchardWallet.GetPathRootWithCMU(merklePath, cmu, anchor);
 }
 
-void CWallet::OrchardWalletReset() {
+bool CWallet::OrchardWalletReset() {
    orchardWallet.Reset();
-   CWalletDB(strWalletFile).WriteOrchardWitnesses(orchardWallet);
+   return CWalletDB(strWalletFile).WriteOrchardWitnesses(orchardWallet);
 }
 
 /**

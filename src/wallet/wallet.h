@@ -1160,6 +1160,19 @@ protected:
                     paymentAddressCount++;
                 }
 
+                for (std::pair<const libzcash::OrchardPaymentAddressPirate, libzcash::OrchardIncomingViewingKeyPirate>& ivkItem : mapUnsavedOrchardIncomingViewingKeys) {
+                    auto addr = ivkItem.first;
+                    auto ivk = ivkItem.second;
+
+                    // Write all archived orchard outpoint
+                    if (!walletdb.WriteOrchardPaymentAddress(ivk, addr)) {
+                        LogPrintf("SetBestChain(): Failed to write unsaved Orchard Payment address, aborting atomic write\n");
+                        walletdb.TxnAbort();
+                        return;
+                    }
+                    paymentAddressCount++;
+                }
+
                 if (!walletdb.WriteBestBlock(loc)) {
                     LogPrintf("SetBestChain(): Failed to write best block, aborting atomic write\n");
                     walletdb.TxnAbort();
@@ -1307,6 +1320,29 @@ protected:
                         paymentAddressCount++;
                     }
 
+                    for (std::pair<const libzcash::OrchardPaymentAddressPirate, libzcash::OrchardIncomingViewingKeyPirate>& ivkItem : mapUnsavedOrchardIncomingViewingKeys) {
+                        auto addr = ivkItem.first;
+                        auto ivk = ivkItem.second;
+
+                        std::vector<unsigned char> vchCryptedSecret;
+                        uint256 chash = HashWithFP(addr);
+                        CKeyingMaterial vchSecret = SerializeForEncryptionInput(addr, ivk);
+
+                        if (!EncryptSerializedWalletObjects(vchSecret, chash, vchCryptedSecret)) {
+                            LogPrintf("SetBestChain(): Failed to encrypt unsaved Orchard Payment address, aborting atomic write\n");
+                            walletdb.TxnAbort();
+                            return;
+                        }
+
+                        // Write all unsaved Orchard Payment Addresses
+                        if (!walletdb.WriteCryptedOrchardPaymentAddress(addr, chash, vchCryptedSecret)) {
+                            LogPrintf("SetBestChain(): Failed to write unsaved Orchard Payment address, aborting atomic write\n");
+                            walletdb.TxnAbort();
+                            return;
+                        }
+                        paymentAddressCount++;
+                    }
+
                     if (!walletdb.WriteBestBlock(loc)) {
                         LogPrintf("SetBestChain(): Failed to write best block, aborting atomic write\n");
                         walletdb.TxnAbort();
@@ -1350,6 +1386,7 @@ protected:
 
         //Clear Unsaved Sapling Addresses after successful TxnCommit
         mapUnsavedSaplingIncomingViewingKeys.clear();
+        mapUnsavedOrchardIncomingViewingKeys.clear();
         fRunSetBestChain = false;
         walletHeight = height; //Set Wallet height to chain height.
 
@@ -1937,11 +1974,11 @@ public:
 
     bool SaplingWalletGetMerklePathOfNote(const uint256 txid, int outidx, libzcash::MerklePath &merklePath);
     bool SaplingWalletGetPathRootWithCMU(libzcash::MerklePath &merklePath, uint256 cmu, uint256 &anchor);
-    void SaplingWalletReset();
+    bool SaplingWalletReset();
 
     bool OrchardWalletGetMerklePathOfNote(const uint256 txid, int outidx, libzcash::MerklePath &merklePath);
     bool OrchardWalletGetPathRootWithCMU(libzcash::MerklePath &merklePath, uint256 cmu, uint256 &anchor);
-    void OrchardWalletReset();
+    bool OrchardWalletReset();
 
     void GetSproutNoteWitnesses(
          std::vector<JSOutPoint> notes,
