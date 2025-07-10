@@ -58,6 +58,10 @@ int main(int argc, char **argv) {
     vchSecret.SetString(notarySecret);
     notaryKey = vchSecret.GetKey();
 
+    // Initialize the test wallet
+    TestWallet testWallet;
+    pTestWallet = &testWallet;
+
     testing::InitGoogleTest(&argc, argv);
     
     auto ret = RUN_ALL_TESTS();

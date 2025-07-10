@@ -44,7 +44,7 @@ pirate_gtest_SOURCES += \
 
 if ENABLE_WALLET
 pirate_gtest_SOURCES += \
-	#wallet/gtest/test_wallet.cpp
+	wallet/gtest/test_wallet.cpp
 endif
 
 if TARGET_WINDOWS
