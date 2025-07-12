@@ -180,7 +180,7 @@ SaplingPaymentAddress CWallet::GenerateNewSaplingZKey()
     if (!GetHDSeed(seed))
         throw std::runtime_error("CWallet::GenerateNewSaplingZKey(): HD seed not found");
 
-    auto m = libzcash::SaplingExtendedSpendingKey::Master(seed, pwalletMain->bip39Enabled);
+    auto m = libzcash::SaplingExtendedSpendingKey::Master(seed, bip39Enabled);
     uint32_t bip44CoinType = Params().BIP44CoinType();
 
     // We use a fixed keypath scheme of m/32'/coin_type'/account'
@@ -217,6 +217,8 @@ SaplingPaymentAddress CWallet::GenerateNewSaplingZKey()
     if (!AddSaplingZKey(xsk)) {
         throw std::runtime_error("CWallet::GenerateNewSaplingZKey(): AddSaplingZKey failed");
     }
+
+    nTimeFirstKey = 1;
     // return default sapling payment address.
     return addr;
 }
@@ -235,7 +237,7 @@ OrchardPaymentAddressPirate CWallet::GenerateNewOrchardZKey()
     if (!GetHDSeed(seed))
         throw std::runtime_error("CWallet::GenerateNewOrchardZKey(): HD seed not found");
 
-    auto master = libzcash::OrchardExtendedSpendingKeyPirate::Master(seed, pwalletMain->bip39Enabled);
+    auto master = libzcash::OrchardExtendedSpendingKeyPirate::Master(seed, bip39Enabled);
     uint32_t bip44CoinType = Params().BIP44CoinType();
 
     // We use a fixed keypath scheme of m/32'/coin_type'/account'
@@ -248,7 +250,7 @@ OrchardPaymentAddressPirate CWallet::GenerateNewOrchardZKey()
     do
     {
         auto account = hdChain.orchardAccountCounter;
-        auto xskOpt = master.DeriveChild(coinType, account);
+        auto xskOpt = master.Derive(coinType, account);
 
         metadata.hdKeypath = "m/32'/" + std::to_string(coinType) + "'/" + std::to_string(account) + "'";
         metadata.seedFp = hdChain.seedFp;
@@ -296,6 +298,8 @@ OrchardPaymentAddressPirate CWallet::GenerateNewOrchardZKey()
     if (!AddOrchardZKey(xsk)) {
         throw std::runtime_error("CWallet::GenerateNewSaplingZKey(): AddSaplingZKey failed");
     }
+
+    nTimeFirstKey = 1;
     // return default sapling payment address.
     return address;
 }
@@ -306,13 +310,13 @@ SaplingPaymentAddress CWallet::GenerateNewSaplingDiversifiedAddress()
     AssertLockHeld(cs_wallet); // mapSaplingSpendingKeyMetadata
 
     libzcash::SaplingExtendedSpendingKey extsk;
-    if (pwalletMain->primarySaplingSpendingKey == std::nullopt) {
+    if (primarySaplingSpendingKey == std::nullopt) {
         // Try to get the seed
         HDSeed seed;
         if (!GetHDSeed(seed))
             throw std::runtime_error("CWallet::GenerateNewSaplingDiversifiedAddress(): HD seed not found");
 
-        auto m = libzcash::SaplingExtendedSpendingKey::Master(seed, pwalletMain->bip39Enabled);
+        auto m = libzcash::SaplingExtendedSpendingKey::Master(seed, bip39Enabled);
         uint32_t bip44CoinType = Params().BIP44CoinType();
 
         //Derive default key
@@ -323,7 +327,7 @@ SaplingPaymentAddress CWallet::GenerateNewSaplingDiversifiedAddress()
         //Check of default spending key
         auto ivk = extsk.expsk.full_viewing_key().in_viewing_key();
         libzcash::SaplingExtendedFullViewingKey extfvk;
-        pwalletMain->GetSaplingFullViewingKey(ivk, extfvk);
+        GetSaplingFullViewingKey(ivk, extfvk);
         if (!HaveSaplingSpendingKey(extfvk)) {
 
           //Set metadata
@@ -345,7 +349,7 @@ SaplingPaymentAddress CWallet::GenerateNewSaplingDiversifiedAddress()
             SetPrimarySaplingSpendingKey(extsk);
         }
     } else {
-        extsk = pwalletMain->primarySaplingSpendingKey.value();
+        extsk = primarySaplingSpendingKey.value();
     }
 
     auto ivk = extsk.expsk.full_viewing_key().in_viewing_key();
@@ -407,7 +411,7 @@ OrchardPaymentAddressPirate CWallet::GenerateNewOrchardDiversifiedAddress()
     libzcash::OrchardIncomingViewingKeyPirate ivk;
     libzcash::OrchardPaymentAddressPirate addr;
 
-    if (pwalletMain->primaryOrchardSpendingKey == std::nullopt) {
+    if (primaryOrchardSpendingKey == std::nullopt) {
 
         // Create new metadata
         int64_t nCreationTime = GetTime();
@@ -418,7 +422,7 @@ OrchardPaymentAddressPirate CWallet::GenerateNewOrchardDiversifiedAddress()
         if (!GetHDSeed(seed))
             throw std::runtime_error("CWallet::GenerateNewOrchardZKey(): HD seed not found");
 
-        auto master = libzcash::OrchardExtendedSpendingKeyPirate::Master(seed, pwalletMain->bip39Enabled);
+        auto master = libzcash::OrchardExtendedSpendingKeyPirate::Master(seed, bip39Enabled);
         uint32_t bip44CoinType = Params().BIP44CoinType();
 
         // We use a fixed keypath scheme of m/32'/coin_type'/account'
@@ -430,7 +434,7 @@ OrchardPaymentAddressPirate CWallet::GenerateNewOrchardDiversifiedAddress()
         do {
 
             account = accountCounter;
-            auto extskOpt = master.DeriveChild(coinType, account);
+            auto extskOpt = master.Derive(coinType, account);
 
             metadata.hdKeypath = "m/32'/" + std::to_string(coinType) + "'/" + std::to_string(account) + "'";
             metadata.seedFp = hdChain.seedFp;
@@ -479,7 +483,7 @@ OrchardPaymentAddressPirate CWallet::GenerateNewOrchardDiversifiedAddress()
         }
 
     } else {
-        extsk = pwalletMain->primaryOrchardSpendingKey.value();
+        extsk = primaryOrchardSpendingKey.value();
         extfvk = extsk.GetXFVK().value();
         ivk = extfvk.fvk.GetIVK().value();
     }
@@ -543,7 +547,7 @@ bool CWallet::SetPrimarySaplingSpendingKey(
           return false;
       }
 
-      pwalletMain->primarySaplingSpendingKey = extsk;
+      primarySaplingSpendingKey = extsk;
 
       if (!fFileBacked) {
           return true;
@@ -577,7 +581,7 @@ bool CWallet::SetPrimaryOrchardSpendingKey(
           return false;
       }
 
-      pwalletMain->primaryOrchardSpendingKey = extsk;
+      primaryOrchardSpendingKey = extsk;
 
       if (!fFileBacked) {
           return true;
@@ -667,10 +671,6 @@ bool CWallet::AddSaplingZKey(
         return false;
     }
 
-    if (!fFileBacked) {
-        return true;
-    }
-
     auto ivk = extsk.ToXFVK().fvk.in_viewing_key();
 
     if (!IsCrypted()) {
@@ -679,12 +679,20 @@ bool CWallet::AddSaplingZKey(
             return false;
         }
 
+        if (!fFileBacked) {
+            return true;
+        }   
 
         if(!CWalletDB(strWalletFile).WriteSaplingZKey(ivk, extsk, mapSaplingSpendingKeyMetadata[ivk])) {
             LogPrintf("Writing unencrypted Sapling Spending Key failed!!!\n");
             return false;
         }
     } else {
+        
+        if (!fFileBacked) {
+            return true;
+        }
+
         //Encrypt Sapling Extended Speding Key
         auto extfvk = extsk.ToXFVK();
 
@@ -732,12 +740,12 @@ bool CWallet::AddSaplingIncomingViewingKey(
         return false;
     }
 
-    if (!fFileBacked) {
-        return true;
-    }
-
     if (!CCryptoKeyStore::AddSaplingIncomingViewingKey(ivk, addr)) {
         return false;
+    }
+
+    if (!fFileBacked) {
+        return true;
     }
 
     if (!IsCrypted()) {
@@ -768,12 +776,12 @@ bool CWallet::AddSaplingExtendedFullViewingKey(const libzcash::SaplingExtendedFu
         return false;
     }
 
-    if (!fFileBacked) {
-        return true;
-    }
-
     if (!CCryptoKeyStore::AddSaplingExtendedFullViewingKey(extfvk)) {
         return false;
+    }
+
+    if (!fFileBacked) {
+        return true;
     }
 
     if (!IsCrypted()) {
@@ -804,12 +812,12 @@ bool CWallet::AddSaplingDiversifiedAddress(
         return false;
     }
 
-    if (!fFileBacked) {
-        return true;
-    }
-
     if (!CCryptoKeyStore::AddSaplingDiversifiedAddress(addr, ivk, path)) {
         return false;
+    }
+
+    if (!fFileBacked) {
+        return true;
     }
 
     if (!IsCrypted()) {
@@ -843,12 +851,12 @@ bool CWallet::AddOrchardDiversifiedAddress(
         return false;
     }
 
-    if (!fFileBacked) {
-        return true;
-    }
-
     if (!CCryptoKeyStore::AddOrchardDiversifiedAddress(addr, ivk, path)) {
         return false;
+    }
+
+    if (!fFileBacked) {
+        return true;
     }
 
     if (!IsCrypted()) {
@@ -958,10 +966,6 @@ bool CWallet::AddOrchardZKey(
         return false;
     }
 
-    if (!fFileBacked) {
-        return true;
-    }
-
     //Get OrchardExtendedFullViewingKey
     auto extfvkOpt = extsk.GetXFVK();
     if (extfvkOpt == std::nullopt) {
@@ -982,11 +986,20 @@ bool CWallet::AddOrchardZKey(
             return false;
         }
 
+        if (!fFileBacked) {
+            return true;
+        }
+
         if(!CWalletDB(strWalletFile).WriteOrchardZKey(ivk, extsk, mapOrchardSpendingKeyMetadata[ivk])) {
             LogPrintf("Writing unencrypted Orchard Spending Key failed!!!\n");
             return false;
         }
     } else {
+
+        if (!fFileBacked) {
+            return true;
+        }
+
         //Encrypt Sapling Extended Speding Key
         std::vector<unsigned char> vchCryptedSpendingKey;
         uint256 chash = extfvk.fvk.GetFingerprint();
@@ -1029,12 +1042,12 @@ bool CWallet::AddOrchardExtendedFullViewingKey(const libzcash::OrchardExtendedFu
         return false;
     }
 
-    if (!fFileBacked) {
-        return true;
-    }
-
     if (!CCryptoKeyStore::AddOrchardExtendedFullViewingKey(extfvk)) {
         return false;
+    }
+
+    if (!fFileBacked) {
+        return true;
     }
 
     if (!IsCrypted()) {
@@ -1064,12 +1077,12 @@ bool CWallet::AddOrchardIncomingViewingKey(
         return false;
     }
 
-    if (!fFileBacked) {
-        return true;
-    }
-
     if (!CCryptoKeyStore::AddOrchardIncomingViewingKey(ivk, addr)) {
         return false;
+    }
+
+    if (!fFileBacked) {
+        return true;
     }
 
     if (!IsCrypted()) {
@@ -1166,8 +1179,6 @@ bool CWallet::AddKeyPubKey(const CKey& secret, const CPubKey &pubkey)
     if (HaveWatchOnly(script))
         RemoveWatchOnly(script);
 
-    if (!fFileBacked)
-        return true;
 
     if (!IsCrypted()) {
         if (!CCryptoKeyStore::AddKeyPubKey(secret, pubkey)) {
@@ -1175,11 +1186,19 @@ bool CWallet::AddKeyPubKey(const CKey& secret, const CPubKey &pubkey)
             return false;
         }
 
+        if (!fFileBacked) {
+            return true;
+        }
+
         if (!CWalletDB(strWalletFile).WriteKey(pubkey, secret.GetPrivKey(), mapKeyMetadata[pubkey.GetID()])) {
             LogPrintf("Writing Transparent Spending Key failed!!!\n");
             return false;
         }
     } else {
+
+        if (!fFileBacked) {
+            return true;
+        }
 
         //Encrypt Key
         std::vector<unsigned char> vchCryptedSpendingKey;
