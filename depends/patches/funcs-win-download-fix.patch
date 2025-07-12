@@ -1,9 +1,4 @@
---- funcs.mk.orig
-+++ funcs.mk
-@@ -31,9 +31,13 @@
- endef
- 
- define fetch_file_inner
+  define fetch_file_inner
     ( mkdir -p $$($(1)_download_dir) || echo "Failed to create download directory" && \
     echo "Fetching $(3) from $(2)" && \
     echo "Download command: $(build_DOWNLOAD) $$($(1)_download_dir)/$(4).temp $(2)/$(3)" && \
