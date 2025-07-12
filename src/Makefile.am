@@ -139,7 +139,7 @@ $(CARGO_CONFIGURED):
 else
 # Enable dependency vendoring: ensure .cargo/config exists and append vendored sources directory
 # $(AM_V_at)cp -f $(top_srcdir)/.cargo/persistent-config $(top_srcdir)/.cargo/config
-RUST_BUILD_OPTS += --offline
+# RUST_BUILD_OPTS += --offline
 
 CARGO_CONFIGURED = $(top_srcdir)/.cargo/.configured-for-offline
 $(CARGO_CONFIGURED):

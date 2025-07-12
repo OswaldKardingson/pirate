@@ -43,11 +43,11 @@ define $(package)_preprocess_cmds
 endef
 
 define $(package)_build_cmds
-  cargo build --offline --release --package=cxxbridge-cmd --bin=cxxbridge
+  cargo build --release --package=cxxbridge-cmd --bin=cxxbridge
 endef
 
 define $(package)_stage_cmds
-	cargo install --locked --offline --path=. --bin=cxxbridge --root=$($(package)_staging_prefix_dir)
+	cargo install --locked --path=. --bin=cxxbridge --root=$($(package)_staging_prefix_dir)
 	if test "$(build_os)" = "mingw32"; then \
 	  cp target/release/cxxbridge.exe $($(package)_staging_prefix_dir)/bin/; \
 	fi
