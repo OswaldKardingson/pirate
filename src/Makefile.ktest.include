@@ -40,7 +40,7 @@ endif
 
 pirate_ktest_CPPFLAGS = $(pirated_CPPFLAGS)
 
-pirate_ktest_LDADD = -lgtest $(pirated_LDADD)
+pirate_ktest_LDADD = -lgtest $(pirated_LDADD) $(BDB_LIBS)
 
 pirate_ktest_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS) -static
 

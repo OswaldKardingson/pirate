@@ -53,7 +53,7 @@ endif
 
 pirate_gtest_CPPFLAGS = $(pirated_CPPFLAGS)
 
-pirate_gtest_LDADD = -lgtest -lgmock $(pirated_LDADD)
+pirate_gtest_LDADD = -lgtest -lgmock $(pirated_LDADD) $(BDB_LIBS)
 
 pirate_gtest_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS) -static
 
