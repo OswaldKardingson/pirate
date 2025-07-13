@@ -261,7 +261,7 @@ jobs:
       run: |
         echo "--- Verifying line endings for depends/funcs.mk (using od -c) ---"
         if [ -f depends/funcs.mk ]; then
-          od -c depends/funcs.mk | head -n 30
+          od -c depends/funcs.mk | head -n 30 || true
         else
           echo "depends/funcs.mk not found for od -c."
         fi
