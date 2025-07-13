@@ -524,6 +524,8 @@ jobs:
         CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_AR: aarch64-linux-gnu-ar
         RUSTFLAGS: --cfg=rust_secp_no_symbol_renaming -L native=/home/runner/work/pirate/pirate/src/secp256k1/.libs
       run: |
+        mkdir -p depends/aarch64-linux-gnu/native/bin
+        ln -sf "$CARGO_HOME/bin/cargo" depends/aarch64-linux-gnu/native/bin/cargo
         ./zcutil/build-arm.sh -j$(nproc)
         
     - name: Strip and Zip Binaries (AArch64 Daemon)
