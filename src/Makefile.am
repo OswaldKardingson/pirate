@@ -692,6 +692,14 @@ if TARGET_DARWIN
 pirated_LDFLAGS += -framework Security
 endif
 
+if TARGET_DARWIN
+MACOS_FORCE_LOAD = -Wl,-all_load
+MACOS_FORCE_UNLOAD = -Wl,-noall_load
+else
+MACOS_FORCE_LOAD =
+MACOS_FORCE_UNLOAD =
+endif
+
 if TARGET_WINDOWS
 pirated_SOURCES += bitcoind-res.rc
 endif
@@ -707,7 +715,7 @@ pirated_LDADD = \
   $(LIBBITCOIN_SERVER_LIBS) \
   $(LIBZCASH) \
 	$(LIBTLS) \
-	$(LIBRUSTZCASH) \
+	$(MACOS_FORCE_LOAD) $(LIBRUSTZCASH) $(MACOS_FORCE_UNLOAD) \
 	$(LIBCXXBRIDGE) \
   $(LIBLEVELDB) \
   $(LIBMEMENV) \
