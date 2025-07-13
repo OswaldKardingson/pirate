@@ -278,6 +278,21 @@ jobs:
     - name: Install Rust (stable)
       uses: dtolnay/rust-toolchain@stable
 
+    - name: Mount Windows Cargo into MSYS2
+      shell: msys2 {0}
+      run: |
+        mkdir -p "$HOME"
+        ln -sf "$(cygpath -u "$USERPROFILE")/.cargo" "$HOME/.cargo"
+
+    - name: Source Cargo env in MSYS2
+      shell: msys2 {0}
+      run: |
+        if [ -f "$HOME/.cargo/env" ]; then
+          . "$HOME/.cargo/env"
+         else
+           echo " $HOME/.cargo/env not found"
+         fi
+
     - name: Verify rustup-installed cargo in MSYS2
       shell: msys2 {0}
       run: |
