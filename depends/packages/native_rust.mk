@@ -1,18 +1,18 @@
 package=native_rust
-$(package)_version=1.78.0
+$(package)_version=1.69.0
 $(package)_download_path=https://static.rust-lang.org/dist
 
 # 1. Define all platform-specific file names and hashes first
 $(package)_file_name_linux=rust-$($(package)_version)-x86_64-unknown-linux-gnu.tar.gz
-$(package)_sha256_hash_linux=1307747915e8bd925f4d5396ab2ae3d8d9c7fad564afbc358c081683d0f22e87
+$(package)_sha256_hash_linux=2ca4a306047c0b8b4029c382910fcbc895badc29680e0332c9df990fd1c70d4f
 $(package)_file_name_darwin=rust-$($(package)_version)-x86_64-apple-darwin.tar.gz
-$(package)_sha256_hash_darwin=6c91ed3bd90253961fcb4a2991b8b22e042e2aaa9aba9f389f1e17008171d898
+$(package)_sha256_hash_darwin=9818dab2c3726d63dfbfde12c9273e62e484ef6d6f6e05a6431a3e089c335454
 $(package)_file_name_freebsd=rust-$($(package)_version)-x86_64-unknown-freebsd.tar.gz
-$(package)_sha256_hash_freebsd=b9cc84c60deb8da08a6c876426f8721758f4c7e7c553b4554385752ad37c63df
+$(package)_sha256_hash_freebsd=2985d98910b4a1dd336bfc7a1ac3b18082ed917cff097b4db6f0d6602016c289
 $(package)_file_name_aarch64_linux=rust-$($(package)_version)-aarch64-unknown-linux-gnu.tar.gz
-$(package)_sha256_hash_aarch64_linux=131eda738cd977fff2c912e5838e8e9b9c260ecddc1247c0fe5473bf09c594af
+$(package)_sha256_hash_aarch64_linux=88af5aa7a40c8f1b40416a1f27de8ffbe09c155d933f69d3e109c0ccee92353b
 $(package)_file_name_windows=rust-$($(package)_version)-x86_64-pc-windows-gnu.tar.gz
-$(package)_sha256_hash_windows=3c6b4f2e48a4ec4a4ff204a5611cafd9167eacfeb7f4b162e0d429c9b42327b4
+$(package)_sha256_hash_windows=092e526a777655486c102c8f018845c7c518374b6f394bf660767254f97e5724
 
 # 2. Determine _file_name_to_use and _sha256_hash_to_use based on (stripped) build_os
 _tmp_build_os := $(strip $(build_os))
