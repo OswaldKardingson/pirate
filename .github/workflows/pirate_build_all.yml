@@ -501,7 +501,12 @@ jobs:
         RUSTFLAGS: --cfg=rust_secp_no_symbol_renaming -L native=/home/runner/work/pirate/pirate/src/secp256k1/.libs
       run: |
         mkdir -p depends/aarch64-linux-gnu/native/bin
-        ln -sf "$CARGO_HOME/bin/cargo" depends/aarch64-linux-gnu/native/bin/cargo
+        CARGO_BIN_PATH="$(command -v cargo)"
+        if [ -z "$CARGO_BIN_PATH" ]; then
+          echo "ERROR: Cargo binary not found in PATH" >&2
+          exit 1
+        fi
+        ln -sf "$CARGO_BIN_PATH" depends/aarch64-linux-gnu/native/bin/cargo
         ./zcutil/build-arm.sh -j$(nproc)
         
     - name: Strip and Zip Binaries (AArch64 Daemon)
