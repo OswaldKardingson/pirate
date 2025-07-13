@@ -284,37 +284,13 @@ jobs:
         mkdir -p "$HOME"
         ln -sf "$(cygpath -u "$USERPROFILE")/.cargo" "$HOME/.cargo"
 
-    - name: Source Cargo env in MSYS2
+    - name: Add Cargo to PATH in MSYS2
       shell: msys2 {0}
       run: |
-        if [ -f "$HOME/.cargo/env" ]; then
-          . "$HOME/.cargo/env"
-         else
-           echo " $HOME/.cargo/env not found"
-         fi
-
-    - name: Verify rustup-installed cargo in MSYS2
-      shell: msys2 {0}
-      run: |
-        MSYS_HOME=$(cygpath -u "$USERPROFILE")
-        echo "Listing $MSYS_HOME/.cargo"
-        ls -la "$MSYS_HOME/.cargo"
-        echo "Sourcing cargo env if present"
-        test -f "$MSYS_HOME/.cargo/env" && . "$MSYS_HOME/.cargo/env"
-        echo "Cargo version:"
+        export CARGO_HOME=$(cygpath -u "$USERPROFILE")/.cargo
+        export PATH="$CARGO_HOME/bin:$PATH"
+        which cargo
         cargo --version
-
-    - name: Ensure Cargo is in PATH (Windows)
-      shell: msys2 {0}
-      run: |
-        echo "PATH before adding cargo:"
-        echo "$PATH"
-        export PATH="$PATH:$HOME/.cargo/bin"
-        echo "PATH after adding cargo:"
-        echo "$PATH"
-        echo "Verifying Cargo installation:"
-        which cargo || echo "cargo not found"
-        cargo --version || echo "cargo version check failed"
 
     - name: Make build script executable and Fetch Zcash Params (Windows)
       shell: msys2 {0}
