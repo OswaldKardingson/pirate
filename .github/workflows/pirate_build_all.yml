@@ -847,3 +847,166 @@ jobs:
       with:
         name: pirate-treasure-chest-linux-aarch64
         path: pirate-qt-aarch64.zip
+
+  build-and-test-macos-intel:
+    name: Build and Test Pirated Daemon (macOS Intel)
+    runs-on: macos-12 
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Install dependencies (macOS Intel)
+      run: |
+        brew install autoconf automake libtool pkg-config boost zeromq libsodium coreutils python3 curl zip dos2unix
+
+    - name: Ensure LF line endings for Makefiles and scripts (macOS Intel)
+      shell: bash
+      run: |
+        find . -type f -name '*.mk' -exec dos2unix {} \;
+        find . -type f -name 'Makefile' -exec dos2unix {} \;
+        find . -type f -name '*.sh' -exec dos2unix {} \;
+
+    - name: Install Rust (stable)
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Make build script executable
+      run: chmod +x zcutil/build-mac.sh
+
+    - name: Fetch Zcash Params
+      run: ./zcutil/fetch-params.sh
+
+    - name: Prepare for Rust build
+      run: |
+        mkdir -p vendored-sources
+        touch vendored-sources/.keep
+
+    - name: Fix Cargo config for macOS Intel
+      run: |
+        rm -f .cargo/config
+        echo "# Minimal Cargo config for macOS Intel" > .cargo/config
+        echo "[patch.crates-io]" >> .cargo/config
+        echo "bellman = { git = \"https://github.com/piratenetwork/librustzcash\", branch = \"master\" }" >> .cargo/config
+        echo "pairing = { git = \"https://github.com/piratenetwork/librustzcash\", branch = \"master\" }" >> .cargo/config
+
+    - name: Build Pirated Daemon (macOS Intel)
+      env:
+        HOST: x86_64-apple-darwin
+      run: |
+        ./zcutil/build-mac.sh -j$(sysctl -n hw.ncpu)
+
+    - name: Strip and Zip Binaries (macOS Intel Daemon)
+      run: |
+        strip src/pirated src/pirate-cli src/pirate-tx src/wallet/wallet-utility || true
+        zip --junk-paths pirate-macos-intel.zip src/pirated src/pirate-cli src/pirate-tx src/wallet/wallet-utility
+
+    - name: Upload Intel Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: pirate-macos-intel-daemon
+        path: pirate-macos-intel.zip
+
+  combine-macos-universal-daemon:
+    name: Combine macOS Universal Daemon
+    runs-on: macos-14
+    needs: [build-and-test-macos, build-and-test-macos-intel]
+    steps:
+    - uses: actions/download-artifact@v4
+      with:
+        name: pirate-macos-daemon
+        path: arm64
+    - uses: actions/download-artifact@v4
+      with:
+        name: pirate-macos-intel-daemon
+        path: x86_64
+
+    - name: Unzip artifacts
+      run: |
+        unzip -q arm64/*.zip -d arm64/bin
+        unzip -q x86_64/*.zip -d x86_64/bin
+
+    - name: Create universal binaries with lipo
+      run: |
+        mkdir -p universal
+        for f in pirated pirate-cli pirate-tx wallet-utility; do
+          arm_path="arm64/bin/$f"; intel_path="x86_64/bin/$f"
+          lipo -create "$arm_path" "$intel_path" -output "universal/$f"
+        done
+
+    - name: Zip universal binaries
+      run: |
+        zip --junk-paths pirate-macos-universal.zip universal/pirated universal/pirate-cli universal/pirate-tx universal/wallet-utility
+
+    - name: Upload Universal Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: pirate-macos-universal-daemon
+        path: pirate-macos-universal.zip
+
+  build-and-test-qt-macos-intel:
+    name: Build and Test Treasure Chest (macOS Intel)
+    runs-on: macos-12 
+    needs: build-and-test-macos-intel
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Install QT and other dependencies (macOS Intel)
+      run: |
+        brew install autoconf automake libtool pkg-config boost zeromq libsodium coreutils python3 curl qt@5 zip
+        echo "/usr/local/opt/qt@5/bin" >> $GITHUB_PATH
+
+    - name: Install Rust (stable)
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Make QT build script executable
+      run: chmod +x zcutil/build-qt-mac.sh
+
+    - name: Fetch Zcash Params
+      run: ./zcutil/fetch-params.sh
+
+    - name: Prepare for Rust build
+      run: |
+        mkdir -p vendored-sources
+        touch vendored-sources/.keep
+
+    - name: Fix Cargo config for macOS Intel QT
+      run: |
+        rm -f .cargo/config
+        echo "# Minimal Cargo config for macOS Intel QT" > .cargo/config
+        echo "[patch.crates-io]" >> .cargo/config
+        echo "bellman = { git = \"https://github.com/piratenetwork/librustzcash\", branch = \"master\" }" >> .cargo/config
+        echo "pairing = { git = \"https://github.com/piratenetwork/librustzcash\", branch = \"master\" }" >> .cargo/config
+
+    - name: Build Treasure Chest (macOS Intel)
+      env:
+        HOST: x86_64-apple-darwin
+      run: |
+        ./zcutil/build-qt-mac.sh -j$(sysctl -n hw.ncpu)
+
+    - name: Zip Binaries (macOS Intel QT)
+      run: |
+        # Strip daemon tools if present
+        if [ -f src/pirated ]; then strip src/pirated; fi
+        if [ -f src/pirate-cli ]; then strip src/pirate-cli; fi
+        if [ -f src/pirate-tx ]; then strip src/pirate-tx; fi
+        if [ -f src/wallet/wallet-utility ]; then strip src/wallet/wallet-utility; fi
+
+        if [ -d src/qt/PirateWallet-Qt.app ]; then 
+          zip -r --junk-paths pirate-qt-macos-intel.zip src/qt/PirateWallet-Qt.app
+        elif [ -f pirate-qt-mac ]; then # Fallback binary
+          strip pirate-qt-mac
+          zip --junk-paths pirate-qt-macos-intel.zip pirate-qt-mac
+        fi
+
+        # Zip daemon tools separately if they exist
+        if [ -f src/pirated ] && [ -f src/pirate-cli ]; then
+          zip --junk-paths pirate-macos-intel-from-qt-build.zip src/pirated src/pirate-cli src/pirate-tx src/wallet/wallet-utility
+        fi
+
+    - name: Archive Treasure Chest and Binaries (macOS Intel)
+      if: success() || failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: pirate-treasure-chest-macos-intel
+        path: |
+          pirate-qt-macos-intel.zip
+          pirate-macos-intel-from-qt-build.zip
