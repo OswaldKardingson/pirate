@@ -690,7 +690,7 @@ pirated_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS)
 
 if TARGET_DARWIN
 pirated_LDFLAGS += -framework Security
-COMMON_FORCE_LOAD_FLAGS = -Wl,-all_load -Wl,-noall_load
+COMMON_FORCE_LOAD_FLAGS = -Wl,-all_load
 pirated_LDFLAGS += $(COMMON_FORCE_LOAD_FLAGS)
 endif
 
