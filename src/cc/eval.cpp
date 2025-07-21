@@ -188,7 +188,11 @@ bool Eval::GetNotarisationData(const uint256 notaryHash, NotarisationData &data)
     CBlockIndex block;
     if (!GetTxConfirmed(notaryHash, notarisationTx, block)) return false;
     if (!CheckNotaryInputs(notarisationTx, block.nHeight, block.nTime)) return false;
-    if (!ParseNotarisationOpReturn(notarisationTx, data)) return false;
+    try {
+        if (!ParseNotarisationOpReturn(notarisationTx, data)) return false;
+    } catch (const std::exception&) {
+        return false;
+    }
     return true;
 }
 
