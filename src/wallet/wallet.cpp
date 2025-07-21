@@ -2500,7 +2500,7 @@ bool CWallet::IsSpent(const uint256& hash, unsigned int n) const
     return false;
 }
 
-unsigned int CWallet::GetSpendDepth(const uint256& hash, unsigned int n) const
+int CWallet::GetSpendDepth(const uint256& hash, unsigned int n) const
 {
     const COutPoint outpoint(hash, n);
     pair<TxSpends::const_iterator, TxSpends::const_iterator> range;
@@ -2534,7 +2534,7 @@ bool CWallet::IsSproutSpent(const uint256& nullifier) const {
     return false;
 }
 
-unsigned int CWallet::GetSproutSpendDepth(const uint256& nullifier) const {
+int CWallet::GetSproutSpendDepth(const uint256& nullifier) const {
     pair<TxNullifiers::const_iterator, TxNullifiers::const_iterator> range;
     range = mapTxSproutNullifiers.equal_range(nullifier);
 
@@ -2562,7 +2562,7 @@ bool CWallet::IsSaplingSpent(const uint256& nullifier) const {
     return false;
 }
 
-unsigned int CWallet::GetSaplingSpendDepth(const uint256& nullifier) const {
+int CWallet::GetSaplingSpendDepth(const uint256& nullifier) const {
     pair<TxNullifiers::const_iterator, TxNullifiers::const_iterator> range;
     range = mapTxSaplingNullifiers.equal_range(nullifier);
 
@@ -2590,7 +2590,7 @@ bool CWallet::IsOrchardSpent(const uint256& nullifier) const {
     return false;
 }
 
-unsigned int CWallet::GetOrchardSpendDepth(const uint256& nullifier) const {
+int CWallet::GetOrchardSpendDepth(const uint256& nullifier) const {
     pair<TxNullifiers::const_iterator, TxNullifiers::const_iterator> range;
     range = mapTxOrchardNullifiers.equal_range(nullifier);
 

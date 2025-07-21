@@ -1582,13 +1582,13 @@ public:
     bool SelectCoinsMinConf(const CAmount& nTargetValue, int nConfMine, int nConfTheirs, std::vector<COutput> vCoins, std::set<std::pair<const CWalletTx*,unsigned int> >& setCoinsRet, CAmount& nValueRet) const;
 
     bool IsSpent(const uint256& hash, unsigned int n) const;
-    unsigned int GetSpendDepth(const uint256& hash, unsigned int n) const;
+    int GetSpendDepth(const uint256& hash, unsigned int n) const;
     bool IsSproutSpent(const uint256& nullifier) const;
-    unsigned int GetSproutSpendDepth(const uint256& nullifier) const;
+    int GetSproutSpendDepth(const uint256& nullifier) const;
     bool IsSaplingSpent(const uint256& nullifier) const;
-    unsigned int GetSaplingSpendDepth(const uint256& nullifier) const;
+    int GetSaplingSpendDepth(const uint256& nullifier) const;
     bool IsOrchardSpent(const uint256& nullifier) const;
-    unsigned int GetOrchardSpendDepth(const uint256& nullifier) const;
+    int GetOrchardSpendDepth(const uint256& nullifier) const;
 
     bool IsLockedCoin(uint256 hash, unsigned int n) const;
     void LockCoin(COutPoint& output);
