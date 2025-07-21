@@ -53,9 +53,20 @@ public:
     // Get serialized bytes of an Orchard Address
     OrchardPaymentAddress_t ToBytes() const;
 
+    blob88 GetDiversifier() const
+    {
+        blob88 diversifier;
+        std::memcpy(diversifier.begin(), d.data(), ZC_DIVERSIFIER_SIZE);
+        return diversifier;
+    }
+
     friend inline bool operator==(const OrchardPaymentAddressPirate& a, const OrchardPaymentAddressPirate& b)
     {
         return a.d == b.d && a.pk_d == b.pk_d;
+    }
+    friend inline bool operator!=(const OrchardPaymentAddressPirate& a, const OrchardPaymentAddressPirate& b)
+    {
+        return a.d != b.d || a.pk_d != b.pk_d;
     }
     friend inline bool operator<(const OrchardPaymentAddressPirate& a, const OrchardPaymentAddressPirate& b)
     {
@@ -83,6 +94,10 @@ public:
     friend inline bool operator==(const OrchardOutgoingViewingKey& a, const OrchardOutgoingViewingKey& b)
     {
         return a.ovk == b.ovk;
+    }
+    friend inline bool operator!=(const OrchardOutgoingViewingKey& a, const OrchardOutgoingViewingKey& b)
+    {
+        return a.ovk != b.ovk;
     }
     friend inline bool operator<(const OrchardOutgoingViewingKey& a, const OrchardOutgoingViewingKey& b)
     {
@@ -114,6 +129,10 @@ public:
     friend inline bool operator==(const OrchardIncomingViewingKeyPirate& a, const OrchardIncomingViewingKeyPirate& b)
     {
         return a.dk == b.dk && a.ivk == b.ivk;
+    }
+    friend inline bool operator!=(const OrchardIncomingViewingKeyPirate& a, const OrchardIncomingViewingKeyPirate& b)
+    {
+        return a.dk != b.dk || a.ivk != b.ivk;
     }
     friend inline bool operator<(const OrchardIncomingViewingKeyPirate& a, const OrchardIncomingViewingKeyPirate& b)
     {

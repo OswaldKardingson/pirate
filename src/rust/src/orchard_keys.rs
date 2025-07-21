@@ -3,7 +3,7 @@ use libc::{c_uchar};
 use std::convert::TryFrom;
 
 use orchard::{
-    keys::{DiversifierIndex, FullViewingKey, IncomingViewingKey, OutgoingViewingKey, Scope, SpendingKey},
+    keys::{DiversifierIndex, Diversifier, FullViewingKey, IncomingViewingKey, OutgoingViewingKey, Scope, SpendingKey},
     Address,
 };
 
@@ -15,15 +15,15 @@ mod prf_expand;
 #[no_mangle]
 pub extern "C" fn orchard_ivk_to_address(
     ivk_bytes: *const [c_uchar; 64],
-    diversifier_index: *const [c_uchar; 11],
+    diversifier: *const [c_uchar; 11],
     out_bytes: *mut [c_uchar; 43],
 ) -> bool {
     let ivk_bytes = unsafe { *ivk_bytes };
     let ivk = IncomingViewingKey::from_bytes(&ivk_bytes);
     if ivk.is_some().into() {
 
-        let diversifier_index = DiversifierIndex::from(unsafe { *diversifier_index });
-        let address = ivk.unwrap().address_at(diversifier_index);
+        let diversifier = Diversifier::from_bytes(unsafe { *diversifier });
+        let address = ivk.unwrap().address(diversifier);
         let out_bytes = unsafe { &mut *out_bytes };
         *out_bytes = address.to_raw_address_bytes();
 
@@ -144,15 +144,15 @@ pub extern "C" fn orchard_fvk_to_default_address(
 #[no_mangle]
 pub extern "C" fn orchard_fvk_to_address_internal(
     fvk_bytes: *const [c_uchar; 96],
-    diversifier_index: *const [c_uchar; 11],
+    diversifier: *const [c_uchar; 11],
     out_bytes: *mut [c_uchar; 43],
 ) -> bool {
     let fvk_bytes = unsafe { *fvk_bytes };
     let fvk = FullViewingKey::from_bytes(&fvk_bytes);
     if fvk.is_some().into() {
 
-        let diversifier_index = DiversifierIndex::from(unsafe { *diversifier_index });
-        let address = fvk.unwrap().address_at(diversifier_index,Scope::Internal);
+        let diversifier = Diversifier::from_bytes(unsafe { *diversifier });
+        let address = fvk.unwrap().address(diversifier,Scope::Internal);
         let out_bytes = unsafe { &mut *out_bytes };
         *out_bytes = address.to_raw_address_bytes();
 
@@ -164,15 +164,15 @@ pub extern "C" fn orchard_fvk_to_address_internal(
 #[no_mangle]
 pub extern "C" fn orchard_fvk_to_address(
     fvk_bytes: *const [c_uchar; 96],
-    diversifier_index: *const [c_uchar; 11],
+    diversifier: *const [c_uchar; 11],
     out_bytes: *mut [c_uchar; 43],
 ) -> bool {
     let fvk_bytes = unsafe { *fvk_bytes };
     let fvk = FullViewingKey::from_bytes(&fvk_bytes);
     if fvk.is_some().into() {
 
-        let diversifier_index = DiversifierIndex::from(unsafe { *diversifier_index });
-        let address = fvk.unwrap().address_at(diversifier_index,Scope::External);
+        let diversifier = Diversifier::from_bytes(unsafe { *diversifier });
+        let address = fvk.unwrap().address(diversifier,Scope::External);
         let out_bytes = unsafe { &mut *out_bytes };
         *out_bytes = address.to_raw_address_bytes();
 

@@ -3,7 +3,7 @@ use std::slice;
 use tracing::error;
 
 use orchard::{
-    keys::{DiversifierIndex, FullViewingKey, IncomingViewingKey, Scope, SpendingKey},
+    keys::{DiversifierIndex, Diversifier,FullViewingKey, IncomingViewingKey, Scope, SpendingKey},
     Address,
 };
 
@@ -138,13 +138,13 @@ pub extern "C" fn orchard_incoming_viewing_key_parse(
 #[no_mangle]
 pub extern "C" fn orchard_incoming_viewing_key_to_address(
     key: *const IncomingViewingKey,
-    diversifier_index: *const [u8; 11],
+    diversifier: *const [u8; 11],
 ) -> *mut Address {
     let key =
         (unsafe { key.as_ref() }).expect("Orchard incoming viewing key pointer may not be null.");
 
-    let diversifier_index = DiversifierIndex::from(unsafe { *diversifier_index });
-    Box::into_raw(Box::new(key.address_at(diversifier_index)))
+    let diversifier = Diversifier::from_bytes(unsafe { *diversifier });
+    Box::into_raw(Box::new(key.address(diversifier)))
 }
 
 #[no_mangle]

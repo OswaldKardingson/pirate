@@ -11,7 +11,7 @@
 extern "C" {
 #endif
 
-bool orchard_ivk_to_address(const unsigned char *ivk_bytes, const unsigned char *diversifier_index, unsigned char *out_bytes);
+bool orchard_ivk_to_address(const unsigned char *ivk_bytes, const unsigned char *diversifier, unsigned char *out_bytes);
 
 bool orchard_fvk_to_ovk(const unsigned char *fvk_bytes, unsigned char *out_bytes);
 bool orchard_fvk_to_ovk_internal(const unsigned char *fvk_bytes, unsigned char *out_bytes);
@@ -19,8 +19,8 @@ bool orchard_fvk_to_ivk(const unsigned char *fvk_bytes, unsigned char *out_bytes
 bool orchard_fvk_to_ivk_internal(const unsigned char *fvk_bytes, unsigned char *out_bytes);
 bool orchard_fvk_to_default_address(const unsigned char *fvk_bytes, unsigned char *out_bytes);
 bool orchard_fvk_to_default_address_internal(const unsigned char *fvk_bytes, unsigned char *out_bytes);
-bool orchard_fvk_to_address(const unsigned char *fvk_bytes, const unsigned char *diversifier_index, unsigned char *out_bytes);
-bool orchard_fvk_to_address_internal(const unsigned char *fvk_bytes, const unsigned char *diversifier_index, unsigned char *out_bytes);
+bool orchard_fvk_to_address(const unsigned char *fvk_bytes, const unsigned char *diversifier, unsigned char *out_bytes);
+bool orchard_fvk_to_address_internal(const unsigned char *fvk_bytes, const unsigned char *diversifier, unsigned char *out_bytes);
 
 
 bool orchard_sk_is_valid(const unsigned char *sk_bytes);
