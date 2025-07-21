@@ -18,6 +18,22 @@
  *                                                                            *
  ******************************************************************************/
 
+/**
+ * @file wallet.cpp
+ * @brief Core wallet functionality for the Pirate cryptocurrency
+ * 
+ * This file implements the primary wallet functionality for Pirate, including:
+ * - Multi-protocol shielded address support (Sprout, Sapling, Orchard)
+ * - Hierarchical deterministic key derivation (HD wallets)
+ * - Transaction creation, signing, and broadcasting
+ * - Note detection and management for shielded protocols
+ * - Wallet encryption and key management
+ * - Balance calculation and UTXO management
+ * 
+ * The wallet supports both transparent and shielded transactions, with extensive
+ * support for privacy-preserving operations using zero-knowledge protocols.
+ */
+
 #include "wallet/wallet.h"
 
 #include "asyncrpcqueue.h"
@@ -65,36 +81,74 @@
 using namespace std;
 using namespace libzcash;
 
+/** Global vector containing references to all wallet instances */
 std::vector<CWalletRef> vpwallets;
 
 /**
- * Settings
+ * @section Wallet Configuration Settings
+ * 
+ * Global configuration variables that control wallet behavior and transaction
+ * processing. These can be modified through command-line arguments and RPC calls.
  */
+
+/** Fee rate for transactions (can be overridden with -paytxfee) */
 CFeeRate payTxFee(DEFAULT_TRANSACTION_FEE);
+
+/** Maximum fee allowed for any transaction (can be overridden with -maxtxfee) */
 CAmount maxTxFee = DEFAULT_TRANSACTION_MAXFEE;
+
+/** Target number of blocks for fee estimation (can be overridden with -txconfirmtarget) */
 unsigned int nTxConfirmTarget = DEFAULT_TX_CONFIRM_TARGET;
+
+/** Whether to spend unconfirmed change outputs (can be overridden with -spendzeroconfchange) */
 bool bSpendZeroConfChange = true;
+
+/** Whether to send transactions with minimal fees (legacy setting) */
 bool fSendFreeTransactions = false;
+
+/** Whether to pay at least the custom fee specified (can be overridden with -payatleastcustomfee) */
 bool fPayAtLeastCustomFee = true;
 
+/** Minimum value for transaction outputs (can be overridden with -mintxvalue) */
 CAmount minTxValue = DEFAULT_MIN_TX_VALUE;
 
+/** Whether to use replace-by-fee (RBF) for transactions */
 bool fWalletRbf = DEFAULT_WALLET_RBF;
-//
-// CBlockIndex *komodo_chainactive(int32_t height);
-// extern std::string DONATION_PUBKEY;
-// int32_t komodo_dpowconfs(int32_t height,int32_t numconfs);
-// int tx_height( const uint256 &hash );
+
+/**
+ * @section Wallet State Variables
+ * 
+ * Variables that track wallet scanning progress and transaction management settings.
+ */
+
+/** Progress percentage for blockchain scanning operations */
 int scanperc;
+
+/** Whether transaction deletion is enabled for wallet cleanup */
 bool fTxDeleteEnabled = false;
+
+/** Whether conflicted transaction deletion is enabled */
 bool fTxConflictDeleteEnabled = false;
+
+/** Interval for transaction deletion operations */
 int fDeleteInterval = DEFAULT_TX_DELETE_INTERVAL;
+
+/** Number of blocks to retain transactions before deletion */
 unsigned int fDeleteTransactionsAfterNBlocks = DEFAULT_TX_RETENTION_BLOCKS;
+
+/** Number of recent transactions to always keep */
 unsigned int fKeepLastNTransactions = DEFAULT_TX_RETENTION_LASTTX;
+
+/** Recovery seed phrase for wallet restoration */
 std::string recoverySeedPhrase = "";
+
+/** Flag indicating if GUI is being used */
 bool usingGUI = false;
+
+/** Block height from which to start recovery scanning */
 int recoveryHeight = 0;
 
+/** Secure string for storing wallet passphrase during operations */
 SecureString *strOpeningWalletPassphrase;
 
 /**
@@ -110,6 +164,7 @@ CFeeRate CWallet::minTxFee = CFeeRate(1000);
  */
 CFeeRate CWallet::fallbackFee = CFeeRate(DEFAULT_FALLBACK_FEE);
 
+/** Special hash value used to mark abandoned transactions */
 const uint256 CMerkleTx::ABANDON_HASH(uint256S("0000000000000000000000000000000000000000000000000000000000000001"));
 
 /** @defgroup mapWallet
@@ -117,8 +172,20 @@ const uint256 CMerkleTx::ABANDON_HASH(uint256S("00000000000000000000000000000000
  * @{
  */
 
+/**
+ * @brief Comparator for sorting wallet transaction outputs by value
+ * 
+ * Used to sort transaction outputs based on their monetary value in ascending order.
+ * This is useful for coin selection algorithms that prefer smaller or larger UTXOs.
+ */
 struct CompareValueOnly
 {
+    /**
+     * @brief Compare two transaction output pairs by their value
+     * @param t1 First pair containing (value, (transaction pointer, output index))
+     * @param t2 Second pair containing (value, (transaction pointer, output index))
+     * @return true if t1's value is less than t2's value
+     */
     bool operator()(const pair<CAmount, pair<const CWalletTx*, unsigned int> >& t1,
                     const pair<CAmount, pair<const CWalletTx*, unsigned int> >& t2) const
     {
@@ -126,16 +193,32 @@ struct CompareValueOnly
     }
 };
 
+/**
+ * @brief Convert JSOutPoint to string representation
+ * @return String representation of the JSOutPoint including hash, js index, and n index
+ */
 std::string JSOutPoint::ToString() const
 {
     return strprintf("JSOutPoint(%s, %d, %d)", hash.ToString().substr(0,10), js, n);
 }
 
+/**
+ * @brief Convert COutput to string representation
+ * @return String representation including transaction hash, output index, depth, and value
+ */
 std::string COutput::ToString() const
 {
     return strprintf("COutput(%s, %d, %d) [%s]", tx->GetHash().ToString(), i, nDepth, FormatMoney(tx->vout[i].nValue));
 }
 
+/**
+ * @brief Retrieve a wallet transaction by its hash
+ * @param hash The transaction hash to look up
+ * @return Pointer to the wallet transaction if found, nullptr otherwise
+ * 
+ * Thread-safe method that searches the wallet's transaction map for a specific transaction.
+ * The wallet lock is acquired during the search operation.
+ */
 const CWalletTx* CWallet::GetWalletTx(const uint256& hash) const
 {
     LOCK(cs_wallet);
@@ -145,7 +228,23 @@ const CWalletTx* CWallet::GetWalletTx(const uint256& hash) const
     return &(it->second);
 }
 
-// Generate a new spending key and return its public payment address
+/**
+ * @section Shielded Address Generation
+ * 
+ * Functions for generating new shielded addresses using hierarchical deterministic
+ * key derivation. These functions support Sprout, Sapling, and Orchard protocols.
+ */
+
+/**
+ * @brief Generate a new Sprout shielded payment address
+ * @return A new Sprout payment address
+ * @throws std::runtime_error if collision detected or key addition fails
+ * 
+ * Generates a random Sprout spending key and derives its payment address.
+ * The key is stored in the wallet with metadata including creation time.
+ * This method requires the wallet lock to be held.
+ */
+
 libzcash::SproutPaymentAddress CWallet::GenerateNewSproutZKey()
 {
     AssertLockHeld(cs_wallet); // mapSproutZKeyMetadata
@@ -166,7 +265,17 @@ libzcash::SproutPaymentAddress CWallet::GenerateNewSproutZKey()
     return addr;
 }
 
-// Generate a new Sapling spending key and return its public payment address
+/**
+ * @brief Generate a new Sapling shielded payment address
+ * @return A new Sapling payment address
+ * @throws std::runtime_error if HD seed not found, keypath derivation fails, or key addition fails
+ * 
+ * Generates a new Sapling spending key using hierarchical deterministic key derivation.
+ * The key follows BIP44 derivation path: m/32'/coin_type'/account'
+ * The first generated key (account 0) is set as the primary key for diversification.
+ * Metadata including keypath and seed fingerprint is stored with the key.
+ */
+
 SaplingPaymentAddress CWallet::GenerateNewSaplingZKey()
 {
     AssertLockHeld(cs_wallet); // mapSaplingSpendingKeyMetadata
@@ -223,7 +332,16 @@ SaplingPaymentAddress CWallet::GenerateNewSaplingZKey()
     return addr;
 }
 
-// Generate a new Orchard spending key and return its public payment address
+/**
+ * @brief Generate a new Orchard shielded payment address
+ * @return A new Orchard payment address
+ * @throws std::runtime_error if HD seed not found, key derivation fails, or key addition fails
+ * 
+ * Generates a new Orchard spending key using hierarchical deterministic key derivation.
+ * The key follows a similar derivation path to Sapling: m/32'/coin_type'/account'
+ * The first generated key (account 0) is set as the primary key for diversification.
+ * Metadata including keypath and seed fingerprint is stored with the key.
+ */
 OrchardPaymentAddressPirate CWallet::GenerateNewOrchardZKey()
 {
     AssertLockHeld(cs_wallet); // mapSaplingSpendingKeyMetadata
@@ -304,7 +422,20 @@ OrchardPaymentAddressPirate CWallet::GenerateNewOrchardZKey()
     return address;
 }
 
-// Generate a new Sapling diversified payment address
+/**
+ * @brief Generate a new Sapling diversified payment address
+ * @return A new diversified Sapling payment address
+ * @throws std::runtime_error if HD seed not found, key derivation fails, or address addition fails
+ * 
+ * Generates a diversified Sapling payment address from the primary spending key.
+ * If no primary key exists, derives one from the HD seed using the default path.
+ * Diversified addresses allow multiple payment addresses from a single spending key
+ * for improved privacy. The function:
+ * - Uses the primary Sapling spending key or derives one if needed
+ * - Iterates through diversifier values to find an unused address
+ * - Stores the new address and diversifier path in the wallet
+ * - Returns the generated diversified payment address
+ */
 SaplingPaymentAddress CWallet::GenerateNewSaplingDiversifiedAddress()
 {
     AssertLockHeld(cs_wallet); // mapSaplingSpendingKeyMetadata
@@ -401,7 +532,20 @@ SaplingPaymentAddress CWallet::GenerateNewSaplingDiversifiedAddress()
     return addr;
 }
 
-// Generate a new Orchard diversified payment address
+/**
+ * @brief Generate a new Orchard diversified payment address
+ * @return A new diversified Orchard payment address
+ * @throws std::runtime_error if HD seed not found, key derivation fails, or address addition fails
+ * 
+ * Generates a diversified Orchard payment address from the primary spending key.
+ * If no primary key exists, derives one from the HD seed using the default path.
+ * Diversified addresses allow multiple payment addresses from a single spending key
+ * for improved privacy. The function:
+ * - Uses the primary Orchard spending key or derives one if needed
+ * - Iterates through diversifier values to find an unused address
+ * - Stores the new address and diversifier path in the wallet
+ * - Returns the generated diversified payment address
+ */
 OrchardPaymentAddressPirate CWallet::GenerateNewOrchardDiversifiedAddress()
 {
     AssertLockHeld(cs_wallet); // mapOrchardSpendingKeyMetadata
@@ -538,6 +682,16 @@ OrchardPaymentAddressPirate CWallet::GenerateNewOrchardDiversifiedAddress()
     return addr;
 }
 
+/**
+ * @brief Set the primary Sapling spending key for diversified address generation
+ * @param extsk The Sapling extended spending key to set as primary
+ * @return true if successfully set and persisted, false otherwise
+ * 
+ * Sets the primary Sapling spending key used for generating diversified addresses.
+ * This key serves as the base for creating multiple payment addresses from a single
+ * spending key. If the wallet is encrypted, the key will be encrypted before storage.
+ * Returns false if the wallet is encrypted and locked.
+ */
 bool CWallet::SetPrimarySaplingSpendingKey(
     const libzcash::SaplingExtendedSpendingKey &extsk)
 {
@@ -572,6 +726,16 @@ bool CWallet::SetPrimarySaplingSpendingKey(
       return true;
 }
 
+/**
+ * @brief Set the primary Orchard spending key for diversified address generation
+ * @param extsk The Orchard extended spending key to set as primary
+ * @return true if successfully set and persisted, false otherwise
+ * 
+ * Sets the primary Orchard spending key used for generating diversified addresses.
+ * This key serves as the base for creating multiple payment addresses from a single
+ * spending key. If the wallet is encrypted, the key will be encrypted before storage.
+ * Returns false if the wallet is encrypted and locked.
+ */
 bool CWallet::SetPrimaryOrchardSpendingKey(
     const libzcash::OrchardExtendedSpendingKeyPirate &extsk)
 {
@@ -613,6 +777,16 @@ bool CWallet::SetPrimaryOrchardSpendingKey(
       return true;
 }
 
+/**
+ * @brief Load an encrypted primary Sapling spending key from the database
+ * @param extfvkFinger Fingerprint of the extended full viewing key for validation
+ * @param vchCryptedSecret The encrypted spending key data
+ * @return true if successfully decrypted and loaded
+ * 
+ * Decrypts and loads the primary Sapling spending key from encrypted storage.
+ * The fingerprint is used to validate the integrity of the decrypted key.
+ * This function is called during wallet initialization when loading encrypted keys.
+ */
 bool CWallet::LoadCryptedPrimarySaplingSpendingKey(const uint256 &extfvkFinger, const std::vector<unsigned char> &vchCryptedSecret)
 {
     CKeyingMaterial vchSecret;
@@ -633,6 +807,16 @@ bool CWallet::LoadCryptedPrimarySaplingSpendingKey(const uint256 &extfvkFinger, 
     return true;
 }
 
+/**
+ * @brief Load an encrypted primary Orchard spending key from the database
+ * @param extfvkFinger Fingerprint of the extended full viewing key for validation
+ * @param vchCryptedSecret The encrypted spending key data
+ * @return true if successfully decrypted and loaded
+ * 
+ * Decrypts and loads the primary Orchard spending key from encrypted storage.
+ * The fingerprint is used to validate the integrity of the decrypted key.
+ * This function is called during wallet initialization when loading encrypted keys.
+ */
 bool CWallet::LoadCryptedPrimaryOrchardSpendingKey(const uint256 &extfvkFinger, const std::vector<unsigned char> &vchCryptedSecret)
 {
     CKeyingMaterial vchSecret;
@@ -660,7 +844,17 @@ bool CWallet::LoadCryptedPrimaryOrchardSpendingKey(const uint256 &extfvkFinger, 
     return true;
 }
 
-// Add spending key to keystore
+/**
+ * @brief Add a Sapling extended spending key to the wallet
+ * @param extsk The Sapling extended spending key to add
+ * @return true if successfully added and persisted, false otherwise
+ * 
+ * Adds a Sapling spending key to both the in-memory keystore and wallet database.
+ * For encrypted wallets, the key is encrypted before storage along with its metadata.
+ * The function handles both file-backed and memory-only wallets. Returns false if
+ * the wallet is encrypted and locked. Sets nTimeFirstKey to 1 since viewing keys
+ * don't have birthday information.
+ */
 bool CWallet::AddSaplingZKey(
     const libzcash::SaplingExtendedSpendingKey &extsk)
 {
@@ -729,7 +923,18 @@ bool CWallet::AddSaplingZKey(
     return true;
 }
 
-// Add payment address -> incoming viewing key map entry
+/**
+ * @brief Add a mapping between Sapling payment address and incoming viewing key
+ * @param ivk The Sapling incoming viewing key
+ * @param addr The corresponding Sapling payment address
+ * @return true if successfully added and persisted, false otherwise
+ * 
+ * Creates a mapping that allows the wallet to detect incoming transactions to
+ * the specified Sapling address using the incoming viewing key. This is essential
+ * for note decryption and balance calculation. For encrypted wallets, both the
+ * address and key are encrypted before storage. Returns false if the wallet is
+ * encrypted and locked.
+ */
 bool CWallet::AddSaplingIncomingViewingKey(
     const libzcash::SaplingIncomingViewingKey &ivk,
     const libzcash::SaplingPaymentAddress &addr)
@@ -768,6 +973,18 @@ bool CWallet::AddSaplingIncomingViewingKey(
     return true;
 }
 
+/**
+ * @brief Add a Sapling extended full viewing key to the wallet
+ * @param extfvk The Sapling extended full viewing key to add
+ * @return true if successfully added and persisted, false otherwise
+ * 
+ * Adds a Sapling extended full viewing key to both the in-memory keystore and
+ * wallet database. This enables watch-only functionality for Sapling addresses,
+ * allowing the wallet to detect incoming transactions without having the spending key.
+ * For encrypted wallets, the viewing key is encrypted before storage using the
+ * key's fingerprint as the encryption hash. Returns false if the wallet is
+ * encrypted and locked.
+ */
 bool CWallet::AddSaplingExtendedFullViewingKey(const libzcash::SaplingExtendedFullViewingKey &extfvk)
 {
     AssertLockHeld(cs_wallet);
@@ -800,7 +1017,19 @@ bool CWallet::AddSaplingExtendedFullViewingKey(const libzcash::SaplingExtendedFu
     }
 }
 
-
+/**
+ * @brief Add a Sapling diversified address mapping to the wallet
+ * @param addr The Sapling payment address (diversified address)
+ * @param ivk The corresponding incoming viewing key
+ * @param path The diversification path used to generate this address
+ * @return true if successfully added and persisted, false otherwise
+ * 
+ * Creates a mapping between a diversified Sapling payment address and its
+ * corresponding incoming viewing key and diversification path. This allows
+ * the wallet to properly handle multiple addresses derived from the same
+ * spending key. For encrypted wallets, the address data is encrypted before
+ * storage. Returns false if the wallet is encrypted and locked.
+ */
 bool CWallet::AddSaplingDiversifiedAddress(
     const libzcash::SaplingPaymentAddress &addr,
     const libzcash::SaplingIncomingViewingKey &ivk,
@@ -840,6 +1069,19 @@ bool CWallet::AddSaplingDiversifiedAddress(
     return true;
 }
 
+/**
+ * @brief Add an Orchard diversified address mapping to the wallet
+ * @param addr The Orchard payment address (diversified address)
+ * @param ivk The corresponding incoming viewing key
+ * @param path The diversification path used to generate this address
+ * @return true if successfully added and persisted, false otherwise
+ * 
+ * Creates a mapping between a diversified Orchard payment address and its
+ * corresponding incoming viewing key and diversification path. This allows
+ * the wallet to properly handle multiple addresses derived from the same
+ * spending key. For encrypted wallets, the address data is encrypted before
+ * storage. Returns false if the wallet is encrypted and locked.
+ */
 bool CWallet::AddOrchardDiversifiedAddress(
     const libzcash::OrchardPaymentAddressPirate &addr,
     const libzcash::OrchardIncomingViewingKeyPirate &ivk,
@@ -879,6 +1121,18 @@ bool CWallet::AddOrchardDiversifiedAddress(
     return true;
 }
 
+/**
+ * @brief Store the last used Sapling diversifier for an incoming viewing key
+ * @param ivk The Sapling incoming viewing key
+ * @param path The diversifier path that was last used
+ * @return true if successfully stored, false otherwise
+ * 
+ * Tracks the last diversifier used for a given incoming viewing key to ensure
+ * that subsequent diversified address generation continues from where it left off.
+ * This prevents reuse of diversifiers and maintains proper address generation
+ * ordering. For encrypted wallets, the diversifier data is encrypted before storage.
+ * Returns false if the wallet is encrypted and locked.
+ */
 bool CWallet::AddLastSaplingDiversifierUsed(
     const libzcash::SaplingIncomingViewingKey &ivk,
     const blob88 &path)
@@ -917,6 +1171,18 @@ bool CWallet::AddLastSaplingDiversifierUsed(
     return true;
 }
 
+/**
+ * @brief Store the last used Orchard diversifier for an incoming viewing key
+ * @param ivk The Orchard incoming viewing key
+ * @param path The diversifier path that was last used
+ * @return true if successfully stored, false otherwise
+ * 
+ * Tracks the last diversifier used for a given incoming viewing key to ensure
+ * that subsequent diversified address generation continues from where it left off.
+ * This prevents reuse of diversifiers and maintains proper address generation
+ * ordering. For encrypted wallets, the diversifier data is encrypted before storage.
+ * Returns false if the wallet is encrypted and locked.
+ */
 bool CWallet::AddLastOrchardDiversifierUsed(
     const libzcash::OrchardIncomingViewingKeyPirate &ivk,
     const blob88 &path)
@@ -955,7 +1221,18 @@ bool CWallet::AddLastOrchardDiversifierUsed(
     return true;
 }
 
-// Add spending key to keystore
+/**
+ * @brief Add an Orchard extended spending key to the wallet
+ * @param extsk The Orchard extended spending key to add
+ * @return true if successfully added and persisted, false otherwise
+ * 
+ * Adds an Orchard spending key to both the in-memory keystore and wallet database.
+ * The function extracts the extended full viewing key and incoming viewing key
+ * from the spending key for proper storage organization. For encrypted wallets,
+ * the key is encrypted before storage along with its metadata. Returns false if
+ * the wallet is encrypted and locked, or if key extraction fails. Sets nTimeFirstKey
+ * to 1 since viewing keys don't have birthday information.
+ */
 bool CWallet::AddOrchardZKey(
     const libzcash::OrchardExtendedSpendingKeyPirate &extsk)
 {
@@ -1034,6 +1311,15 @@ bool CWallet::AddOrchardZKey(
     return true;
 }
 
+/**
+ * @brief Add an Orchard extended full viewing key to the wallet
+ * @param extfvk The Orchard extended full viewing key to add
+ * @return true if successfully added, false otherwise
+ * 
+ * Adds an Orchard extended full viewing key to both the in-memory keystore
+ * and persistent wallet database. If the wallet is encrypted, the key will
+ * be encrypted before storage. The wallet must be unlocked for encrypted wallets.
+ */
 bool CWallet::AddOrchardExtendedFullViewingKey(const libzcash::OrchardExtendedFullViewingKeyPirate &extfvk)
 {
     AssertLockHeld(cs_wallet);
@@ -1053,7 +1339,6 @@ bool CWallet::AddOrchardExtendedFullViewingKey(const libzcash::OrchardExtendedFu
     if (!IsCrypted()) {
         return CWalletDB(strWalletFile).WriteOrchardFullViewingKey(extfvk);
     } else {
-
         std::vector<unsigned char> vchCryptedSecret;
         uint256 chash = extfvk.fvk.GetFingerprint();
         CKeyingMaterial vchSecret = SerializeForEncryptionInput(extfvk);
@@ -1066,12 +1351,22 @@ bool CWallet::AddOrchardExtendedFullViewingKey(const libzcash::OrchardExtendedFu
     }
 }
 
-// Add payment address -> incoming viewing key map entry
+/**
+ * @brief Add an Orchard incoming viewing key and payment address mapping to the wallet
+ * @param ivk The Orchard incoming viewing key
+ * @param addr The corresponding Orchard payment address
+ * @return true if successfully added, false otherwise
+ * 
+ * Creates a mapping between an Orchard payment address and its corresponding
+ * incoming viewing key. This allows the wallet to detect incoming transactions
+ * to the address. For encrypted wallets, both the address and key are encrypted
+ * before storage.
+ */
 bool CWallet::AddOrchardIncomingViewingKey(
     const libzcash::OrchardIncomingViewingKeyPirate &ivk,
     const libzcash::OrchardPaymentAddressPirate &addr)
 {
-    AssertLockHeld(cs_wallet); // mapSaplingSpendingKeyMetadata
+    AssertLockHeld(cs_wallet);
 
     if (IsCrypted() && IsLocked()) {
         return false;
@@ -1105,17 +1400,47 @@ bool CWallet::AddOrchardIncomingViewingKey(
     return true;
 }
 
-// Returns a loader that can be used to read an Sapling note commitment
-// tree from a stream into the Sapling wallet.
+/**
+ * @section Shielded Protocol Support Functions
+ * 
+ * Functions for managing shielded protocols including Sapling and Orchard
+ * note commitment trees, nullifier tracking, and protocol-specific operations.
+ */
+
+/**
+ * @brief Get a loader for the Sapling note commitment tree
+ * @return A SaplingWalletNoteCommitmentTreeLoader instance
+ * 
+ * Returns a loader that can be used to read a Sapling note commitment
+ * tree from a stream into the Sapling wallet. This is used during
+ * wallet synchronization and state restoration.
+ */
 SaplingWalletNoteCommitmentTreeLoader CWallet::GetSaplingNoteCommitmentTreeLoader() {
     return SaplingWalletNoteCommitmentTreeLoader(saplingWallet);
 }
 
+/**
+ * @brief Get a loader for the Orchard note commitment tree
+ * @return An OrchardWalletNoteCommitmentTreeLoader instance
+ * 
+ * Returns a loader that can be used to read an Orchard note commitment
+ * tree from a stream into the Orchard wallet. This is used during
+ * wallet synchronization and state restoration.
+ */
 OrchardWalletNoteCommitmentTreeLoader CWallet::GetOrchardNoteCommitmentTreeLoader() {
     return OrchardWalletNoteCommitmentTreeLoader(orchardWallet);
 }
 
-// Add spending key to keystore and persist to disk
+/**
+ * @brief Add a Sprout shielded spending key to the wallet
+ * @param key The Sprout spending key to add
+ * @return true if the key was successfully added, false otherwise
+ * 
+ * Adds the given Sprout spending key to both the keystore and wallet database.
+ * If a viewing key already exists for this address, it will be removed since
+ * the full spending key supersedes the viewing key. The function requires
+ * wallet lock to be held and only persists to disk if the wallet is file-backed.
+ */
 bool CWallet::AddSproutZKey(const libzcash::SproutSpendingKey &key)
 {
     AssertLockHeld(cs_wallet); // mapSproutZKeyMetadata
@@ -1139,11 +1464,27 @@ bool CWallet::AddSproutZKey(const libzcash::SproutSpendingKey &key)
     return true;
 }
 
+/**
+ * @brief Generate a new transparent (t-address) key pair for the wallet
+ * @return The public key of the newly generated key pair
+ * @throws std::runtime_error if key addition fails
+ * 
+ * Generates a new ECDSA key pair for transparent addresses. The type of key
+ * (compressed or uncompressed) depends on wallet version capabilities.
+ * The private key is stored in the wallet along with creation metadata,
+ * and the public key is returned for address generation.
+ * 
+ * This function requires the wallet lock to be held and will update the
+ * wallet's minimum version if compressed keys are used.
+ */
 CPubKey CWallet::GenerateNewKey()
 {
     AssertLockHeld(cs_wallet); // mapKeyMetadata
-    bool fCompressed = CanSupportFeature(FEATURE_COMPRPUBKEY); // default to compressed public keys if we want 0.6.0 wallets
+    
+    // Use compressed public keys if wallet supports the feature
+    bool fCompressed = CanSupportFeature(FEATURE_COMPRPUBKEY);
 
+    // Generate a new private key
     CKey secret;
     secret.MakeNewKey(fCompressed);
 
@@ -1154,17 +1495,34 @@ CPubKey CWallet::GenerateNewKey()
     CPubKey pubkey = secret.GetPubKey();
     assert(secret.VerifyPubKey(pubkey));
 
-    // Create new metadata
+    // Create metadata for the new key
     int64_t nCreationTime = GetTime();
     mapKeyMetadata[pubkey.GetID()] = CKeyMetadata(nCreationTime);
+    
+    // Update first key timestamp if this is earlier
     if (!nTimeFirstKey || nCreationTime < nTimeFirstKey)
         nTimeFirstKey = nCreationTime;
 
+    // Add the key pair to the wallet
     if (!AddKeyPubKey(secret, pubkey))
         throw std::runtime_error("CWallet::GenerateNewKey(): AddKey failed");
+        
     return pubkey;
 }
 
+/**
+ * @brief Add a private key and its corresponding public key to the wallet
+ * @param secret The private key to add
+ * @param pubkey The corresponding public key
+ * @return true if successfully added, false otherwise
+ * 
+ * Adds a key pair to the wallet's key store and persistent storage.
+ * This function handles both encrypted and unencrypted wallets, encrypting
+ * the private key when necessary. It also removes any existing watch-only
+ * entries for the same key and updates HD chain information if applicable.
+ * 
+ * The wallet must be unlocked if it is encrypted.
+ */
 bool CWallet::AddKeyPubKey(const CKey& secret, const CPubKey &pubkey)
 {
     AssertLockHeld(cs_wallet); // mapKeyMetadata
@@ -1173,7 +1531,7 @@ bool CWallet::AddKeyPubKey(const CKey& secret, const CPubKey &pubkey)
         return false;
     }
 
-    // check if we need to remove from watch-only
+    // Check if we need to remove from watch-only
     CScript script;
     script = GetScriptForDestination(pubkey.GetID());
     if (HaveWatchOnly(script))
@@ -1241,11 +1599,38 @@ bool CWallet::AddKeyPubKey(const CKey& secret, const CPubKey &pubkey)
     return true;
 }
 
+/**
+ * @section Key Loading and Database Functions
+ * 
+ * Functions for loading keys and addresses from the wallet database during
+ * wallet initialization. These functions handle both encrypted and unencrypted
+ * key material and populate the in-memory key stores.
+ */
+
+/**
+ * @brief Load a transparent key pair into the wallet
+ * @param key The private key to load
+ * @param pubkey The corresponding public key
+ * @return true if successfully loaded
+ * 
+ * Loads an existing key pair into the in-memory key store. This is typically
+ * called during wallet initialization when reading keys from the database.
+ */
 bool CWallet::LoadKey(const CKey& key, const CPubKey &pubkey)
 {
     return CCryptoKeyStore::AddKeyPubKey(key, pubkey);
 }
 
+/**
+ * @brief Load an encrypted transparent key from the database
+ * @param chash Hash identifier for the encrypted key
+ * @param vchCryptedSecret The encrypted key material
+ * @return true if successfully decrypted and loaded
+ * 
+ * Decrypts and loads an encrypted transparent key into the in-memory key store.
+ * The wallet must be unlocked for this operation to succeed. The hash is used
+ * to verify the integrity of the decrypted key material.
+ */
 bool CWallet::LoadCryptedKey(const uint256 &chash, const std::vector<unsigned char> &vchCryptedSecret)
 {
     AssertLockHeld(cs_wallet);
@@ -1268,6 +1653,17 @@ bool CWallet::LoadCryptedKey(const uint256 &chash, const std::vector<unsigned ch
     return CCryptoKeyStore::AddCryptedKey(vchPubKey, vchCryptedSpendingKey);
 }
 
+/**
+ * @brief Add an encrypted Sprout spending key to the wallet
+ * @param address The Sprout payment address
+ * @param rk The receiving key component
+ * @param vchCryptedSecret The encrypted spending key data
+ * @return true if successfully added
+ * 
+ * Adds an encrypted Sprout spending key to both the in-memory key store and
+ * persistent storage. This function is used during wallet encryption or when
+ * loading encrypted keys from the database.
+ */
 bool CWallet::AddCryptedSproutSpendingKey(
     const libzcash::SproutPaymentAddress &address,
     const libzcash::ReceivingKey &rk,
@@ -1294,6 +1690,16 @@ bool CWallet::AddCryptedSproutSpendingKey(
     return false;
 }
 
+/**
+ * @brief Load metadata for a transparent key
+ * @param pubkey The public key to associate metadata with
+ * @param meta The key metadata containing creation time and other info
+ * @return true if successfully loaded
+ * 
+ * Loads key metadata into the wallet's metadata map. Updates the wallet's
+ * first key timestamp if this key is older than previously recorded keys.
+ * This is typically called during wallet initialization.
+ */
 bool CWallet::LoadKeyMetadata(const CPubKey &pubkey, const CKeyMetadata &meta)
 {
     AssertLockHeld(cs_wallet); // mapKeyMetadata
@@ -1304,6 +1710,16 @@ bool CWallet::LoadKeyMetadata(const CPubKey &pubkey, const CKeyMetadata &meta)
     return true;
 }
 
+/**
+ * @brief Load encrypted metadata for a transparent key
+ * @param chash Hash identifier for the encrypted metadata
+ * @param vchCryptedSecret The encrypted metadata
+ * @param metadata[out] The decrypted metadata object
+ * @return true if successfully decrypted and loaded
+ * 
+ * Decrypts and loads key metadata from encrypted storage. The wallet must
+ * be unlocked for this operation. The metadata is then loaded using LoadKeyMetadata.
+ */
 bool CWallet::LoadCryptedKeyMetadata(const uint256 &chash, const std::vector<unsigned char> &vchCryptedSecret, CKeyMetadata &metadata)
 {
     AssertLockHeld(cs_wallet);
@@ -1325,6 +1741,15 @@ bool CWallet::LoadCryptedKeyMetadata(const uint256 &chash, const std::vector<uns
     return LoadKeyMetadata(vchPubKey, metadata);
 }
 
+/**
+ * @brief Load metadata for a Sprout shielded key
+ * @param addr The Sprout payment address
+ * @param meta The key metadata containing creation time and other info
+ * @return true if successfully loaded
+ * 
+ * Loads Sprout key metadata into the wallet's metadata map. Updates the wallet's
+ * first key timestamp if this key is older than previously recorded keys.
+ */
 bool CWallet::LoadZKeyMetadata(const SproutPaymentAddress &addr, const CKeyMetadata &meta)
 {
     AssertLockHeld(cs_wallet); // mapSproutZKeyMetadata
@@ -1335,18 +1760,37 @@ bool CWallet::LoadZKeyMetadata(const SproutPaymentAddress &addr, const CKeyMetad
     return true;
 }
 
+/**
+ * @brief Load an encrypted Sprout spending key from the database
+ * @param addr The Sprout payment address
+ * @param rk The receiving key component
+ * @param vchCryptedSecret The encrypted spending key data
+ * @return true if successfully loaded
+ * 
+ * Loads an encrypted Sprout spending key into the in-memory key store.
+ * This is typically called during wallet initialization when loading keys from disk.
+ */
 bool CWallet::LoadCryptedZKey(const libzcash::SproutPaymentAddress &addr, const libzcash::ReceivingKey &rk, const std::vector<unsigned char> &vchCryptedSecret)
 {
     return CCryptoKeyStore::AddCryptedSproutSpendingKey(addr, rk, vchCryptedSecret);
 }
 
+/**
+ * @brief Load temporarily held encrypted Sapling metadata
+ * @return true if successfully processed
+ * 
+ * Processes encrypted Sapling key metadata that was temporarily stored during
+ * wallet loading. This function matches metadata to the appropriate viewing keys
+ * and integrates it into the wallet's metadata maps. Called during wallet initialization
+ * to handle cases where metadata is loaded before the corresponding keys.
+ */
 bool CWallet::LoadTempHeldCryptedData()
 {
     AssertLockHeld(cs_wallet);
 
     std::map<uint256, libzcash::SaplingExtendedFullViewingKey> mapSaplingFingerPrints;
 
-    //Get a map of all the saplingfullviewingkey fingerprints
+    // Get a map of all the Sapling full viewing key fingerprints
     for (map<libzcash::SaplingIncomingViewingKey, libzcash::SaplingExtendedFullViewingKey>::iterator it = mapSaplingFullViewingKeys.begin(); it != mapSaplingFullViewingKeys.end(); ++it) {
           libzcash::SaplingExtendedFullViewingKey extfvk = (*it).second;
           mapSaplingFingerPrints[extfvk.fvk.GetFingerprint()] = extfvk;
@@ -1380,6 +1824,16 @@ bool CWallet::LoadTempHeldCryptedData()
     return true;
 }
 
+/**
+ * @brief Load metadata for a Sapling shielded key
+ * @param ivk The Sapling incoming viewing key
+ * @param meta The key metadata containing creation time, keypath, and seed fingerprint
+ * @return true if successfully loaded
+ * 
+ * Loads Sapling key metadata into the wallet's metadata map. Updates the wallet's
+ * first key timestamp if this key is older than previously recorded keys. If the
+ * seed fingerprint is empty (indicating a legacy key), sets nTimeFirstKey to 1.
+ */
 bool CWallet::LoadSaplingZKeyMetadata(const libzcash::SaplingIncomingViewingKey &ivk, const CKeyMetadata &meta)
 {
     AssertLockHeld(cs_wallet); // mapSaplingSpendingKeyMetadata
@@ -1394,6 +1848,16 @@ bool CWallet::LoadSaplingZKeyMetadata(const libzcash::SaplingIncomingViewingKey 
     return true;
 }
 
+/**
+ * @brief Load metadata for an Orchard shielded key
+ * @param ivk The Orchard incoming viewing key
+ * @param meta The key metadata containing creation time, keypath, and seed fingerprint
+ * @return true if successfully loaded
+ * 
+ * Loads Orchard key metadata into the wallet's metadata map. Updates the wallet's
+ * first key timestamp if this key is older than previously recorded keys. If the
+ * seed fingerprint is empty (indicating a legacy key), sets nTimeFirstKey to 1.
+ */
 bool CWallet::LoadOrchardZKeyMetadata(const libzcash::OrchardIncomingViewingKeyPirate &ivk, const CKeyMetadata &meta)
 {
     AssertLockHeld(cs_wallet); // mapSaplingSpendingKeyMetadata
@@ -1408,16 +1872,43 @@ bool CWallet::LoadOrchardZKeyMetadata(const libzcash::OrchardIncomingViewingKeyP
     return true;
 }
 
+/**
+ * @brief Load a Sapling spending key into the wallet
+ * @param key The Sapling extended spending key to load
+ * @return true if successfully loaded
+ * 
+ * Loads a Sapling spending key into the in-memory key store. This is typically
+ * called during wallet initialization when loading keys from the database.
+ */
 bool CWallet::LoadSaplingZKey(const libzcash::SaplingExtendedSpendingKey &key)
 {
     return CCryptoKeyStore::AddSaplingSpendingKey(key);
 }
 
+/**
+ * @brief Load an Orchard spending key into the wallet
+ * @param key The Orchard extended spending key to load
+ * @return true if successfully loaded
+ * 
+ * Loads an Orchard spending key into the in-memory key store. This is typically
+ * called during wallet initialization when loading keys from the database.
+ */
 bool CWallet::LoadOrchardZKey(const libzcash::OrchardExtendedSpendingKeyPirate &key)
 {
     return CCryptoKeyStore::AddOrchardSpendingKey(key);
 }
 
+/**
+ * @brief Load an encrypted Sapling spending key from the database
+ * @param chash Hash identifier for the encrypted key
+ * @param vchCryptedSecret The encrypted spending key data
+ * @param extfvk[out] The decrypted extended full viewing key
+ * @return true if successfully decrypted and loaded
+ * 
+ * Decrypts and loads an encrypted Sapling spending key from the database.
+ * The wallet must be unlocked for this operation. The hash is used to verify
+ * the integrity of the decrypted key material by comparing fingerprints.
+ */
 bool CWallet::LoadCryptedSaplingZKey(const uint256 &chash, const std::vector<unsigned char> &vchCryptedSecret, libzcash::SaplingExtendedFullViewingKey &extfvk)
 {
     AssertLockHeld(cs_wallet);
@@ -1441,6 +1932,17 @@ bool CWallet::LoadCryptedSaplingZKey(const uint256 &chash, const std::vector<uns
      return CCryptoKeyStore::AddCryptedSaplingSpendingKey(extfvk, vchCryptedSecret);
 }
 
+/**
+ * @brief Load an encrypted Orchard spending key from the database
+ * @param chash Hash identifier for the encrypted key
+ * @param vchCryptedSecret The encrypted spending key data
+ * @param extfvk[out] The decrypted extended full viewing key
+ * @return true if successfully decrypted and loaded
+ * 
+ * Decrypts and loads an encrypted Orchard spending key from the database.
+ * The wallet must be unlocked for this operation. The hash is used to verify
+ * the integrity of the decrypted key material by comparing fingerprints.
+ */
 bool CWallet::LoadCryptedOrchardZKey(const uint256 &chash, const std::vector<unsigned char> &vchCryptedSecret, libzcash::OrchardExtendedFullViewingKeyPirate &extfvk)
 {
     AssertLockHeld(cs_wallet);
@@ -1471,19 +1973,47 @@ bool CWallet::LoadCryptedOrchardZKey(const uint256 &chash, const std::vector<uns
      return CCryptoKeyStore::AddCryptedOrchardSpendingKey(extfvk, vchCryptedSecret);
 }
 
+/**
+ * @brief Load a Sapling extended full viewing key into the wallet
+ * @param extfvk The Sapling extended full viewing key to load
+ * @return true if successfully loaded
+ * 
+ * Loads a Sapling extended full viewing key into the in-memory key store.
+ * This allows the wallet to detect incoming transactions without having
+ * the spending key. Typically called during wallet initialization.
+ */
 bool CWallet::LoadSaplingFullViewingKey(const libzcash::SaplingExtendedFullViewingKey &extfvk)
 {
     return CCryptoKeyStore::AddSaplingExtendedFullViewingKey(extfvk);
 }
 
+/**
+ * @brief Load an Orchard extended full viewing key into the wallet
+ * @param extfvk The Orchard extended full viewing key to load
+ * @return true if successfully loaded
+ * 
+ * Loads an Orchard extended full viewing key into the in-memory key store.
+ * This allows the wallet to detect incoming transactions without having
+ * the spending key. Typically called during wallet initialization.
+ */
 bool CWallet::LoadOrchardFullViewingKey(const libzcash::OrchardExtendedFullViewingKeyPirate &extfvk)
 {
     return CCryptoKeyStore::AddOrchardExtendedFullViewingKey(extfvk);
 }
 
+/**
+ * @brief Load an encrypted Sapling extended full viewing key
+ * @param chash Hash identifier for the encrypted key
+ * @param vchCryptedSecret The encrypted viewing key data
+ * @param extfvk[out] The decrypted extended full viewing key
+ * @return true if successfully decrypted and loaded
+ * 
+ * Decrypts and loads an encrypted Sapling extended full viewing key.
+ * The wallet must be unlocked for this operation. Used for watch-only
+ * functionality where spending keys are not available.
+ */
 bool CWallet::LoadCryptedSaplingExtendedFullViewingKey(const uint256 &chash, const std::vector<unsigned char> &vchCryptedSecret, libzcash::SaplingExtendedFullViewingKey &extfvk)
 {
-
     if (IsLocked()) {
         return false;
     }
@@ -1501,6 +2031,17 @@ bool CWallet::LoadCryptedSaplingExtendedFullViewingKey(const uint256 &chash, con
      return CCryptoKeyStore::AddSaplingExtendedFullViewingKey(extfvk);
 }
 
+/**
+ * @brief Load an encrypted Orchard extended full viewing key
+ * @param chash Hash identifier for the encrypted key
+ * @param vchCryptedSecret The encrypted viewing key data
+ * @param extfvk[out] The decrypted extended full viewing key
+ * @return true if successfully decrypted and loaded
+ * 
+ * Decrypts and loads an encrypted Orchard extended full viewing key.
+ * The wallet must be unlocked for this operation. Used for watch-only
+ * functionality where spending keys are not available.
+ */
 bool CWallet::LoadCryptedOrchardExtendedFullViewingKey(const uint256 &chash, const std::vector<unsigned char> &vchCryptedSecret, libzcash::OrchardExtendedFullViewingKeyPirate &extfvk)
 {
 
@@ -1521,6 +2062,16 @@ bool CWallet::LoadCryptedOrchardExtendedFullViewingKey(const uint256 &chash, con
      return CCryptoKeyStore::AddOrchardExtendedFullViewingKey(extfvk);
 }
 
+/**
+ * @brief Load a Sapling payment address and incoming viewing key into the wallet
+ * @param addr The Sapling payment address to load
+ * @param ivk The corresponding incoming viewing key
+ * @return true if successfully loaded
+ * 
+ * Loads a Sapling payment address and its corresponding incoming viewing key
+ * into the wallet's in-memory key store. This is typically called during
+ * wallet initialization when loading address mappings from the database.
+ */
 bool CWallet::LoadSaplingPaymentAddress(
     const libzcash::SaplingPaymentAddress &addr,
     const libzcash::SaplingIncomingViewingKey &ivk)
@@ -1528,6 +2079,16 @@ bool CWallet::LoadSaplingPaymentAddress(
     return CCryptoKeyStore::AddSaplingIncomingViewingKey(ivk, addr);
 }
 
+/**
+ * @brief Load an Orchard payment address and incoming viewing key into the wallet
+ * @param addr The Orchard payment address to load
+ * @param ivk The corresponding incoming viewing key
+ * @return true if successfully loaded
+ * 
+ * Loads an Orchard payment address and its corresponding incoming viewing key
+ * into the wallet's in-memory key store. This is typically called during
+ * wallet initialization when loading address mappings from the database.
+ */
 bool CWallet::LoadOrchardPaymentAddress(
     const libzcash::OrchardPaymentAddressPirate &addr,
     const libzcash::OrchardIncomingViewingKeyPirate &ivk)
@@ -1535,7 +2096,17 @@ bool CWallet::LoadOrchardPaymentAddress(
     return CCryptoKeyStore::AddOrchardIncomingViewingKey(ivk, addr);
 }
 
-
+/**
+ * @brief Load an encrypted Sapling payment address from the database
+ * @param chash Hash identifier for the encrypted address data
+ * @param vchCryptedSecret The encrypted address and viewing key data
+ * @param addr[out] The decrypted Sapling payment address
+ * @return true if successfully decrypted and loaded
+ * 
+ * Decrypts and loads an encrypted Sapling payment address and its corresponding
+ * incoming viewing key from the database. The wallet must be unlocked for this
+ * operation. The hash is used to verify the integrity of the decrypted data.
+ */
 bool CWallet::LoadCryptedSaplingPaymentAddress(const uint256 &chash, const std::vector<unsigned char> &vchCryptedSecret, libzcash::SaplingPaymentAddress& addr)
 {
     if (IsLocked()) {
@@ -1556,6 +2127,17 @@ bool CWallet::LoadCryptedSaplingPaymentAddress(const uint256 &chash, const std::
     return CCryptoKeyStore::AddSaplingIncomingViewingKey(ivk, addr);
 }
 
+/**
+ * @brief Load an encrypted Orchard payment address from the database
+ * @param chash Hash identifier for the encrypted address data
+ * @param vchCryptedSecret The encrypted address and viewing key data
+ * @param addr[out] The decrypted Orchard payment address
+ * @return true if successfully decrypted and loaded
+ * 
+ * Decrypts and loads an encrypted Orchard payment address and its corresponding
+ * incoming viewing key from the database. The wallet must be unlocked for this
+ * operation. The hash is used to verify the integrity of the decrypted data.
+ */
 bool CWallet::LoadCryptedOrchardPaymentAddress(const uint256 &chash, const std::vector<unsigned char> &vchCryptedSecret, libzcash::OrchardPaymentAddressPirate& addr)
 {
     if (IsLocked()) {
@@ -1576,6 +2158,17 @@ bool CWallet::LoadCryptedOrchardPaymentAddress(const uint256 &chash, const std::
     return CCryptoKeyStore::AddOrchardIncomingViewingKey(ivk, addr);
 }
 
+/**
+ * @brief Load a Sapling diversified address into the wallet
+ * @param addr The Sapling diversified payment address
+ * @param ivk The corresponding incoming viewing key
+ * @param path The diversification path used to generate this address
+ * @return true if successfully loaded
+ * 
+ * Loads a Sapling diversified address mapping into the wallet's in-memory store.
+ * This is typically called during wallet initialization when loading diversified
+ * address data from the database.
+ */
 bool CWallet::LoadSaplingDiversifiedAddress(
     const libzcash::SaplingPaymentAddress &addr,
     const libzcash::SaplingIncomingViewingKey &ivk,
@@ -1584,6 +2177,17 @@ bool CWallet::LoadSaplingDiversifiedAddress(
     return CCryptoKeyStore::AddSaplingDiversifiedAddress(addr, ivk, path);
 }
 
+/**
+ * @brief Load an Orchard diversified address into the wallet
+ * @param addr The Orchard diversified payment address
+ * @param ivk The corresponding incoming viewing key
+ * @param path The diversification path used to generate this address
+ * @return true if successfully loaded
+ * 
+ * Loads an Orchard diversified address mapping into the wallet's in-memory store.
+ * This is typically called during wallet initialization when loading diversified
+ * address data from the database.
+ */
 bool CWallet::LoadOrchardDiversifiedAddress(
     const libzcash::OrchardPaymentAddressPirate &addr,
     const libzcash::OrchardIncomingViewingKeyPirate &ivk,
@@ -1592,6 +2196,17 @@ bool CWallet::LoadOrchardDiversifiedAddress(
     return CCryptoKeyStore::AddOrchardDiversifiedAddress(addr, ivk, path);
 }
 
+/**
+ * @brief Load an encrypted Sapling diversified address from the database
+ * @param chash Hash identifier for the encrypted address data
+ * @param vchCryptedSecret The encrypted diversified address data
+ * @return true if successfully decrypted and loaded
+ * 
+ * Decrypts and loads an encrypted Sapling diversified address mapping from
+ * the database. The wallet must be unlocked for this operation. The address,
+ * incoming viewing key, and diversification path are all recovered from the
+ * encrypted data.
+ */
 bool CWallet::LoadCryptedSaplingDiversifiedAddress(const uint256 &chash, const std::vector<unsigned char> &vchCryptedSecret)
 {
     if (IsLocked()) {
@@ -1614,6 +2229,17 @@ bool CWallet::LoadCryptedSaplingDiversifiedAddress(const uint256 &chash, const s
     return CCryptoKeyStore::AddSaplingDiversifiedAddress(addr, ivk, path);
 }
 
+/**
+ * @brief Load an encrypted Orchard diversified address from the database
+ * @param chash Hash identifier for the encrypted address data
+ * @param vchCryptedSecret The encrypted diversified address data
+ * @return true if successfully decrypted and loaded
+ * 
+ * Decrypts and loads an encrypted Orchard diversified address mapping from
+ * the database. The wallet must be unlocked for this operation. The address,
+ * incoming viewing key, and diversification path are all recovered from the
+ * encrypted data.
+ */
 bool CWallet::LoadCryptedOrchardDiversifiedAddress(const uint256 &chash, const std::vector<unsigned char> &vchCryptedSecret)
 {
     if (IsLocked()) {
@@ -1636,6 +2262,15 @@ bool CWallet::LoadCryptedOrchardDiversifiedAddress(const uint256 &chash, const s
     return CCryptoKeyStore::AddOrchardDiversifiedAddress(addr, ivk, path);
 }
 
+/**
+ * @brief Load the last used Sapling diversifier for an incoming viewing key
+ * @param ivk The Sapling incoming viewing key
+ * @param path The diversifier path that was last used
+ * @return true if successfully loaded
+ * 
+ * Loads the last used diversifier path for a Sapling incoming viewing key.
+ * This is used to continue generating addresses from where the wallet left off.
+ */
 bool CWallet::LoadLastSaplingDiversifierUsed(
     const libzcash::SaplingIncomingViewingKey &ivk,
     const blob88 &path)
@@ -1643,6 +2278,15 @@ bool CWallet::LoadLastSaplingDiversifierUsed(
     return CCryptoKeyStore::AddLastSaplingDiversifierUsed(ivk, path);
 }
 
+/**
+ * @brief Load the last used Orchard diversifier for an incoming viewing key
+ * @param ivk The Orchard incoming viewing key
+ * @param path The diversifier path that was last used
+ * @return true if successfully loaded
+ * 
+ * Loads the last used diversifier path for an Orchard incoming viewing key.
+ * This is used to continue generating addresses from where the wallet left off.
+ */
 bool CWallet::LoadLastOrchardDiversifierUsed(
     const libzcash::OrchardIncomingViewingKeyPirate &ivk,
     const blob88 &path)
@@ -1650,6 +2294,15 @@ bool CWallet::LoadLastOrchardDiversifierUsed(
     return CCryptoKeyStore::AddLastOrchardDiversifierUsed(ivk, path);
 }
 
+/**
+ * @brief Load an encrypted last used Sapling diversifier from database
+ * @param chash Hash fingerprint of the encrypted data
+ * @param vchCryptedSecret The encrypted diversifier data
+ * @return true if successfully decrypted and loaded
+ * 
+ * Decrypts and loads the last used diversifier path for a Sapling incoming
+ * viewing key. The encrypted data contains both the IVK and diversifier path.
+ */
 bool CWallet::LoadLastCryptedSaplingDiversifierUsed(const uint256 &chash, const std::vector<unsigned char> &vchCryptedSecret)
 {
     CKeyingMaterial vchSecret;
@@ -1667,6 +2320,15 @@ bool CWallet::LoadLastCryptedSaplingDiversifierUsed(const uint256 &chash, const 
     return LoadLastSaplingDiversifierUsed(ivk, path);
 }
 
+/**
+ * @brief Load an encrypted last used Orchard diversifier from database
+ * @param chash Hash fingerprint of the encrypted data
+ * @param vchCryptedSecret The encrypted diversifier data
+ * @return true if successfully decrypted and loaded
+ * 
+ * Decrypts and loads the last used diversifier path for an Orchard incoming
+ * viewing key. The encrypted data contains both the IVK and diversifier path.
+ */
 bool CWallet::LoadLastCryptedOrchardDiversifierUsed(const uint256 &chash, const std::vector<unsigned char> &vchCryptedSecret)
 {
     CKeyingMaterial vchSecret;
@@ -1684,11 +2346,28 @@ bool CWallet::LoadLastCryptedOrchardDiversifierUsed(const uint256 &chash, const 
     return LoadLastOrchardDiversifierUsed(ivk, path);
 }
 
+/**
+ * @brief Load a Sprout spending key into the keystore
+ * @param key The Sprout spending key to load
+ * @return true if successfully loaded
+ * 
+ * Loads a Sprout spending key into the in-memory keystore. This is typically
+ * called during wallet initialization when reading keys from the database.
+ */
 bool CWallet::LoadZKey(const libzcash::SproutSpendingKey &key)
 {
     return CCryptoKeyStore::AddSproutSpendingKey(key);
 }
 
+/**
+ * @brief Add a Sprout viewing key to the wallet
+ * @param vk The Sprout viewing key to add
+ * @return true if successfully added
+ * 
+ * Adds a Sprout viewing key to both the keystore and database. Viewing keys
+ * allow watching for incoming transactions without spending capability.
+ * Sets first key time to 1 since viewing keys don't have birthday info.
+ */
 bool CWallet::AddSproutViewingKey(const libzcash::SproutViewingKey &vk)
 {
     if (!CCryptoKeyStore::AddSproutViewingKey(vk)) {
@@ -1701,6 +2380,14 @@ bool CWallet::AddSproutViewingKey(const libzcash::SproutViewingKey &vk)
     return CWalletDB(strWalletFile).WriteSproutViewingKey(vk);
 }
 
+/**
+ * @brief Remove a Sprout viewing key from the wallet
+ * @param vk The Sprout viewing key to remove
+ * @return true if successfully removed
+ * 
+ * Removes the Sprout viewing key from both the keystore and database.
+ * Requires wallet lock to be held.
+ */
 bool CWallet::RemoveSproutViewingKey(const libzcash::SproutViewingKey &vk)
 {
     AssertLockHeld(cs_wallet);
@@ -1716,11 +2403,28 @@ bool CWallet::RemoveSproutViewingKey(const libzcash::SproutViewingKey &vk)
     return true;
 }
 
+/**
+ * @brief Load a Sprout viewing key into the keystore
+ * @param vk The Sprout viewing key to load
+ * @return true if successfully loaded
+ * 
+ * Loads a Sprout viewing key into the in-memory keystore. This is typically
+ * called during wallet initialization when reading keys from the database.
+ */
 bool CWallet::LoadSproutViewingKey(const libzcash::SproutViewingKey &vk)
 {
     return CCryptoKeyStore::AddSproutViewingKey(vk);
 }
 
+/**
+ * @brief Add a redeem script to the wallet
+ * @param redeemScript The script to add
+ * @return true if successfully added
+ * 
+ * Adds a redeem script to the wallet's script store and persists it to disk.
+ * Redeem scripts are used for P2SH (Pay-to-Script-Hash) addresses.
+ * Returns false if wallet is encrypted and locked.
+ */
 bool CWallet::AddCScript(const CScript& redeemScript)
 {
     if (IsCrypted() && IsLocked()) {
@@ -1759,6 +2463,15 @@ bool CWallet::AddCScript(const CScript& redeemScript)
 
 }
 
+/**
+ * @brief Load a redeem script into the wallet
+ * @param redeemScript The script to load
+ * @return true if successfully loaded
+ * 
+ * Loads a redeem script into the in-memory script store. Includes validation
+ * to prevent loading scripts that exceed maximum size limits. This is typically
+ * called during wallet initialization when reading scripts from the database.
+ */
 bool CWallet::LoadCScript(const CScript& redeemScript)
 {
     /* A sanity check was added in pull #3843 to avoid adding redeemScripts
@@ -1775,6 +2488,15 @@ bool CWallet::LoadCScript(const CScript& redeemScript)
     return CCryptoKeyStore::AddCScript(redeemScript);
 }
 
+/**
+ * @brief Load an encrypted redeem script from the database
+ * @param chash Hash fingerprint of the encrypted data
+ * @param vchCryptedSecret The encrypted script data
+ * @return true if successfully decrypted and loaded
+ * 
+ * Decrypts and loads an encrypted redeem script from the wallet database.
+ * Returns false if wallet is locked or decryption fails.
+ */
 bool CWallet::LoadCryptedCScript(const uint256 &chash, std::vector<unsigned char> &vchCryptedSecret)
 {
     if (IsLocked()) {
@@ -1793,6 +2515,16 @@ bool CWallet::LoadCryptedCScript(const uint256 &chash, std::vector<unsigned char
     return LoadCScript(redeemScript);
 }
 
+/**
+ * @brief Add a watch-only address to the wallet
+ * @param dest The script/address to watch
+ * @return true if successfully added
+ * 
+ * Adds a watch-only address to the wallet, allowing monitoring of transactions
+ * without spending capability. Sets first key time to 1 since watch-only
+ * addresses don't have birthday info. Notifies UI of the change and persists
+ * to disk if wallet is file-backed.
+ */
 bool CWallet::AddWatchOnly(const CScript &dest)
 {
     if (IsCrypted() && IsLocked()) {
@@ -1830,6 +2562,15 @@ bool CWallet::AddWatchOnly(const CScript &dest)
     return true;
 }
 
+/**
+ * @brief Remove a watch-only address from the wallet
+ * @param dest The script/address to stop watching
+ * @return true if successfully removed
+ * 
+ * Removes a watch-only address from both keystore and database.
+ * Updates UI notification if no watch-only addresses remain.
+ * Requires wallet lock to be held.
+ */
 bool CWallet::RemoveWatchOnly(const CScript &dest)
 {
     AssertLockHeld(cs_wallet);
@@ -1844,11 +2585,28 @@ bool CWallet::RemoveWatchOnly(const CScript &dest)
     return true;
 }
 
+/**
+ * @brief Load a watch-only address into the wallet
+ * @param dest The script/address to load
+ * @return true if successfully loaded
+ * 
+ * Loads a watch-only address into the in-memory keystore. This is typically
+ * called during wallet initialization when reading addresses from the database.
+ */
 bool CWallet::LoadWatchOnly(const CScript &dest)
 {
     return CCryptoKeyStore::AddWatchOnly(dest);
 }
 
+/**
+ * @brief Load an encrypted watch-only address from the database
+ * @param chash Hash fingerprint of the encrypted data
+ * @param vchCryptedSecret The encrypted address data
+ * @return true if successfully decrypted and loaded
+ * 
+ * Decrypts and loads an encrypted watch-only address from the wallet database.
+ * Returns false if wallet is locked or decryption fails.
+ */
 bool CWallet::LoadCryptedWatchOnly(const uint256 &chash, std::vector<unsigned char> &vchCryptedSecret)
 {
     if (IsLocked()) {
@@ -1867,6 +2625,15 @@ bool CWallet::LoadCryptedWatchOnly(const uint256 &chash, std::vector<unsigned ch
     return LoadWatchOnly(dest);
 }
 
+/**
+ * @brief Load a Sapling watch-only extended full viewing key
+ * @param extfvk The Sapling extended full viewing key to load
+ * @return true if successfully loaded
+ * 
+ * Loads a Sapling extended full viewing key for watch-only functionality.
+ * This allows monitoring of Sapling transactions without spending capability.
+ * Notifies UI of the change when successful.
+ */
 bool CWallet::LoadSaplingWatchOnly(const libzcash::SaplingExtendedFullViewingKey &extfvk)
 {
     if (CCryptoKeyStore::AddSaplingWatchOnly(extfvk)) {
@@ -1877,6 +2644,15 @@ bool CWallet::LoadSaplingWatchOnly(const libzcash::SaplingExtendedFullViewingKey
     return false;
 }
 
+/**
+ * @brief Load an Orchard watch-only extended full viewing key
+ * @param extfvk The Orchard extended full viewing key to load
+ * @return true if successfully loaded
+ * 
+ * Loads an Orchard extended full viewing key for watch-only functionality.
+ * This allows monitoring of Orchard transactions without spending capability.
+ * Notifies UI of the change when successful.
+ */
 bool CWallet::LoadOrchardWatchOnly(const libzcash::OrchardExtendedFullViewingKeyPirate &extfvk)
 {
     if (CCryptoKeyStore::AddOrchardWatchOnly(extfvk)) {
@@ -1887,6 +2663,23 @@ bool CWallet::LoadOrchardWatchOnly(const libzcash::OrchardExtendedFullViewingKey
     return false;
 }
 
+/**
+ * @section Wallet Encryption and Unlocking Functions
+ * 
+ * Functions for managing wallet encryption, unlocking, and password operations.
+ * These functions handle the cryptographic operations needed to protect private keys.
+ */
+
+/**
+ * @brief Open (unlock) an encrypted wallet using the provided passphrase
+ * @param strWalletPassphrase The wallet encryption passphrase
+ * @return true if wallet was successfully unlocked
+ * 
+ * Attempts to unlock an encrypted wallet by trying the passphrase against
+ * all stored master keys. When successful, decrypts the master key and
+ * stores the passphrase for session use. This function tries each master
+ * key until one succeeds or all fail.
+ */
 bool CWallet::OpenWallet(const SecureString& strWalletPassphrase)
 {
     CCrypter crypter;
@@ -1909,6 +2702,19 @@ bool CWallet::OpenWallet(const SecureString& strWalletPassphrase)
     return false;
 }
 
+/**
+ * @brief Unlock an encrypted wallet using the provided passphrase
+ * @param strWalletPassphrase The wallet encryption passphrase
+ * @return true if wallet was successfully unlocked
+ * 
+ * Attempts to unlock an encrypted wallet by trying the passphrase against
+ * all stored master keys. When successful, decrypts the master key and
+ * updates the blockchain state. The unlocked state allows access to
+ * private keys for transaction signing and key operations.
+ * 
+ * This function is thread-safe and will try all available master keys
+ * until one succeeds or all fail.
+ */
 bool CWallet::Unlock(const SecureString& strWalletPassphrase)
 {
     CCrypter crypter;
@@ -1931,6 +2737,20 @@ bool CWallet::Unlock(const SecureString& strWalletPassphrase)
     return false;
 }
 
+/**
+ * @brief Change the wallet encryption passphrase
+ * @param strOldWalletPassphrase The current wallet passphrase
+ * @param strNewWalletPassphrase The new wallet passphrase
+ * @return true if passphrase was successfully changed
+ * 
+ * Changes the wallet encryption passphrase by decrypting all master keys
+ * with the old passphrase and re-encrypting them with the new one. The
+ * wallet is temporarily locked during this operation for security.
+ * 
+ * This is a critical security operation that updates all encrypted data
+ * in the wallet database. If the operation fails partway through, the
+ * wallet state may be inconsistent and require recovery from backup.
+ */
 bool CWallet::ChangeWalletPassphrase(const SecureString& strOldWalletPassphrase, const SecureString& strNewWalletPassphrase)
 {
     bool fWasLocked = IsLocked();
@@ -1977,6 +2797,34 @@ bool CWallet::ChangeWalletPassphrase(const SecureString& strOldWalletPassphrase,
     return false;
 }
 
+/**
+ * @section Blockchain Integration Functions
+ * 
+ * Functions for integrating wallet operations with blockchain events,
+ * including block connection/disconnection and chain reorganizations.
+ */
+
+/**
+ * @brief Handle blockchain tip changes
+ * @param pindex The new block index at the chain tip
+ * @param pblock The block data (if available)
+ * @param added True if block was added, false if removed
+ * 
+ * Called when the blockchain tip changes to update wallet state accordingly.
+ * This function handles both block additions and removals (during reorganizations).
+ * 
+ * For block additions:
+ * - Updates Sapling and Orchard wallet commitment trees
+ * - Schedules automatic consolidation operations for fresh blocks
+ * - Manages transaction confirmation status
+ * 
+ * For block removals:
+ * - Reverts wallet state changes from the removed block
+ * - Updates transaction depths and confirmation status
+ * 
+ * This function is critical for maintaining wallet synchronization with
+ * the blockchain and ensuring accurate balance and transaction status.
+ */
 void CWallet::ChainTip(const CBlockIndex *pindex,
                        const CBlock *pblock,
                        bool added)
@@ -2034,6 +2882,21 @@ void CWallet::ChainTip(const CBlockIndex *pindex,
 
 }
 
+/**
+ * @brief Run Sapling note sweeping operation at the specified block height
+ * @param blockHeight The current block height
+ * 
+ * Automatically sweeps Sapling notes to consolidate and clean up the wallet.
+ * Only runs if:
+ * - Sapling upgrade is active
+ * - Sweeping is enabled (fSaplingSweepEnabled)
+ * - It's time for next sweep (nextSweep <= blockHeight)
+ * - No consolidation is running or scheduled soon
+ * - No other sweep operation is currently running
+ * 
+ * Creates an AsyncRPCOperation_sweeptoaddress operation to handle the
+ * sweeping process asynchronously.
+ */
 void CWallet::RunSaplingSweep(int blockHeight) {
     if (!NetworkUpgradeActive(blockHeight, Params().GetConsensus(), Consensus::UPGRADE_SAPLING)) {
         return;
@@ -2071,6 +2934,28 @@ void CWallet::RunSaplingSweep(int blockHeight) {
 }
 
 
+/**
+ * @section Transaction Automation Functions
+ * 
+ * Functions for automated transaction management including note consolidation,
+ * sweeping operations, and transaction cleanup. These operations help maintain
+ * wallet performance and privacy by managing note fragmentation and cleanup.
+ */
+
+/**
+ * @brief Run Sapling note consolidation at the specified block height
+ * @param blockHeight The current block height
+ * 
+ * Automatically consolidates fragmented Sapling notes to improve wallet performance
+ * and reduce transaction complexity. Only runs if:
+ * - Sapling upgrade is active
+ * - Consolidation is enabled (fSaplingConsolidationEnabled)
+ * - It's time for next consolidation (nextConsolidation <= blockHeight)
+ * - No sweep operation is currently running
+ * 
+ * Creates an AsyncRPCOperation_saplingconsolidation operation to handle the
+ * consolidation process asynchronously.
+ */
 void CWallet::RunSaplingConsolidation(int blockHeight) {
     if (!NetworkUpgradeActive(blockHeight, Params().GetConsensus(), Consensus::UPGRADE_SAPLING)) {
         return;
@@ -2103,6 +2988,22 @@ void CWallet::RunSaplingConsolidation(int blockHeight) {
 
 }
 
+/**
+ * @brief Commit an automated transaction to the memory pool and network
+ * @param tx The transaction to commit
+ * @return true if successfully committed to mempool and relayed, false otherwise
+ * 
+ * Processes automated transactions (such as consolidation or sweeping operations)
+ * by first accepting them into the local memory pool and then broadcasting them
+ * to the network. This function is used by automated wallet operations to
+ * ensure proper transaction propagation.
+ * 
+ * The function performs two critical steps:
+ * 1. Accepts the transaction into the local mempool for validation
+ * 2. Relays the transaction to connected network peers
+ * 
+ * Returns false if either step fails, ensuring atomic commit behavior.
+ */
 bool CWallet::CommitAutomatedTx(const CTransaction& tx) {
   CWalletTx wtx(this, tx);
 
@@ -2120,6 +3021,16 @@ bool CWallet::CommitAutomatedTx(const CTransaction& tx) {
 
 }
 
+/**
+ * @brief Update the wallet's best chain locator and height
+ * @param loc The block locator representing the current chain tip
+ * @param height The height of the current chain tip
+ * 
+ * Updates the wallet's internal record of the best chain state and persists
+ * it to the database. This function is only active in online mode (when
+ * nMaxConnections > 0) and is ignored in cold storage offline mode.
+ * Requires the wallet lock to be held.
+ */
 void CWallet::SetBestChain(const CBlockLocator& loc, const int& height)
 {
     //Only execute in online mode, otherwise ignore this function
@@ -2131,12 +3042,29 @@ void CWallet::SetBestChain(const CBlockLocator& loc, const int& height)
     }
 }
 
+/**
+ * @brief Set the wallet's birthday block height
+ * @param nHeight The block height to set as the wallet's birthday
+ * 
+ * Sets the wallet's birthday to the specified block height and persists it
+ * to the database. The birthday marks the earliest block that needs to be
+ * scanned for wallet transactions, improving sync performance.
+ */
 void CWallet::SetWalletBirthday(int nHeight)
 {
     CWalletDB walletdb(strWalletFile);
     walletdb.WriteWalletBirthday(nHeight);
 }
 
+/**
+ * @brief Get nullifiers for a set of payment addresses
+ * @param addresses Set of payment addresses to get nullifiers for
+ * @return Set of pairs containing (payment address, nullifier hash)
+ * 
+ * Retrieves all nullifiers associated with the given payment addresses.
+ * This includes nullifiers for both Sapling and Orchard protocols.
+ * Nullifiers are used to prevent double-spending in shielded transactions.
+ */
 std::set<std::pair<libzcash::PaymentAddress, uint256>> CWallet::GetNullifiersForAddresses(
         const std::set<libzcash::PaymentAddress> & addresses)
 {
@@ -2201,6 +3129,23 @@ std::set<std::pair<libzcash::PaymentAddress, uint256>> CWallet::GetNullifiersFor
     return nullifierSet;
 }
 
+/**
+ * @brief Determine if a Sprout note is change from the same transaction
+ * @param nullifierSet Set of nullifiers for addresses in the transaction
+ * @param address The payment address that received the note
+ * @param jsop The JoinSplit output point of the note
+ * @return true if the note is considered change, false otherwise
+ * 
+ * A note is marked as "change" if the address that received it also spent
+ * notes in the same transaction. This detects:
+ * - Change created by spending fractions of notes (z_sendmany change)
+ * - "Chaining Notes" used to connect JoinSplits together
+ * - Notes created by consolidation transactions (z_mergetoaddress)
+ * - Notes sent from one address to itself
+ * 
+ * The function examines all JoinSplit descriptions in the transaction to
+ * find if any nullifiers match the receiving address.
+ */
 bool CWallet::IsNoteSproutChange(
         const std::set<std::pair<libzcash::PaymentAddress, uint256>> & nullifierSet,
         const PaymentAddress & address,
@@ -2225,6 +3170,22 @@ bool CWallet::IsNoteSproutChange(
     return false;
 }
 
+/**
+ * @brief Determine if a Sapling note is change from the same transaction
+ * @param nullifierSet Set of nullifiers for addresses in the transaction
+ * @param address The payment address that received the note
+ * @param op The Sapling output point of the note
+ * @return true if the note is considered change, false otherwise
+ * 
+ * A note is marked as "change" if the address that received it also spent
+ * notes in the same transaction. This detects:
+ * - Change created by spending fractions of notes (z_sendmany change)
+ * - Notes created by consolidation transactions (z_mergetoaddress)
+ * - Notes sent from one address to itself
+ * 
+ * The function examines all Sapling spend descriptions in the transaction to
+ * find if any nullifiers match the receiving address.
+ */
 bool CWallet::IsNoteSaplingChange(const std::set<std::pair<libzcash::PaymentAddress, uint256>> & nullifierSet,
         const libzcash::PaymentAddress & address,
         const SaplingOutPoint & op)
@@ -2246,6 +3207,22 @@ bool CWallet::IsNoteSaplingChange(const std::set<std::pair<libzcash::PaymentAddr
     return false;
 }
 
+/**
+ * @brief Determine if an Orchard note is change from the same transaction
+ * @param nullifierSet Set of nullifiers for addresses in the transaction
+ * @param address The payment address that received the note
+ * @param op The Orchard output point of the note
+ * @return true if the note is considered change, false otherwise
+ * 
+ * A note is marked as "change" if the address that received it also spent
+ * notes in the same transaction. This detects:
+ * - Change created by spending fractions of notes (z_sendmany change)
+ * - Notes created by consolidation transactions (z_mergetoaddress)
+ * - Notes sent from one address to itself
+ * 
+ * The function examines all Orchard action descriptions in the transaction to
+ * find if any nullifiers match the receiving address.
+ */
 bool CWallet::IsNoteOrchardChange(const std::set<std::pair<libzcash::PaymentAddress, uint256>> & nullifierSet,
         const libzcash::PaymentAddress & address,
         const OrchardOutPoint & op)
@@ -2267,6 +3244,17 @@ bool CWallet::IsNoteOrchardChange(const std::set<std::pair<libzcash::PaymentAddr
     return false;
 }
 
+/**
+ * @brief Set the wallet's encrypted status in the database
+ * @param pwalletdb Pointer to the wallet database instance
+ * @return true if successfully written to database, false otherwise
+ * 
+ * Marks the wallet as encrypted in the persistent database. This function
+ * is called during the wallet encryption process to permanently record
+ * the wallet's encrypted state. Only works for file-backed wallets.
+ * 
+ * The wallet lock must be held when calling this function.
+ */
 bool CWallet::SetWalletCrypted(CWalletDB* pwalletdb) {
     LOCK(cs_wallet);
 
@@ -2278,6 +3266,21 @@ bool CWallet::SetWalletCrypted(CWalletDB* pwalletdb) {
     return false;
 }
 
+/**
+ * @brief Set the minimum wallet version for feature support
+ * @param nVersion The minimum wallet version to set
+ * @param pwalletdbIn Optional wallet database instance to use
+ * @param fExplicit True if this is an explicit upgrade request
+ * @return true if version was successfully updated
+ * 
+ * Updates the wallet's minimum version to enable new features. When doing
+ * an explicit upgrade, if the requested version exceeds the maximum permitted
+ * version, upgrades all the way to the latest feature set.
+ * 
+ * The function updates both in-memory version variables and persists the
+ * change to the database for file-backed wallets. Version numbers above
+ * 40000 are written to the database as minimum version requirements.
+ */
 bool CWallet::SetMinVersion(enum WalletFeature nVersion, CWalletDB* pwalletdbIn, bool fExplicit)
 {
     LOCK(cs_wallet); // nWalletVersion
@@ -2305,6 +3308,19 @@ bool CWallet::SetMinVersion(enum WalletFeature nVersion, CWalletDB* pwalletdbIn,
     return true;
 }
 
+/**
+ * @brief Set the maximum allowed wallet version
+ * @param nVersion The maximum wallet version to allow
+ * @return true if successfully set, false if trying to downgrade below current version
+ * 
+ * Sets the maximum wallet version that can be used. This prevents the wallet
+ * from upgrading beyond the specified version, which can be useful for
+ * maintaining compatibility with older software versions.
+ * 
+ * The function will fail if attempting to set a maximum version lower than
+ * the wallet's current version, as this would be a downgrade operation.
+ * The wallet lock is held during this operation for thread safety.
+ */
 bool CWallet::SetMaxVersion(int nVersion)
 {
     LOCK(cs_wallet); // nWalletVersion, nWalletMaxVersion
@@ -2317,6 +3333,20 @@ bool CWallet::SetMaxVersion(int nVersion)
     return true;
 }
 
+/**
+ * @brief Get all transactions that conflict with the specified transaction
+ * @param txid The transaction ID to check for conflicts
+ * @return Set of transaction IDs that conflict with the given transaction
+ * 
+ * Identifies all transactions in the wallet that conflict with the specified
+ * transaction by examining spent outputs and nullifiers. Conflicts occur when:
+ * - Multiple transactions spend the same transparent UTXO
+ * - Multiple transactions spend the same Sprout, Sapling, or Orchard note (same nullifier)
+ * 
+ * This function is essential for handling double-spend situations and chain
+ * reorganizations where conflicting transactions may become valid or invalid.
+ * The wallet lock must be held when calling this function.
+ */
 set<uint256> CWallet::GetConflicts(const uint256& txid) const
 {
     set<uint256> result;
@@ -2380,11 +3410,37 @@ set<uint256> CWallet::GetConflicts(const uint256& txid) const
     return result;
 }
 
+/**
+ * @brief Flush the wallet database to disk
+ * @param shutdown True if this is a shutdown flush, false for periodic flush
+ * 
+ * Forces all pending wallet database writes to be flushed to disk. This
+ * ensures data persistence and prevents loss of recent wallet changes.
+ * The shutdown parameter indicates whether this is part of application
+ * shutdown, which may trigger additional cleanup operations.
+ */
 void CWallet::Flush(bool shutdown)
 {
     bitdb->Flush(shutdown);
 }
 
+/**
+ * @brief Verify the integrity of a wallet file
+ * @param walletFile Name of the wallet file to verify
+ * @param warningString[out] String to append warnings to
+ * @param errorString[out] String to append errors to
+ * @return true if verification completed (regardless of issues found), false on critical failure
+ * 
+ * Performs integrity checks on the specified wallet file. This function:
+ * - Attempts to open the wallet database environment
+ * - Handles database corruption by moving old database files and retrying
+ * - Performs salvage operations if -salvagewallet flag is set
+ * - Validates wallet data structures and consistency
+ * 
+ * Any warnings or errors encountered are appended to the provided strings.
+ * The function attempts recovery operations when possible, including moving
+ * corrupted database files to backup locations.
+ */
 bool CWallet::Verify(const string& walletFile, string& warningString, string& errorString)
 {
     if (!bitdb->Open(GetDataDir()))
@@ -2432,6 +3488,31 @@ bool CWallet::Verify(const string& walletFile, string& warningString, string& er
     return true;
 }
 
+/**
+ * @brief Synchronize metadata across conflicting transactions
+ * @tparam T The type of the spend map key (COutPoint for transparent, uint256 for shielded)
+ * @param range Iterator range of transactions that spend the same output/nullifier
+ * 
+ * Ensures all wallet transactions in the given range have consistent metadata
+ * by copying metadata from the oldest transaction (smallest nOrderPos) to all others.
+ * This maintains consistency when multiple transactions conflict by spending the same
+ * output or using the same nullifier.
+ * 
+ * The function synchronizes the following metadata fields:
+ * - mapValue: Key-value pairs with transaction metadata
+ * - vOrderForm: Ordered form data for the transaction
+ * - nTimeSmart: Smart timestamp for transaction ordering
+ * - fFromMe: Flag indicating if transaction originated from this wallet
+ * - strFromAccount: Source account name for the transaction
+ * 
+ * Note data (mapSproutNoteData, mapSaplingNoteData, mapOrchardNoteData) is
+ * intentionally not copied as it should remain unique per transaction.
+ * Similarly, nTimeReceived, fTimeReceivedIsTxTime, and nOrderPos are preserved
+ * to maintain transaction-specific timing and ordering information.
+ * 
+ * This function is critical for handling double-spend scenarios and chain
+ * reorganizations where conflicting transactions may become valid/invalid.
+ */
 template <class T>
 void CWallet::SyncMetaData(pair<typename TxSpendMap<T>::iterator, typename TxSpendMap<T>::iterator> range)
 {
@@ -2481,8 +3562,20 @@ void CWallet::SyncMetaData(pair<typename TxSpendMap<T>::iterator, typename TxSpe
 }
 
 /**
- * Outpoint is spent if any non-conflicted transaction
- * spends it:
+ * @brief Check if a transparent output is spent by any non-conflicted transaction
+ * @param hash The transaction hash containing the output
+ * @param n The output index within the transaction
+ * @return true if the output is spent by a confirmed transaction, false otherwise
+ * 
+ * Determines if a specific transparent output (UTXO) has been spent by examining
+ * all transactions that reference this output. An output is considered spent if
+ * any non-conflicted transaction (depth >= 0) includes it as an input.
+ * 
+ * This function is essential for:
+ * - Determining available balance in transparent addresses
+ * - Validating transaction inputs during creation
+ * - Detecting double-spend attempts
+ * - Maintaining accurate UTXO state
  */
 bool CWallet::IsSpent(const uint256& hash, unsigned int n) const
 {
@@ -2500,6 +3593,23 @@ bool CWallet::IsSpent(const uint256& hash, unsigned int n) const
     return false;
 }
 
+/**
+ * @brief Get the confirmation depth of a transparent output's spending transaction
+ * @param hash The transaction hash containing the output
+ * @param n The output index within the transaction
+ * @return Depth of the spending transaction (0+ for confirmed, -1 for conflicted, INT_MAX if unspent)
+ * 
+ * Returns the depth (confirmations) of the transaction that spends a given output:
+ * - Positive value: Number of confirmations of the spending transaction
+ * - 0: Spending transaction is in mempool (unconfirmed)
+ * - -1: Spending transaction conflicts with a block transaction
+ * - INT_MAX: Output is not spent by any known transaction
+ * 
+ * This function is used for:
+ * - Determining output availability for new transactions
+ * - Calculating wallet balance with different confirmation requirements
+ * - Validating transaction chains and dependencies
+ */
 int CWallet::GetSpendDepth(const uint256& hash, unsigned int n) const
 {
     const COutPoint outpoint(hash, n);
@@ -2517,8 +3627,19 @@ int CWallet::GetSpendDepth(const uint256& hash, unsigned int n) const
 }
 
 /**
- * Note is spent if any non-conflicted transaction
- * spends it:
+ * @brief Check if a Sprout note is spent by any non-conflicted transaction
+ * @param nullifier The Sprout nullifier to check for spending
+ * @return true if the note is spent by a confirmed transaction, false otherwise
+ * 
+ * Determines if a specific Sprout note has been spent by examining all transactions
+ * that use the given nullifier. A note is considered spent if any non-conflicted
+ * transaction (depth >= 0) includes this nullifier in its JoinSplit descriptions.
+ * 
+ * This function is essential for:
+ * - Determining available balance in Sprout addresses
+ * - Preventing double-spend attempts in new transactions
+ * - Validating transaction inputs during creation
+ * - Maintaining accurate note state across chain reorganizations
  */
 bool CWallet::IsSproutSpent(const uint256& nullifier) const {
     pair<TxNullifiers::const_iterator, TxNullifiers::const_iterator> range;
@@ -2534,6 +3655,21 @@ bool CWallet::IsSproutSpent(const uint256& nullifier) const {
     return false;
 }
 
+/**
+ * @brief Get the confirmation depth of a Sprout note's spending transaction
+ * @param nullifier The Sprout nullifier to check for spending depth
+ * @return Depth of the spending transaction (0+ for confirmed, 0 if unspent)
+ * 
+ * Returns the depth (confirmations) of the transaction that spends a Sprout note
+ * with the given nullifier:
+ * - Positive value: Number of confirmations of the spending transaction
+ * - 0: Note is not spent by any confirmed transaction
+ * 
+ * This function is used for:
+ * - Determining note availability with different confirmation requirements
+ * - Calculating wallet balance based on confirmation depth
+ * - Validating transaction chains and dependencies in Sprout protocol
+ */
 int CWallet::GetSproutSpendDepth(const uint256& nullifier) const {
     pair<TxNullifiers::const_iterator, TxNullifiers::const_iterator> range;
     range = mapTxSproutNullifiers.equal_range(nullifier);
@@ -2548,6 +3684,21 @@ int CWallet::GetSproutSpendDepth(const uint256& nullifier) const {
     return 0;
 }
 
+/**
+ * @brief Check if a Sapling note is spent by any non-conflicted transaction
+ * @param nullifier The Sapling nullifier to check for spending
+ * @return true if the note is spent by a confirmed transaction, false otherwise
+ * 
+ * Determines if a specific Sapling note has been spent by examining all transactions
+ * that use the given nullifier. A note is considered spent if any non-conflicted
+ * transaction (depth >= 0) includes this nullifier in its Sapling spend descriptions.
+ * 
+ * This function is essential for:
+ * - Determining available balance in Sapling addresses
+ * - Preventing double-spend attempts in new transactions
+ * - Validating transaction inputs during creation
+ * - Maintaining accurate note state across chain reorganizations
+ */
 bool CWallet::IsSaplingSpent(const uint256& nullifier) const {
     pair<TxNullifiers::const_iterator, TxNullifiers::const_iterator> range;
     range = mapTxSaplingNullifiers.equal_range(nullifier);
@@ -2562,6 +3713,21 @@ bool CWallet::IsSaplingSpent(const uint256& nullifier) const {
     return false;
 }
 
+/**
+ * @brief Get the confirmation depth of a Sapling note's spending transaction
+ * @param nullifier The Sapling nullifier to check for spending depth
+ * @return Depth of the spending transaction (0+ for confirmed, 0 if unspent)
+ * 
+ * Returns the depth (confirmations) of the transaction that spends a Sapling note
+ * with the given nullifier:
+ * - Positive value: Number of confirmations of the spending transaction
+ * - 0: Note is not spent by any confirmed transaction
+ * 
+ * This function is used for:
+ * - Determining note availability with different confirmation requirements
+ * - Calculating wallet balance based on confirmation depth
+ * - Validating transaction chains and dependencies in Sapling protocol
+ */
 int CWallet::GetSaplingSpendDepth(const uint256& nullifier) const {
     pair<TxNullifiers::const_iterator, TxNullifiers::const_iterator> range;
     range = mapTxSaplingNullifiers.equal_range(nullifier);
@@ -2576,6 +3742,21 @@ int CWallet::GetSaplingSpendDepth(const uint256& nullifier) const {
     return 0;
 }
 
+/**
+ * @brief Check if an Orchard note is spent by any non-conflicted transaction
+ * @param nullifier The Orchard nullifier to check for spending
+ * @return true if the note is spent by a confirmed transaction, false otherwise
+ * 
+ * Determines if a specific Orchard note has been spent by examining all transactions
+ * that use the given nullifier. A note is considered spent if any non-conflicted
+ * transaction (depth >= 0) includes this nullifier in its Orchard action descriptions.
+ * 
+ * This function is essential for:
+ * - Determining available balance in Orchard addresses
+ * - Preventing double-spend attempts in new transactions
+ * - Validating transaction inputs during creation
+ * - Maintaining accurate note state across chain reorganizations
+ */
 bool CWallet::IsOrchardSpent(const uint256& nullifier) const {
     pair<TxNullifiers::const_iterator, TxNullifiers::const_iterator> range;
     range = mapTxOrchardNullifiers.equal_range(nullifier);
@@ -2590,6 +3771,21 @@ bool CWallet::IsOrchardSpent(const uint256& nullifier) const {
     return false;
 }
 
+/**
+ * @brief Get the confirmation depth of an Orchard note's spending transaction
+ * @param nullifier The Orchard nullifier to check for spending depth
+ * @return Depth of the spending transaction (0+ for confirmed, 0 if unspent)
+ * 
+ * Returns the depth (confirmations) of the transaction that spends an Orchard note
+ * with the given nullifier:
+ * - Positive value: Number of confirmations of the spending transaction
+ * - 0: Note is not spent by any confirmed transaction
+ * 
+ * This function is used for:
+ * - Determining note availability with different confirmation requirements
+ * - Calculating wallet balance based on confirmation depth
+ * - Validating transaction chains and dependencies in Orchard protocol
+ */
 int CWallet::GetOrchardSpendDepth(const uint256& nullifier) const {
     pair<TxNullifiers::const_iterator, TxNullifiers::const_iterator> range;
     range = mapTxOrchardNullifiers.equal_range(nullifier);
@@ -2604,6 +3800,19 @@ int CWallet::GetOrchardSpendDepth(const uint256& nullifier) const {
     return 0;
 }
 
+/**
+ * @brief Add a transparent output to the spend tracking map
+ * @param outpoint The transparent output point being spent
+ * @param wtxid The wallet transaction ID that spends this output
+ * 
+ * Records that a specific transparent UTXO is being spent by a transaction.
+ * This function:
+ * - Adds the spending relationship to mapTxSpends
+ * - Synchronizes metadata across all transactions that spend the same output
+ * 
+ * This tracking is essential for detecting double-spends, managing conflicted
+ * transactions, and maintaining accurate wallet state during chain reorganizations.
+ */
 void CWallet::AddToTransparentSpends(const COutPoint& outpoint, const uint256& wtxid)
 {
     mapTxSpends.insert(make_pair(outpoint, wtxid));
@@ -2613,6 +3822,19 @@ void CWallet::AddToTransparentSpends(const COutPoint& outpoint, const uint256& w
     SyncMetaData<COutPoint>(range);
 }
 
+/**
+ * @brief Add a Sprout nullifier to the spend tracking map
+ * @param nullifier The Sprout nullifier being spent
+ * @param wtxid The wallet transaction ID that spends this nullifier
+ * 
+ * Records that a specific Sprout note is being spent by a transaction.
+ * This function:
+ * - Adds the spending relationship to mapTxSproutNullifiers
+ * - Synchronizes metadata across all transactions that spend the same nullifier
+ * 
+ * This tracking is essential for detecting double-spends in Sprout transactions,
+ * managing conflicted transactions, and maintaining accurate note state.
+ */
 void CWallet::AddToSproutSpends(const uint256& nullifier, const uint256& wtxid)
 {
     mapTxSproutNullifiers.insert(make_pair(nullifier, wtxid));
@@ -2622,6 +3844,19 @@ void CWallet::AddToSproutSpends(const uint256& nullifier, const uint256& wtxid)
     SyncMetaData<uint256>(range);
 }
 
+/**
+ * @brief Add a Sapling nullifier to the spend tracking map
+ * @param nullifier The Sapling nullifier being spent
+ * @param wtxid The wallet transaction ID that spends this nullifier
+ * 
+ * Records that a specific Sapling note is being spent by a transaction.
+ * This function:
+ * - Adds the spending relationship to mapTxSaplingNullifiers
+ * - Synchronizes metadata across all transactions that spend the same nullifier
+ * 
+ * This tracking is essential for detecting double-spends in Sapling transactions,
+ * managing conflicted transactions, and maintaining accurate note state.
+ */
 void CWallet::AddToSaplingSpends(const uint256& nullifier, const uint256& wtxid)
 {
     mapTxSaplingNullifiers.insert(make_pair(nullifier, wtxid));
@@ -2631,6 +3866,19 @@ void CWallet::AddToSaplingSpends(const uint256& nullifier, const uint256& wtxid)
     SyncMetaData<uint256>(range);
 }
 
+/**
+ * @brief Add an Orchard nullifier to the spend tracking map
+ * @param nullifier The Orchard nullifier being spent
+ * @param wtxid The wallet transaction ID that spends this nullifier
+ * 
+ * Records that a specific Orchard note is being spent by a transaction.
+ * This function:
+ * - Adds the spending relationship to mapTxOrchardNullifiers
+ * - Synchronizes metadata across all transactions that spend the same nullifier
+ * 
+ * This tracking is essential for detecting double-spends in Orchard transactions,
+ * managing conflicted transactions, and maintaining accurate note state.
+ */
 void CWallet::AddToOrchardSpends(const uint256& nullifier, const uint256& wtxid)
 {
     mapTxOrchardNullifiers.insert(make_pair(nullifier, wtxid));
@@ -2640,6 +3888,17 @@ void CWallet::AddToOrchardSpends(const uint256& nullifier, const uint256& wtxid)
     SyncMetaData<uint256>(range);
 }
 
+/**
+ * @brief Remove all spending relationships for a transaction
+ * @param wtxid The wallet transaction ID to remove from all spend maps
+ * 
+ * Removes all spending relationships (transparent, Sprout, Sapling, and Orchard)
+ * for the specified transaction. This is called when a transaction is removed
+ * from the wallet, typically during chain reorganizations or transaction cleanup.
+ * 
+ * This ensures that spend tracking maps remain consistent and don't contain
+ * references to non-existent transactions.
+ */
 void CWallet::RemoveFromSpends(const uint256& wtxid)
 {
     RemoveFromTransparentSpends(wtxid);
@@ -2648,6 +3907,14 @@ void CWallet::RemoveFromSpends(const uint256& wtxid)
     RemoveFromOrchardSpends(wtxid);
 }
 
+/**
+ * @brief Remove transparent spending relationships for a transaction
+ * @param wtxid The wallet transaction ID to remove from transparent spend map
+ * 
+ * Removes all transparent UTXO spending relationships for the specified transaction
+ * from mapTxSpends. This is called during transaction removal or chain reorganizations
+ * to maintain accurate spend tracking state.
+ */
 void CWallet::RemoveFromTransparentSpends(const uint256& wtxid)
 {
     if (mapTxSpends.size() > 0)
@@ -2667,6 +3934,14 @@ void CWallet::RemoveFromTransparentSpends(const uint256& wtxid)
     }
 }
 
+/**
+ * @brief Remove Sprout spending relationships for a transaction
+ * @param wtxid The wallet transaction ID to remove from Sprout nullifier map
+ * 
+ * Removes all Sprout nullifier spending relationships for the specified transaction
+ * from mapTxSproutNullifiers. This is called during transaction removal or chain
+ * reorganizations to maintain accurate Sprout note spend tracking state.
+ */
 void CWallet::RemoveFromSproutSpends(const uint256& wtxid)
 {
     if (mapTxSproutNullifiers.size() > 0)
@@ -2686,6 +3961,14 @@ void CWallet::RemoveFromSproutSpends(const uint256& wtxid)
     }
 }
 
+/**
+ * @brief Remove Sapling spending relationships for a transaction
+ * @param wtxid The wallet transaction ID to remove from Sapling nullifier map
+ * 
+ * Removes all Sapling nullifier spending relationships for the specified transaction
+ * from mapTxSaplingNullifiers. This is called during transaction removal or chain
+ * reorganizations to maintain accurate Sapling note spend tracking state.
+ */
 void CWallet::RemoveFromSaplingSpends(const uint256& wtxid)
 {
     if (mapTxSaplingNullifiers.size() > 0)
@@ -2705,6 +3988,14 @@ void CWallet::RemoveFromSaplingSpends(const uint256& wtxid)
     }
 }
 
+/**
+ * @brief Remove Orchard spending relationships for a transaction
+ * @param wtxid The wallet transaction ID to remove from Orchard nullifier map
+ * 
+ * Removes all Orchard nullifier spending relationships for the specified transaction
+ * from mapTxOrchardNullifiers. This is called during transaction removal or chain
+ * reorganizations to maintain accurate Orchard note spend tracking state.
+ */
 void CWallet::RemoveFromOrchardSpends(const uint256& wtxid)
 {
     if (mapTxOrchardNullifiers.size() > 0)
@@ -2724,11 +4015,38 @@ void CWallet::RemoveFromOrchardSpends(const uint256& wtxid)
     }
 }
 
+/**
+ * @brief Load archived transaction data into the wallet
+ * @param wtxid The wallet transaction ID to associate with archive data
+ * @param arcTxPt The archive transaction point containing viewing keys and metadata
+ * 
+ * Loads previously archived transaction data back into the wallet's archive map.
+ * This is typically called during wallet initialization to restore archived
+ * transaction metadata including viewing keys and address information.
+ * 
+ * Archived transactions maintain essential metadata for historical transaction
+ * analysis while reducing the wallet's memory footprint.
+ */
 void CWallet::LoadArcTxs(const uint256& wtxid, const ArchiveTxPoint& arcTxPt)
 {
     mapArcTxs[wtxid] = arcTxPt;
 }
 
+/**
+ * @brief Add transaction to archive with RPC-based key extraction
+ * @param wtxid The wallet transaction ID to archive
+ * @param arcTxPt[in,out] Archive transaction point to populate with key data
+ * 
+ * Archives a transaction by extracting and storing its viewing keys and address
+ * information. This function:
+ * - Retrieves transaction data via RPC interface
+ * - Extracts Sapling and Orchard viewing keys (incoming and outgoing)
+ * - Updates the address-to-transaction mapping for efficient lookups
+ * - Marks the archive point for disk persistence
+ * 
+ * This is used for transactions that need to be archived while preserving
+ * essential metadata for future transaction analysis and address tracking.
+ */
 void CWallet::AddToArcTxs(const uint256& wtxid, ArchiveTxPoint& arcTxPt)
 {
     mapArcTxs[wtxid] = arcTxPt;
@@ -2764,6 +4082,22 @@ void CWallet::AddToArcTxs(const uint256& wtxid, ArchiveTxPoint& arcTxPt)
     }
 }
 
+/**
+ * @brief Add wallet transaction to archive with direct key extraction
+ * @param wtx The wallet transaction to archive
+ * @param txHeight The block height where this transaction was confirmed
+ * @param arcTxPt[in,out] Archive transaction point to populate with key data
+ * 
+ * Archives a wallet transaction by directly extracting its Sapling and Orchard
+ * viewing keys. This function:
+ * - Extracts Sapling viewing keys directly from the transaction
+ * - Extracts Orchard viewing keys directly from the transaction
+ * - Updates the address-to-transaction mapping for efficient lookups
+ * - Marks the archive point for disk persistence
+ * 
+ * This variant is used when the full CWalletTx object is available and allows
+ * for more efficient key extraction without going through the RPC interface.
+ */
 void CWallet::AddToArcTxs(const CWalletTx& wtx, int txHeight, ArchiveTxPoint& arcTxPt)
 {
     mapArcTxs[wtx.GetHash()] = arcTxPt;
@@ -2799,21 +4133,63 @@ void CWallet::AddToArcTxs(const CWalletTx& wtx, int txHeight, ArchiveTxPoint& ar
     }
 }
 
+/**
+ * @brief Add a nullifier to Sprout JoinSplit output point mapping
+ * @param nullifier The Sprout nullifier to map
+ * @param op The corresponding JSOutPoint
+ * 
+ * Maintains a mapping between Sprout nullifiers and their corresponding
+ * JoinSplit output points for archived transactions. This is used for
+ * tracking and managing Sprout note usage in transaction archives.
+ */
 void CWallet::AddToArcJSOutPoints(const uint256& nullifier, const JSOutPoint& op)
 {
     mapArcJSOutPoints[nullifier] = op;
 }
 
+/**
+ * @brief Add a nullifier to Sapling output point mapping
+ * @param nullifier The Sapling nullifier to map
+ * @param op The corresponding SaplingOutPoint
+ * 
+ * Maintains a mapping between Sapling nullifiers and their corresponding
+ * output points for archived transactions. This is used for tracking
+ * and managing Sapling note usage in transaction archives.
+ */
 void CWallet::AddToArcSaplingOutPoints(const uint256& nullifier, const SaplingOutPoint& op)
 {
     mapArcSaplingOutPoints[nullifier] = op;
 }
 
+/**
+ * @brief Add a nullifier to Orchard output point mapping
+ * @param nullifier The Orchard nullifier to map
+ * @param op The corresponding OrchardOutPoint
+ * 
+ * Maintains a mapping between Orchard nullifiers and their corresponding
+ * output points for archived transactions. This is used for tracking
+ * and managing Orchard note usage in transaction archives.
+ */
 void CWallet::AddToArcOrchardOutPoints(const uint256& nullifier, const OrchardOutPoint& op)
 {
     mapArcOrchardOutPoints[nullifier] = op;
 }
 
+/**
+ * @brief Add all transaction inputs and nullifiers to spend tracking maps
+ * @param wtxid The wallet transaction ID to process
+ * 
+ * Processes a wallet transaction and adds all its spending operations to
+ * the appropriate tracking maps. This includes:
+ * - Transparent inputs (UTXOs) to mapTxTransparentSpends
+ * - Sprout nullifiers to mapTxSproutNullifiers  
+ * - Sapling nullifiers to mapTxSaplingNullifiers
+ * - Orchard nullifiers to mapTxOrchardNullifiers
+ * 
+ * This function is essential for maintaining accurate spending state and
+ * preventing double-spend attempts across all transaction types.
+ * Coinbase transactions are skipped as they don't spend any inputs.
+ */
 void CWallet::AddToSpends(const uint256& wtxid)
 {
     assert(mapWallet.count(wtxid));
@@ -2841,8 +4217,25 @@ void CWallet::AddToSpends(const uint256& wtxid)
     }
 }
 
-//Valdated the Postions of all notes in C++ wallet vs the Rust SaplingWallet and validates the position recorded are correct.
-//Returns False is the SaplingWallet needs to be rebuilt
+/**
+ * @brief Validate Sapling wallet tracked positions against Rust wallet state
+ * @param pindex The current block index for validation context
+ * @return false if the SaplingWallet needs to be rebuilt, true if valid
+ * 
+ * Validates the positions of all Sapling notes tracked in the C++ wallet
+ * against the corresponding positions in the Rust SaplingWallet. This ensures
+ * consistency between the two wallet implementations and detects any drift
+ * or corruption in note position tracking.
+ * 
+ * The function:
+ * - Iterates through all wallet transactions with Sapling notes
+ * - Compares note positions between C++ and Rust wallet states
+ * - Shows progress UI for large validation operations
+ * - Returns false if inconsistencies require wallet rebuilding
+ * 
+ * This is a critical validation function that maintains wallet integrity
+ * across different wallet backend implementations.
+ */
 bool CWallet::ValidateSaplingWalletTrackedPositions(const CBlockIndex* pindex) {
 
     AssertLockHeld(cs_main);
@@ -2968,6 +4361,25 @@ bool CWallet::ValidateSaplingWalletTrackedPositions(const CBlockIndex* pindex) {
 
 }
 
+/**
+ * @brief Validate Orchard wallet tracked positions against Rust wallet state
+ * @param pindex The current block index for validation context
+ * @return false if the OrchardWallet needs to be rebuilt, true if valid
+ * 
+ * Validates the positions of all Orchard notes tracked in the C++ wallet
+ * against the corresponding positions in the Rust OrchardWallet. This ensures
+ * consistency between the two wallet implementations and detects any drift
+ * or corruption in note position tracking.
+ * 
+ * The function:
+ * - Iterates through all wallet transactions with Orchard notes
+ * - Compares note positions between C++ and Rust wallet states
+ * - Shows progress UI for large validation operations
+ * - Returns false if inconsistencies require wallet rebuilding
+ * 
+ * This is a critical validation function that maintains wallet integrity
+ * across different wallet backend implementations for the Orchard protocol.
+ */
 bool CWallet::ValidateOrchardWalletTrackedPositions(const CBlockIndex* pindex) {
 
     AssertLockHeld(cs_main);
@@ -3093,6 +4505,21 @@ bool CWallet::ValidateOrchardWalletTrackedPositions(const CBlockIndex* pindex) {
 
 }
 
+/**
+ * @brief Increment Sapling wallet state for a new block
+ * @param pindex The block index being added to the chain
+ * 
+ * Updates the Sapling wallet's internal state when a new block is added
+ * to the blockchain. This function:
+ * - Advances the Sapling note commitment tree
+ * - Updates witness information for existing notes
+ * - Processes new Sapling transactions in the block
+ * - Maintains proper note position tracking
+ * 
+ * This function is called during block connection to keep the Sapling
+ * wallet synchronized with the blockchain state. It ensures that all
+ * Sapling notes can be properly spent and that witnesses remain valid.
+ */
 void CWallet::IncrementSaplingWallet(const CBlockIndex* pindex) {
 
     AssertLockHeld(cs_main);
@@ -3336,6 +4763,21 @@ void CWallet::IncrementSaplingWallet(const CBlockIndex* pindex) {
 
 }
 
+/**
+ * @brief Increment Orchard wallet state for a new block
+ * @param pindex The block index being added to the chain
+ * 
+ * Updates the Orchard wallet's internal state when a new block is added
+ * to the blockchain. This function:
+ * - Advances the Orchard note commitment tree
+ * - Updates witness information for existing notes
+ * - Processes new Orchard transactions in the block
+ * - Maintains proper note position tracking
+ * 
+ * This function is called during block connection to keep the Orchard
+ * wallet synchronized with the blockchain state. It ensures that all
+ * Orchard notes can be properly spent and that witnesses remain valid.
+ */
 void CWallet::IncrementOrchardWallet(const CBlockIndex* pindex) {
 
     AssertLockHeld(cs_main);
@@ -3579,6 +5021,20 @@ void CWallet::IncrementOrchardWallet(const CBlockIndex* pindex) {
 
 }
 
+/**
+ * @brief Decrement Sapling wallet state when a block is removed
+ * @param pindex The block index being removed from the chain
+ * 
+ * Reverts the Sapling wallet's internal state when a block is removed
+ * from the blockchain during chain reorganizations. This function:
+ * - Rewinds the Sapling note commitment tree to the previous block
+ * - Validates the rewind operation completed successfully
+ * - Updates checkpoint heights to maintain consistency
+ * 
+ * This function is called during block disconnection to keep the Sapling
+ * wallet synchronized with the blockchain state during reorganizations.
+ * It ensures that wallet state accurately reflects the current chain state.
+ */
 void CWallet::DecrementSaplingWallet(const CBlockIndex* pindex) {
 
       uint32_t uResultHeight{0};
@@ -3597,6 +5053,20 @@ void CWallet::DecrementSaplingWallet(const CBlockIndex* pindex) {
 
 }
 
+/**
+ * @brief Decrement Orchard wallet state when a block is removed
+ * @param pindex The block index being removed from the chain
+ * 
+ * Reverts the Orchard wallet's internal state when a block is removed
+ * from the blockchain during chain reorganizations. This function:
+ * - Rewinds the Orchard note commitment tree to the previous block
+ * - Validates the rewind operation completed successfully
+ * - Updates checkpoint heights to maintain consistency
+ * 
+ * This function is called during block disconnection to keep the Orchard
+ * wallet synchronized with the blockchain state during reorganizations.
+ * It ensures that wallet state accurately reflects the current chain state.
+ */
 void CWallet::DecrementOrchardWallet(const CBlockIndex* pindex) {
 
       uint32_t uResultHeight{0};
@@ -3615,6 +5085,18 @@ void CWallet::DecrementOrchardWallet(const CBlockIndex* pindex) {
 
 }
 
+/**
+ * @brief Decrypt wallet transaction data from encrypted storage
+ * @param chash Hash fingerprint of the encrypted data
+ * @param vchCryptedSecret The encrypted transaction data
+ * @param hash[out] The decrypted transaction hash
+ * @param wtx[out] The decrypted wallet transaction
+ * @return true if successfully decrypted and hash matches
+ * 
+ * Decrypts a wallet transaction that was previously encrypted for storage.
+ * Used during wallet loading to recover transaction data from the database.
+ * Returns false if wallet is locked, decryption fails, or hash verification fails.
+ */
 bool CWallet::DecryptWalletTransaction(const uint256& chash, const std::vector<unsigned char>& vchCryptedSecret, uint256& hash, CWalletTx& wtx) {
 
     if (IsLocked()) {
@@ -3630,6 +5112,18 @@ bool CWallet::DecryptWalletTransaction(const uint256& chash, const std::vector<u
     return HashWithFP(hash) == chash;
 }
 
+/**
+ * @brief Decrypt archived wallet transaction data from encrypted storage
+ * @param chash Hash fingerprint of the encrypted data
+ * @param vchCryptedSecret The encrypted archive transaction data
+ * @param txid[out] The decrypted transaction ID
+ * @param arcTxPt[out] The decrypted archive transaction point
+ * @return true if successfully decrypted and hash matches
+ * 
+ * Decrypts archived wallet transaction data that was previously encrypted for
+ * long-term storage. Used to recover transaction history and metadata from
+ * archived transaction storage. Returns false if wallet is locked or decryption fails.
+ */
 bool CWallet::DecryptWalletArchiveTransaction(const uint256& chash, const std::vector<unsigned char>& vchCryptedSecret, uint256& txid, ArchiveTxPoint& arcTxPt) {
 
     if (IsLocked()) {
@@ -3645,6 +5139,18 @@ bool CWallet::DecryptWalletArchiveTransaction(const uint256& chash, const std::v
     return HashWithFP(txid) == chash;
 }
 
+/**
+ * @brief Decrypt an archived Sapling outpoint from encrypted storage
+ * @param chash Hash fingerprint of the encrypted data
+ * @param vchCryptedSecret The encrypted outpoint data
+ * @param nullifier[out] The decrypted nullifier value
+ * @param op[out] The decrypted Sapling outpoint
+ * @return true if successfully decrypted and hash matches
+ * 
+ * Decrypts archived Sapling outpoint data that was previously encrypted for
+ * long-term storage. Used to recover transaction history and state information.
+ * Returns false if wallet is locked or decryption fails.
+ */
 bool CWallet::DecryptArchivedSaplingOutpoint(const uint256& chash, const std::vector<unsigned char>& vchCryptedSecret, uint256& nullifier, SaplingOutPoint& op) {
 
     if (IsLocked()) {
@@ -3659,6 +5165,18 @@ bool CWallet::DecryptArchivedSaplingOutpoint(const uint256& chash, const std::ve
     return HashWithFP(nullifier) == chash;
 }
 
+/**
+ * @brief Decrypt an archived Orchard outpoint from encrypted storage
+ * @param chash Hash fingerprint of the encrypted data
+ * @param vchCryptedSecret The encrypted outpoint data
+ * @param nullifier[out] The decrypted nullifier value
+ * @param op[out] The decrypted Orchard outpoint
+ * @return true if successfully decrypted
+ * 
+ * Decrypts archived Orchard outpoint data that was previously encrypted for
+ * long-term storage. Used to recover transaction history and state information.
+ * Returns false if wallet is locked or decryption fails.
+ */
 bool CWallet::DecryptArchivedOrchardOutpoint(const uint256& chash, const std::vector<unsigned char>& vchCryptedSecret, uint256& nullifier, OrchardOutPoint& op) {
 
     if (IsLocked()) {
@@ -3673,6 +5191,21 @@ bool CWallet::DecryptArchivedOrchardOutpoint(const uint256& chash, const std::ve
     return HashWithFP(nullifier) == chash;
 }
 
+/**
+ * @brief Encrypt the wallet with a passphrase
+ * @param strWalletPassphrase The passphrase to encrypt the wallet with
+ * @return true if wallet was successfully encrypted
+ * 
+ * Encrypts an unencrypted wallet using the provided passphrase. This operation:
+ * - Generates a random master key for encryption
+ * - Creates encryption salt and parameters from HD seed
+ * - Encrypts all private keys and sensitive data
+ * - Locks the wallet after encryption
+ * - Persists encrypted data to disk
+ * 
+ * Returns false if wallet is already encrypted or HD seed is missing.
+ * This is a one-way operation - wallets cannot be unencrypted.
+ */
 bool CWallet::EncryptWallet(const SecureString& strWalletPassphrase)
 {
     LOCK2(cs_wallet, cs_KeyStore);
@@ -3974,6 +5507,16 @@ bool CWallet::EncryptWallet(const SecureString& strWalletPassphrase)
     return true;
 }
 
+/**
+ * @brief Encrypt serialized wallet objects using default master key
+ * @param vchSecret The secret data to encrypt
+ * @param chash Hash used for verification
+ * @param vchCryptedSecret[out] The resulting encrypted data
+ * @return true if encryption was successful, false otherwise
+ * 
+ * Encrypts serialized wallet objects (like keys, addresses) using the wallet's
+ * default master key. This is used for securing sensitive wallet data in storage.
+ */
 bool CWallet::EncryptSerializedWalletObjects(
     const CKeyingMaterial &vchSecret,
     const uint256 chash,
@@ -3982,6 +5525,17 @@ bool CWallet::EncryptSerializedWalletObjects(
     return CCryptoKeyStore::EncryptSerializedSecret(vchSecret, chash, vchCryptedSecret);
 }
 
+/**
+ * @brief Encrypt serialized wallet objects using specified master key
+ * @param vMasterKeyIn The master key to use for encryption
+ * @param vchSecret The secret data to encrypt
+ * @param chash Hash used for verification
+ * @param vchCryptedSecret[out] The resulting encrypted data
+ * @return true if encryption was successful, false otherwise
+ * 
+ * Encrypts serialized wallet objects using a specific master key. This allows
+ * for encryption with different keys or during wallet encryption operations.
+ */
 bool CWallet::EncryptSerializedWalletObjects(
     CKeyingMaterial &vMasterKeyIn,
     const CKeyingMaterial &vchSecret,
@@ -3991,6 +5545,17 @@ bool CWallet::EncryptSerializedWalletObjects(
     return CCryptoKeyStore::EncryptSerializedSecret(vMasterKeyIn, vchSecret, chash, vchCryptedSecret);
 }
 
+/**
+ * @brief Decrypt serialized wallet objects
+ * @param vchCryptedSecret The encrypted data to decrypt
+ * @param chash Hash used for verification
+ * @param vchSecret[out] The resulting decrypted secret data
+ * @return true if decryption was successful, false otherwise
+ * 
+ * Decrypts previously encrypted wallet objects back to their original form.
+ * This is used when loading encrypted wallet data from storage or when the
+ * wallet needs to access private keys for transaction signing.
+ */
 bool CWallet::DecryptSerializedWalletObjects(
      const std::vector<unsigned char>& vchCryptedSecret,
      const uint256 chash,
@@ -3999,6 +5564,16 @@ bool CWallet::DecryptSerializedWalletObjects(
     return CCryptoKeyStore::DecryptSerializedSecret(vchCryptedSecret, chash, vchSecret);
  }
 
+/**
+ * @brief Generate hash with fingerprint for wallet objects
+ * @tparam WalletObject Type of the wallet object to hash
+ * @param wObj The wallet object to hash
+ * @return A unique hash for the object including fingerprint data
+ * 
+ * Creates a unique hash for wallet objects that includes fingerprint information.
+ * This is used to create unique identifiers for wallet objects that can be
+ * used for encryption keys and database indexing.
+ */
 template<typename WalletObject>
 uint256 CWallet::HashWithFP(WalletObject &wObj) {
 
@@ -4011,6 +5586,15 @@ uint256 CWallet::HashWithFP(WalletObject &wObj) {
     return Hash(s.begin(), s.end(), ss.begin(), ss.end());
 }
 
+/**
+ * @brief Serialize a single wallet object for encryption
+ * @tparam WalletObject1 Type of the wallet object to serialize
+ * @param wObj1 The wallet object to serialize
+ * @return Serialized data as CKeyingMaterial for encryption
+ * 
+ * Serializes a single wallet object into a secure data stream format
+ * suitable for encryption. Used to prepare wallet data for secure storage.
+ */
 template<typename WalletObject1>
 CKeyingMaterial CWallet::SerializeForEncryptionInput(WalletObject1 &wObj1) {
 
@@ -4021,6 +5605,18 @@ CKeyingMaterial CWallet::SerializeForEncryptionInput(WalletObject1 &wObj1) {
     return vchSecret;
 }
 
+/**
+ * @brief Serialize two wallet objects for encryption
+ * @tparam WalletObject1 Type of the first wallet object
+ * @tparam WalletObject2 Type of the second wallet object
+ * @param wObj1 The first wallet object to serialize
+ * @param wObj2 The second wallet object to serialize
+ * @return Serialized data as CKeyingMaterial for encryption
+ * 
+ * Serializes two wallet objects as a pair into a secure data stream format
+ * suitable for encryption. Used when multiple related objects need to be
+ * stored together securely.
+ */
 template<typename WalletObject1, typename WalletObject2>
 CKeyingMaterial CWallet::SerializeForEncryptionInput(WalletObject1 &wObj1, WalletObject2 &wObj2) {
 
@@ -4032,6 +5628,20 @@ CKeyingMaterial CWallet::SerializeForEncryptionInput(WalletObject1 &wObj1, Walle
     return vchSecret;
 }
 
+/**
+ * @brief Serialize three wallet objects for encryption
+ * @tparam WalletObject1 Type of the first wallet object
+ * @tparam WalletObject2 Type of the second wallet object
+ * @tparam WalletObject3 Type of the third wallet object
+ * @param wObj1 The first wallet object to serialize
+ * @param wObj2 The second wallet object to serialize
+ * @param wObj3 The third wallet object to serialize
+ * @return Serialized data as CKeyingMaterial for encryption
+ * 
+ * Serializes three wallet objects as nested pairs into a secure data stream
+ * format suitable for encryption. Used when multiple related objects need
+ * to be stored together securely.
+ */
 template<typename WalletObject1, typename WalletObject2, typename WalletObject3>
 CKeyingMaterial CWallet::SerializeForEncryptionInput(WalletObject1 &wObj1, WalletObject2 &wObj2, WalletObject3 &wObj3) {
 
@@ -4043,6 +5653,15 @@ CKeyingMaterial CWallet::SerializeForEncryptionInput(WalletObject1 &wObj1, Walle
     return vchSecret;
 }
 
+/**
+ * @brief Deserialize a single wallet object from decrypted data
+ * @tparam WalletObject1 Type of the wallet object to deserialize
+ * @param vchSecret The decrypted keying material containing serialized data
+ * @param wObj1[out] The wallet object to populate with deserialized data
+ * 
+ * Deserializes a single wallet object from decrypted secure data stream.
+ * Used to recover wallet objects after successful decryption from storage.
+ */
 template<typename WalletObject1>
 void CWallet::DeserializeFromDecryptionOutput(CKeyingMaterial &vchSecret, WalletObject1 &wObj1) {
 
@@ -4050,6 +5669,17 @@ void CWallet::DeserializeFromDecryptionOutput(CKeyingMaterial &vchSecret, Wallet
     ss >> wObj1;
 }
 
+/**
+ * @brief Deserialize two wallet objects from decrypted data
+ * @tparam WalletObject1 Type of the first wallet object
+ * @tparam WalletObject2 Type of the second wallet object
+ * @param vchSecret The decrypted keying material containing serialized data
+ * @param wObj1[out] The first wallet object to populate
+ * @param wObj2[out] The second wallet object to populate
+ * 
+ * Deserializes two wallet objects from decrypted secure data stream.
+ * Used to recover multiple related objects after decryption from storage.
+ */
 template<typename WalletObject1, typename WalletObject2>
 void CWallet::DeserializeFromDecryptionOutput(CKeyingMaterial &vchSecret, WalletObject1 &wObj1, WalletObject2 &wObj2) {
 
@@ -4058,6 +5688,19 @@ void CWallet::DeserializeFromDecryptionOutput(CKeyingMaterial &vchSecret, Wallet
     ss >> wObj2;
 }
 
+/**
+ * @brief Deserialize three wallet objects from decrypted data
+ * @tparam WalletObject1 Type of the first wallet object
+ * @tparam WalletObject2 Type of the second wallet object
+ * @tparam WalletObject3 Type of the third wallet object
+ * @param vchSecret The decrypted keying material containing serialized data
+ * @param wObj1[out] The first wallet object to populate
+ * @param wObj2[out] The second wallet object to populate
+ * @param wObj3[out] The third wallet object to populate
+ * 
+ * Deserializes three wallet objects from decrypted secure data stream.
+ * Used to recover multiple related objects after decryption from storage.
+ */
 template<typename WalletObject1, typename WalletObject2, typename WalletObject3>
 void CWallet::DeserializeFromDecryptionOutput(CKeyingMaterial &vchSecret, WalletObject1 &wObj1, WalletObject2 &wObj2, WalletObject3 &wObj3) {
 
@@ -4067,6 +5710,16 @@ void CWallet::DeserializeFromDecryptionOutput(CKeyingMaterial &vchSecret, Wallet
     ss >> wObj3;
 }
 
+/**
+ * @brief Increment the wallet's order position counter
+ * @param pwalletdb Optional wallet database instance to use
+ * @return The next available order position number
+ * 
+ * Generates and returns the next order position number for wallet transactions.
+ * Order positions are used to maintain transaction ordering within the wallet
+ * for display and processing purposes. The counter is persisted to the database
+ * to ensure continuity across wallet restarts.
+ */
 int64_t CWallet::IncOrderPosNext(CWalletDB *pwalletdb)
 {
     AssertLockHeld(cs_wallet); // nOrderPosNext
@@ -4079,6 +5732,24 @@ int64_t CWallet::IncOrderPosNext(CWalletDB *pwalletdb)
     return nRet;
 }
 
+/**
+ * @brief Get ordered transaction items for display and accounting
+ * @param acentries[out] List to populate with accounting entries
+ * @param strAccount Account name to filter by (empty for all accounts)
+ * @param pwalletdbIn Optional wallet database instance to use
+ * @return Ordered multimap of transaction items by order position
+ * 
+ * Retrieves and orders all wallet transactions and accounting entries by their
+ * order position for display and accounting purposes. This function:
+ * - Combines wallet transactions and accounting entries
+ * - Sorts them by order position (nOrderPos)
+ * - Filters by account if specified
+ * - Returns a multimap suitable for chronological display
+ * 
+ * The returned TxItems multimap contains pointers to both CWalletTx and
+ * CAccountingEntry objects, ordered by their position in the wallet's
+ * transaction history.
+ */
 CWallet::TxItems CWallet::OrderedTxItems(std::list<CAccountingEntry>& acentries, std::string strAccount, CWalletDB *pwalletdbIn)
 {
     AssertLockHeld(cs_wallet); // mapWallet
@@ -4107,6 +5778,17 @@ CWallet::TxItems CWallet::OrderedTxItems(std::list<CAccountingEntry>& acentries,
     return txOrdered;
 }
 
+/**
+ * @brief Mark all wallet transactions as dirty for recalculation
+ * 
+ * Marks every transaction in the wallet as "dirty", forcing recalculation of
+ * cached values like balances, confirmations, and other derived data on next
+ * access. This is typically called when blockchain state changes that could
+ * affect transaction validity or confirmation status.
+ * 
+ * The function iterates through all wallet transactions and calls MarkDirty()
+ * on each one to invalidate cached computations.
+ */
 void CWallet::MarkDirty()
 {
     {
@@ -4117,8 +5799,23 @@ void CWallet::MarkDirty()
 }
 
 /**
- * Ensure that every note in the wallet (for which we possess a spending key)
- * has a cached nullifier.
+ * @brief Ensure that every note in the wallet has a cached nullifier
+ * @return true if all nullifiers were successfully computed and cached
+ * 
+ * Iterates through all notes in the wallet (for which we possess a spending key)
+ * and ensures that their nullifiers are computed and cached. This function:
+ * 
+ * - Processes Sprout notes using JoinSplit witnesses
+ * - Processes Sapling notes using Sapling witnesses  
+ * - Processes Orchard notes using Orchard witnesses
+ * - Updates nullifier-to-note mapping for efficient lookups
+ * 
+ * Nullifiers are essential for preventing double-spending of shielded notes.
+ * This function ensures that all spendable notes have their nullifiers readily
+ * available for transaction creation and validation.
+ * 
+ * Returns false if any nullifier computation fails, indicating potential
+ * wallet corruption or missing witness data.
  */
 bool CWallet::UpdateNullifierNoteMap()
 {
@@ -4156,8 +5853,24 @@ bool CWallet::UpdateNullifierNoteMap()
 }
 
 /**
- * Update mapSproutNullifiersToNotes and mapSaplingNullifiersToNotes
- * with the cached nullifiers in this tx.
+ * @brief Update nullifier-to-note mappings with transaction data
+ * @param wtx The wallet transaction to process for nullifier updates
+ * 
+ * Updates the wallet's internal nullifier-to-note mappings with the cached
+ * nullifiers from the specified transaction. This function processes:
+ * 
+ * - Sprout nullifiers and their corresponding JSOutPoints
+ * - Sapling nullifiers and their corresponding SaplingOutPoints
+ * - Orchard nullifiers and their corresponding OrchardOutPoints
+ * 
+ * These mappings are essential for:
+ * - Quickly determining if a note has been spent
+ * - Finding the outpoint corresponding to a given nullifier
+ * - Validating transaction inputs during creation
+ * - Maintaining wallet state consistency
+ * 
+ * This function is called after nullifiers are computed or when loading
+ * transactions from storage to ensure mappings remain current.
  */
 void CWallet::UpdateNullifierNoteMapWithTx(const CWalletTx& wtx)
 {
@@ -4197,7 +5910,20 @@ void CWallet::UpdateNullifierNoteMapWithTx(const CWalletTx& wtx)
 }
 
 /**
- * Update mapSproutNullifiersToNotes, computing the nullifier from a cached witness if necessary.
+ * @brief Update Sprout nullifier mappings, computing nullifiers if needed
+ * @param wtx The wallet transaction to process
+ * 
+ * Updates mapSproutNullifiersToNotes by computing nullifiers from cached
+ * witnesses if necessary. For each Sprout note in the transaction:
+ * 
+ * - Retrieves the cached witness for the note
+ * - Computes the nullifier using the spending key and witness
+ * - Updates the nullifier cache in the note data
+ * - Updates the global nullifier-to-note mapping
+ * 
+ * This function is essential for maintaining the ability to detect when
+ * Sprout notes have been spent and for creating new transactions that
+ * spend existing notes.
  */
 void CWallet::UpdateSproutNullifierNoteMapWithTx(CWalletTx& wtx) {
     LOCK(cs_wallet);
@@ -4241,7 +5967,20 @@ void CWallet::UpdateSproutNullifierNoteMapWithTx(CWalletTx& wtx) {
 }
 
 /**
- * Update mapSaplingNullifiersToNotes, computing the nullifier from a cached witness if necessary.
+ * @brief Update Sapling nullifier mappings, computing nullifiers if needed
+ * @param wtx The wallet transaction to process
+ * 
+ * Updates mapSaplingNullifiersToNotes by computing nullifiers from cached
+ * witnesses if necessary. For each Sapling note in the transaction:
+ * 
+ * - Retrieves the cached witness for the note
+ * - Computes the nullifier using the spending key and witness
+ * - Updates the nullifier cache in the note data
+ * - Updates the global nullifier-to-note mapping
+ * 
+ * This function is essential for maintaining the ability to detect when
+ * Sapling notes have been spent and for creating new transactions that
+ * spend existing notes.
  */
 void CWallet::UpdateSaplingNullifierNoteMapWithTx(CWalletTx* wtx) {
     LOCK(cs_wallet);
@@ -4307,6 +6046,22 @@ void CWallet::UpdateSaplingNullifierNoteMapWithTx(CWalletTx* wtx) {
 }
 
 /**
+ * @brief Update Orchard nullifier mappings, computing nullifiers if needed  
+ * @param wtx The wallet transaction to process
+ * 
+ * Updates mapOrchardNullifiersToNotes by computing nullifiers from cached
+ * witnesses if necessary. For each Orchard note in the transaction:
+ * 
+ * - Retrieves the cached witness for the note
+ * - Computes the nullifier using the spending key and witness
+ * - Updates the nullifier cache in the note data
+ * - Updates the global nullifier-to-note mapping
+ * 
+ * This function is essential for maintaining the ability to detect when
+ * Orchard notes have been spent and for creating new transactions that
+ * spend existing notes.
+ */
+/**
 * Update mapSaplingNullifiersToNotes, computing the nullifier from a cached witness if necessary.
 */
 void CWallet::UpdateOrchardNullifierNoteMapWithTx(CWalletTx* wtx) {
@@ -4358,6 +6113,22 @@ void CWallet::UpdateOrchardNullifierNoteMapWithTx(CWalletTx* wtx) {
 }
 
 /**
+ * @brief Update nullifier mappings for all transactions in a block
+ * @param pblock The block containing transactions to process
+ * 
+ * Iterates over all transactions in a block and updates the cached Sapling
+ * nullifiers for transactions which belong to the wallet. This function:
+ * 
+ * - Processes each transaction in the block
+ * - Identifies transactions that belong to this wallet
+ * - Updates nullifier caches for Sapling notes in those transactions
+ * - Maintains consistency of nullifier-to-note mappings
+ * 
+ * This function is called during block processing to ensure that wallet
+ * state remains synchronized with the blockchain and that all nullifiers
+ * are properly cached for efficient spending detection.
+ */
+/**
  * Iterate over transactions in a block and update the cached Sapling nullifiers
  * for transactions which belong to the wallet.
  */
@@ -4375,6 +6146,29 @@ void CWallet::UpdateNullifierNoteMapForBlock(const CBlock *pblock) {
     }
 }
 
+/**
+ * @brief Add a transaction to the wallet
+ * @param wtxIn The wallet transaction to add
+ * @param fFromLoadWallet True if loading from wallet file (vs. new transaction)
+ * @param pwalletdb Optional database handle for batch operations
+ * @param nHeight Block height where transaction was mined (0 if unconfirmed)
+ * @param fRescan True if this is part of a wallet rescan operation
+ * @return true if transaction was successfully added or updated
+ * 
+ * Adds or updates a transaction in the wallet. This is the primary function
+ * for incorporating transactions into the wallet, handling both new incoming
+ * transactions and wallet file loading. The function:
+ * 
+ * - Updates the wallet's transaction map
+ * - Processes shielded notes (Sapling/Orchard) and nullifier mappings
+ * - Handles transaction conflicts and reorganizations
+ * - Updates spent transaction tracking
+ * - Persists changes to the wallet database
+ * - Notifies UI of balance changes
+ * 
+ * This function is critical for maintaining wallet state consistency and
+ * ensuring all transaction-related data structures remain synchronized.
+ */
 bool CWallet::AddToWallet(const CWalletTx& wtxIn, bool fFromLoadWallet, CWalletDB* pwalletdb, int nHeight, bool fRescan)
 {
     uint256 hash = wtxIn.GetHash();
@@ -4477,9 +6271,26 @@ bool CWallet::AddToWallet(const CWalletTx& wtxIn, bool fFromLoadWallet, CWalletD
 }
 
 /**
- * Add a transaction to the wallet, or update it.
- * pblock is optional, but should be provided if the transaction is known to be in a block.
- * If fUpdate is true, existing transactions will be updated.
+ * @brief Add transactions to wallet if they involve wallet addresses
+ * @param vtx Vector of transactions to examine
+ * @param vAddedTxes[out] Vector to store transactions that were added
+ * @param pblock The block containing the transactions (optional)
+ * @param nHeight Block height where transactions were mined
+ * @param fUpdate Whether to update existing transactions
+ * @param saplingAddressesFound[out] Set of newly discovered Sapling addresses
+ * @param orchardAddressesFound[out] Set of newly discovered Orchard addresses
+ * @param fRescan True if this is part of a wallet rescan operation
+ * 
+ * Examines a vector of transactions and adds any that involve this wallet's
+ * addresses to the wallet. This function:
+ * 
+ * - Decrypts Sapling and Orchard notes to find wallet-relevant transactions
+ * - Adds newly discovered addresses to the wallet's viewing key store
+ * - Creates CWalletTx objects for relevant transactions with note data
+ * - Updates wallet transaction maps and spend tracking
+ * 
+ * This is the primary function for batch processing of transactions during
+ * block connection and wallet synchronization operations.
  */
 void CWallet::AddToWalletIfInvolvingMe(
     const std::vector<CTransaction> &vtx,
@@ -4621,6 +6432,23 @@ void CWallet::AddToWalletIfInvolvingMe(
     }
 }
 
+/**
+ * @brief Synchronize wallet with a vector of transactions
+ * @param vtx Vector of transactions to synchronize
+ * @param pblock The block containing the transactions (optional)
+ * @param nHeight Block height where transactions were mined
+ * 
+ * Synchronizes the wallet state with a set of transactions, typically called
+ * during block processing. This function:
+ * 
+ * - Identifies transactions that involve this wallet
+ * - Discovers new Sapling and Orchard addresses
+ * - Updates the wallet's address book and viewing keys
+ * - Notifies the UI of newly discovered addresses and transactions
+ * 
+ * This function ensures that the wallet remains synchronized with the
+ * blockchain and that all relevant transactions are properly incorporated.
+ */
 void CWallet::SyncTransactions(const std::vector<CTransaction> &vtx, const CBlock* pblock, const int nHeight)
 {
     LOCK(cs_wallet);
@@ -4643,6 +6471,21 @@ void CWallet::SyncTransactions(const std::vector<CTransaction> &vtx, const CBloc
     }
 }
 
+/**
+ * @brief Mark transactions affected by a given transaction as dirty
+ * @param tx The transaction that affects other wallet transactions
+ * 
+ * When a transaction changes its 'conflicted' state, it affects the balance
+ * available from the outputs it spends. This function marks all transactions
+ * that spend the same inputs as dirty, forcing recalculation of their cached
+ * values on next access.
+ * 
+ * The function processes all input types:
+ * - Transparent inputs (UTXOs)
+ * - Sprout nullifiers from JoinSplit descriptions  
+ * - Sapling nullifiers from spend descriptions
+ * - Orchard nullifiers from action descriptions
+ */
 void CWallet::MarkAffectedTransactionsDirty(const CTransaction& tx)
 {
     // If a transaction changes 'conflicted' state, that changes the balance
@@ -4679,6 +6522,23 @@ void CWallet::MarkAffectedTransactionsDirty(const CTransaction& tx)
     }
 }
 
+/**
+ * @brief Remove a transaction from the wallet
+ * @param hash The hash of the transaction to remove
+ * @return true if the transaction was successfully removed, false otherwise
+ * 
+ * Removes a transaction from both the wallet's in-memory map and the persistent
+ * database storage. The function:
+ * 
+ * - Only works with file-backed wallets
+ * - Handles both encrypted and unencrypted wallet storage
+ * - Removes the transaction from mapWallet if found
+ * - Deletes the corresponding database entry
+ * - For encrypted wallets, requires the wallet to be unlocked
+ * 
+ * Returns false if wallet is not file-backed, transaction not found, or
+ * database deletion fails.
+ */
 bool CWallet::EraseFromWallet(const uint256 &hash)
 {
     if (!fFileBacked)
@@ -4702,12 +6562,27 @@ bool CWallet::EraseFromWallet(const uint256 &hash)
     return false;
 }
 
-/*Rescan the whole chain for transactions*/
+/**
+ * @brief Force a complete rescan of the wallet from genesis
+ * 
+ * Initiates a full wallet rescan starting from the genesis block.
+ * This function will scan the entire blockchain for transactions
+ * that involve this wallet's addresses and rebuild the wallet state.
+ * Used when wallet corruption is detected or after importing keys.
+ */
 void CWallet::ForceRescanWallet() {
     CBlockIndex* pindex = chainActive.Genesis();
     ScanForWalletTransactions(pindex, true, true, true, true);
 }
 
+/**
+ * @brief Rescan wallet if needed based on internal flags
+ * 
+ * Checks if the wallet needs a rescan and performs one if required.
+ * The rescan starts from block height 1 (skipping genesis) and updates
+ * the wallet state with any transactions found. Sets needsRescan flag
+ * to false after completion.
+ */
 void CWallet::RescanWallet()
 {
     if (needsRescan)
@@ -4721,8 +6596,19 @@ void CWallet::RescanWallet()
 
 
 /**
- * Returns a nullifier if the SpendingKey is available
- * Throws std::runtime_error if the decryptor doesn't match this note
+ * @brief Get nullifier for a Sprout note if spending key is available
+ * @param jsdesc The JoinSplit description containing the encrypted note
+ * @param address The Sprout payment address to check
+ * @param dec The note decryption context
+ * @param hSig The signature hash for the JoinSplit
+ * @param n The output index within the JoinSplit
+ * @return The nullifier if spending key is available, nullopt otherwise
+ * @throws std::runtime_error if the decryptor doesn't match this note
+ * 
+ * Attempts to compute the nullifier for a Sprout note by decrypting it
+ * and using the spending key if available. The nullifier is only computed
+ * if the wallet has the spending key (not just viewing key) and the wallet
+ * is unlocked. This is essential for detecting spent notes.
  */
 std::optional<uint256> CWallet::GetSproutNoteNullifier(const JSDescription &jsdesc,
                                                          const libzcash::SproutPaymentAddress &address,
@@ -4749,12 +6635,16 @@ std::optional<uint256> CWallet::GetSproutNoteNullifier(const JSDescription &jsde
 }
 
 /**
- * Finds all output notes in the given transaction that have been sent to
- * PaymentAddresses in this wallet.
- *
- * It should never be necessary to call this method with a CWalletTx, because
- * the result of FindMySproutNotes (for the addresses available at the time) will
- * already have been cached in CWalletTx.mapSproutNoteData.
+ * @brief Find all Sprout notes in a transaction that belong to this wallet
+ * @param tx The transaction to scan for Sprout notes
+ * @return Map of JSOutPoints to SproutNoteData for notes belonging to this wallet
+ * 
+ * Scans all JoinSplit outputs in the given transaction and attempts to decrypt
+ * them using the wallet's Sprout note decryptors. For each successfully decrypted
+ * note, computes the nullifier (if spending key available) and creates note data.
+ * 
+ * Note: This should rarely be called directly as results are typically cached
+ * in CWalletTx.mapSproutNoteData for wallet transactions.
  */
 mapSproutNoteData_t CWallet::FindMySproutNotes(const CTransaction &tx) const
 {
@@ -4796,12 +6686,21 @@ mapSproutNoteData_t CWallet::FindMySproutNotes(const CTransaction &tx) const
 }
 
 /**
- * Finds all output notes in the given transaction that have been sent to
- * SaplingPaymentAddresses in this wallet.
- *
- * It should never be necessary to call this method with a CWalletTx, because
- * the result of FindMySaplingNotes (for the addresses available at the time) will
- * already have been cached in CWalletTx.mapSaplingNoteData.
+ * @brief Worker thread function for decrypting Orchard notes
+ * @param wallet Pointer to the wallet instance
+ * @param vIvk Vector of incoming viewing keys to try for decryption
+ * @param vOrchardEncryptedAction Vector of encrypted Orchard actions to decrypt
+ * @param vPosition Vector of action positions within transactions
+ * @param vHash Vector of transaction hashes corresponding to actions
+ * @param height Block height for validation context
+ * @param noteData[out] Map to store successfully decrypted note data
+ * @param viewingKeysToAdd[out] Map to store newly discovered viewing keys
+ * @param threadNumber Thread identifier for logging/debugging
+ * 
+ * Multi-threaded worker function that attempts to decrypt Orchard actions using
+ * the provided incoming viewing keys. Successfully decrypted notes are added to
+ * the noteData map if their value exceeds the minimum transaction value threshold.
+ * Thread-safe operations use wallet's cs_wallet_threadedfunction mutex.
  */
 static void DecryptOrchardNoteWorker(
     const CWallet *wallet,
@@ -4845,6 +6744,23 @@ static void DecryptOrchardNoteWorker(
     }
 }
 
+/**
+ * @brief Find all Orchard notes in a vector of transactions that belong to this wallet
+ * @param vtx Vector of transactions to scan for Orchard notes
+ * @param height Block height for validation context
+ * @return Pair containing map of OrchardOutPoints to OrchardNoteData and newly discovered viewing keys
+ * 
+ * Multi-threaded function that scans all Orchard actions across multiple transactions
+ * to find notes belonging to this wallet. The function:
+ * 
+ * - Distributes decryption work across multiple threads for performance
+ * - Attempts decryption using all known Orchard incoming viewing keys
+ * - Applies dust filtering based on minimum transaction value
+ * - Returns both successfully decrypted notes and any newly discovered viewing keys
+ * 
+ * This is the primary method for batch processing Orchard transactions during
+ * block synchronization and wallet scanning operations.
+ */
 std::pair<mapOrchardNoteData_t, OrchardIncomingViewingKeyMap> CWallet::FindMyOrchardNotes(const std::vector<CTransaction> &vtx, int height) const
 {
     LOCK(cs_wallet);
@@ -4936,12 +6852,21 @@ std::pair<mapOrchardNoteData_t, OrchardIncomingViewingKeyMap> CWallet::FindMyOrc
 
 
 /**
- * Finds all output notes in the given transaction that have been sent to
- * SaplingPaymentAddresses in this wallet.
- *
- * It should never be necessary to call this method with a CWalletTx, because
- * the result of FindMySaplingNotes (for the addresses available at the time) will
- * already have been cached in CWalletTx.mapSaplingNoteData.
+ * @brief Worker thread function for decrypting Sapling notes
+ * @param wallet Pointer to the wallet instance
+ * @param vIvk Vector of incoming viewing keys to try for decryption
+ * @param vSaplingEncryptedNote Vector of encrypted Sapling notes to decrypt
+ * @param vPosition Vector of output positions within transactions
+ * @param vHash Vector of transaction hashes corresponding to notes
+ * @param height Block height for validation context
+ * @param noteData[out] Map to store successfully decrypted note data
+ * @param viewingKeysToAdd[out] Map to store newly discovered viewing keys
+ * @param threadNumber Thread identifier for logging/debugging
+ * 
+ * Multi-threaded worker function that attempts to decrypt Sapling notes using
+ * the provided incoming viewing keys. Successfully decrypted notes are added to
+ * the noteData map if their value exceeds the minimum transaction value threshold.
+ * Thread-safe operations use wallet's cs_wallet_threadedfunction mutex.
  */
 static void DecryptSaplingNoteWorker(
     const CWallet *wallet,
@@ -4990,6 +6915,24 @@ static void DecryptSaplingNoteWorker(
     }
 }
 
+/**
+ * @brief Find all Sapling notes in a vector of transactions that belong to this wallet
+ * @param vtx Vector of transactions to scan for Sapling notes
+ * @param height Block height for validation context  
+ * @return Pair containing map of SaplingOutPoints to SaplingNoteData and newly discovered viewing keys
+ * 
+ * Multi-threaded function that scans all Sapling outputs across multiple transactions
+ * to find notes belonging to this wallet. The function:
+ * 
+ * - Distributes decryption work across multiple threads for performance
+ * - Attempts decryption using all known Sapling incoming viewing keys
+ * - Applies dust filtering based on minimum transaction value
+ * - Returns both successfully decrypted notes and any newly discovered viewing keys
+ * 
+ * This is the primary method for batch processing Sapling transactions during
+ * block synchronization and wallet scanning operations. Results are cached in
+ * CWalletTx.mapSaplingNoteData for wallet transactions.
+ */
 std::pair<mapSaplingNoteData_t, SaplingIncomingViewingKeyMap> CWallet::FindMySaplingNotes(const std::vector<CTransaction> &vtx, int height) const
 {
     LOCK(cs_wallet);
@@ -5083,6 +7026,15 @@ std::pair<mapSaplingNoteData_t, SaplingIncomingViewingKeyMap> CWallet::FindMySap
     return std::make_pair(noteData, viewingKeysToAdd);
 }
 
+/**
+ * @brief Check if a Sprout nullifier belongs to this wallet
+ * @param nullifier The Sprout nullifier to check
+ * @return true if this wallet owns the note corresponding to the nullifier
+ * 
+ * Determines if a given Sprout nullifier corresponds to a note that belongs to
+ * this wallet by checking the nullifier-to-note mapping. This is used to detect
+ * when this wallet's Sprout notes are being spent in transactions.
+ */
 bool CWallet::IsSproutNullifierFromMe(const uint256& nullifier) const
 {
     {
@@ -5095,6 +7047,15 @@ bool CWallet::IsSproutNullifierFromMe(const uint256& nullifier) const
     return false;
 }
 
+/**
+ * @brief Check if a Sapling nullifier belongs to this wallet
+ * @param nullifier The Sapling nullifier to check
+ * @return true if this wallet owns the note corresponding to the nullifier
+ * 
+ * Determines if a given Sapling nullifier corresponds to a note that belongs to
+ * this wallet by checking the nullifier-to-note mapping. This is used to detect
+ * when this wallet's Sapling notes are being spent in transactions.
+ */
 bool CWallet::IsSaplingNullifierFromMe(const uint256& nullifier) const
 {
     {
@@ -5107,6 +7068,15 @@ bool CWallet::IsSaplingNullifierFromMe(const uint256& nullifier) const
     return false;
 }
 
+/**
+ * @brief Check if an Orchard nullifier belongs to this wallet
+ * @param nullifier The Orchard nullifier to check
+ * @return true if this wallet owns the note corresponding to the nullifier
+ * 
+ * Determines if a given Orchard nullifier corresponds to a note that belongs to
+ * this wallet by checking the nullifier-to-note mapping. This is used to detect
+ * when this wallet's Orchard notes are being spent in transactions.
+ */
 bool CWallet::IsOrchardNullifierFromMe(const uint256& nullifier) const
 {
     {
@@ -5119,6 +7089,24 @@ bool CWallet::IsOrchardNullifierFromMe(const uint256& nullifier) const
     return false;
 }
 
+/**
+ * @brief Get Sprout note witnesses for a vector of notes
+ * @param notes Vector of JSOutPoints identifying the notes to get witnesses for
+ * @param witnesses[out] Vector to populate with witnesses (may contain nullopt for missing witnesses)
+ * @param final_anchor[out] The common anchor/root hash for all returned witnesses
+ * 
+ * Retrieves cached Sprout witnesses for the specified notes. All returned witnesses
+ * must have the same anchor (Merkle tree root) to be usable together in a transaction.
+ * The function:
+ * 
+ * - Looks up each note in the wallet's transaction map
+ * - Retrieves the first (most recent) witness for each note if available
+ * - Verifies all witnesses share the same anchor
+ * - Returns the common anchor for use in transaction creation
+ * 
+ * Notes without witnesses or that don't exist will have nullopt in the output vector.
+ * This function is used when preparing Sprout notes for spending in transactions.
+ */
 void CWallet::GetSproutNoteWitnesses(std::vector<JSOutPoint> notes,
                                      std::vector<std::optional<SproutWitness>>& witnesses,
                                      uint256 &final_anchor)
@@ -5146,6 +7134,26 @@ void CWallet::GetSproutNoteWitnesses(std::vector<JSOutPoint> notes,
     }
 }
 
+/**
+ * @brief Get Sapling note Merkle paths for spending
+ * @param notes Vector of SaplingOutPoints identifying the notes to get paths for
+ * @param saplingMerklePaths[out] Vector to populate with Merkle paths (same order as notes)
+ * @param final_anchor[out] The common anchor/root hash for all returned paths
+ * @return true if all paths were successfully retrieved, false otherwise
+ * 
+ * Retrieves the Merkle paths for the specified Sapling notes from the Sapling wallet,
+ * which are required to create valid spend proofs. All returned paths must have the
+ * same root hash (anchor) to be used together in a transaction. The function:
+ * 
+ * - Looks up each note in the wallet's transaction map
+ * - Retrieves the Merkle path from the Sapling wallet
+ * - Computes and verifies the anchor for each path
+ * - Ensures all anchors match for transaction consistency
+ * 
+ * Returns false if any note is not found, path retrieval fails, or anchor
+ * computation fails. This function is essential for creating Sapling spend
+ * transactions that require valid authentication paths.
+ */
 bool CWallet::GetSaplingNoteMerklePaths(std::vector<SaplingOutPoint> notes,
                                       std::vector<MerklePath>& saplingMerklePaths,
                                       uint256 &final_anchor)
@@ -5198,6 +7206,26 @@ bool CWallet::GetSaplingNoteMerklePaths(std::vector<SaplingOutPoint> notes,
     return true;
 }
 
+/**
+ * @brief Get Orchard note Merkle paths for spending
+ * @param notes Vector of OrchardOutPoints identifying the notes to get paths for
+ * @param orchardMerklePaths[out] Vector to populate with Merkle paths (same order as notes)
+ * @param final_anchor[out] The common anchor/root hash for all returned paths
+ * @return true if all paths were successfully retrieved, false otherwise
+ * 
+ * Retrieves the Merkle paths for the specified Orchard notes from the Orchard wallet,
+ * which are required to create valid spend proofs. All returned paths must have the
+ * same root hash (anchor) to be used together in a transaction. The function:
+ * 
+ * - Looks up each note in the wallet's transaction map
+ * - Retrieves the Merkle path from the Orchard wallet
+ * - Computes and verifies the anchor for each path using note commitments
+ * - Ensures all anchors match for transaction consistency
+ * 
+ * Returns false if any note is not found, path retrieval fails, or anchor
+ * computation fails. This function is essential for creating Orchard spend
+ * transactions that require valid authentication paths.
+ */
 bool CWallet::GetOrchardNoteMerklePaths(std::vector<OrchardOutPoint> notes,
                                       std::vector<MerklePath>& orchardMerklePaths,
                                       uint256 &final_anchor)
@@ -5250,6 +7278,16 @@ bool CWallet::GetOrchardNoteMerklePaths(std::vector<OrchardOutPoint> notes,
     return true;
 }
 
+/**
+ * @brief Check if a transaction input belongs to this wallet
+ * @param txin The transaction input to check
+ * @return ISMINE_SPENDABLE if the input belongs to this wallet, ISMINE_NO otherwise
+ * 
+ * Determines if a transaction input spends an output that belongs to this wallet.
+ * The function looks up the previous transaction being spent and checks if the
+ * wallet owns the referenced output. This is used for determining transaction
+ * ownership and calculating debits.
+ */
 isminetype CWallet::IsMine(const CTxIn &txin) const
 {
     {
@@ -5265,6 +7303,17 @@ isminetype CWallet::IsMine(const CTxIn &txin) const
     return ISMINE_NO;
 }
 
+/**
+ * @brief Get the debit amount for a transaction input
+ * @param txin The transaction input to calculate debit for
+ * @param filter Filter specifying which types of ownership to consider
+ * @return The value being debited from this wallet, or 0 if not ours
+ * 
+ * Calculates how much value is being spent from this wallet by the given
+ * transaction input. The function looks up the previous transaction output
+ * being spent and returns its value if the wallet owns it and it matches
+ * the ownership filter criteria.
+ */
 CAmount CWallet::GetDebit(const CTxIn &txin, const isminefilter& filter) const
 {
     {
@@ -5281,11 +7330,30 @@ CAmount CWallet::GetDebit(const CTxIn &txin, const isminefilter& filter) const
     return 0;
 }
 
+/**
+ * @brief Check if a transaction output belongs to this wallet
+ * @param txout The transaction output to check
+ * @return ISMINE_SPENDABLE if output belongs to this wallet, ISMINE_NO otherwise
+ * 
+ * Determines if a transaction output can be spent by this wallet by checking
+ * if the wallet has the keys necessary to satisfy the output's scriptPubKey.
+ * This is used for determining transaction ownership and calculating credits.
+ */
 isminetype CWallet::IsMine(const CTxOut& txout) const
 {
     return ::IsMine(*this, txout.scriptPubKey);
 }
 
+/**
+ * @brief Get the credit amount for a transaction output
+ * @param txout The transaction output to calculate credit for
+ * @param filter Filter specifying which types of ownership to consider
+ * @return The value being credited to this wallet, or 0 if not ours
+ * 
+ * Calculates how much value is being received by this wallet from the given
+ * transaction output. Returns the output value if the wallet owns it and it
+ * matches the ownership filter criteria, otherwise returns 0.
+ */
 CAmount CWallet::GetCredit(const CTxOut& txout, const isminefilter& filter) const
 {
     if (!MoneyRange(txout.nValue))
@@ -5293,6 +7361,18 @@ CAmount CWallet::GetCredit(const CTxOut& txout, const isminefilter& filter) cons
     return ((IsMine(txout) & filter) ? txout.nValue : 0);
 }
 
+/**
+ * @brief Determine if a transaction output is change from this wallet
+ * @param txout The transaction output to examine
+ * @return true if the output is likely change, false otherwise
+ * 
+ * Attempts to identify if a transaction output represents change being returned
+ * to this wallet. The current heuristic considers any output that belongs to
+ * this wallet but is not in the address book as change. This may not be accurate
+ * for multisignature wallets or complex transaction patterns.
+ * 
+ * @note This is a heuristic and may not be 100% accurate in all cases.
+ */
 bool CWallet::IsChange(const CTxOut& txout) const
 {
     // TODO: fix handling of 'change' outputs. The assumption is that any
@@ -5315,6 +7395,15 @@ bool CWallet::IsChange(const CTxOut& txout) const
     return false;
 }
 
+/**
+ * @brief Get the change amount for a transaction output
+ * @param txout The transaction output to examine
+ * @return The change value if this output is change, 0 otherwise
+ * 
+ * Returns the value of the transaction output if it is determined to be
+ * change returning to this wallet, otherwise returns 0. Uses the IsChange()
+ * heuristic to determine if the output represents change.
+ */
 CAmount CWallet::GetChange(const CTxOut& txout) const
 {
     if (!MoneyRange(txout.nValue))
@@ -5325,6 +7414,16 @@ CAmount CWallet::GetChange(const CTxOut& txout) const
 typedef vector<unsigned char> valtype;
 unsigned int HaveKeys(const vector<valtype>& pubkeys, const CKeyStore& keystore);
 
+/**
+ * @brief Count how many of the given public keys are present in the keystore
+ * @param pubkeys Vector of public keys to check
+ * @param keystore The keystore to search in
+ * @return The number of public keys found in the keystore
+ * 
+ * Utility function that counts how many of the provided public keys have
+ * corresponding private keys in the given keystore. Used for multisignature
+ * script evaluation to determine if enough keys are available for spending.
+ */
 unsigned int HaveKeys(const vector<valtype>& pubkeys, const CKeyStore& keystore)
 {
     unsigned int nResult = 0;
@@ -5337,6 +7436,15 @@ unsigned int HaveKeys(const vector<valtype>& pubkeys, const CKeyStore& keystore)
     return nResult;
 }
 
+/**
+ * @brief Check if any output in a transaction belongs to this wallet
+ * @param tx The transaction to examine
+ * @return true if at least one output belongs to this wallet, false otherwise
+ * 
+ * Convenience function that checks all outputs in a transaction to determine
+ * if the wallet has any interest in the transaction. Returns true as soon as
+ * the first owned output is found.
+ */
 bool CWallet::IsMine(const CTransaction& tx)
 {
     for (int i = 0; i < tx.vout.size(); i++)
@@ -5359,6 +7467,19 @@ bool CWallet::IsMine(const CTransaction& tx)
 // special case handling for non-standard/Verus OP_RETURN script outputs, which need the transaction
 // to determine ownership
 
+/**
+ * @brief Check if a specific transaction output belongs to this wallet (extended version)
+ * @param tx The transaction containing the output
+ * @param voutNum The index of the output to check
+ * @return ISMINE_SPENDABLE if output belongs to this wallet, ISMINE_NO otherwise
+ * 
+ * Enhanced version of IsMine that handles special cases like non-standard scripts
+ * and Verus OP_RETURN outputs that require transaction context for ownership
+ * determination. Supports various script types including multisig, P2PKH, P2SH,
+ * and crypto-condition scripts.
+ * 
+ * @note This function includes special handling for Verus-specific script types
+ */
 isminetype CWallet::IsMine(const CTransaction& tx, uint32_t voutNum)
 {
     vector<valtype> vSolutions;
@@ -5471,7 +7592,21 @@ isminetype CWallet::IsMine(const CTransaction& tx, uint32_t voutNum)
     return ISMINE_NO;
 }
 
-
+/**
+ * @brief Check if a transaction originates from this wallet
+ * @param tx The transaction to examine
+ * @return true if the transaction spends funds from this wallet, false otherwise
+ * 
+ * Determines if a transaction is spending funds that belong to this wallet by
+ * checking both transparent and shielded inputs. The function examines:
+ * 
+ * - Transparent inputs for wallet ownership (via GetDebit)
+ * - Sprout nullifiers to detect spent Sprout notes
+ * - Sapling nullifiers to detect spent Sapling notes  
+ * - Orchard nullifiers to detect spent Orchard notes
+ * 
+ * Returns true if any input indicates the transaction is spending from this wallet.
+ */
 bool CWallet::IsFromMe(const CTransaction& tx) const
 {
     if (GetDebit(tx, ISMINE_ALL) > 0) {
@@ -5499,6 +7634,16 @@ bool CWallet::IsFromMe(const CTransaction& tx) const
     return false;
 }
 
+/**
+ * @brief Calculate total debit amount for a transaction
+ * @param tx The transaction to examine
+ * @param filter Filter specifying which types of ownership to consider
+ * @return Total amount being debited from this wallet
+ * 
+ * Calculates the total amount being spent from this wallet by summing up
+ * the debit amounts for all transaction inputs. Only includes inputs that
+ * match the ownership filter criteria.
+ */
 CAmount CWallet::GetDebit(const CTransaction& tx, const isminefilter& filter) const
 {
     CAmount nDebit = 0;
@@ -5511,6 +7656,17 @@ CAmount CWallet::GetDebit(const CTransaction& tx, const isminefilter& filter) co
     return nDebit;
 }
 
+/**
+ * @brief Get credit amount for a specific transaction output
+ * @param tx The transaction containing the output
+ * @param voutNum The index of the output to examine
+ * @param filter Filter specifying which types of ownership to consider
+ * @return The credit amount for the specified output, or 0 if not ours
+ * 
+ * Calculates the credit amount for a specific output in a transaction.
+ * Returns the output value if the wallet owns it and it matches the
+ * ownership filter criteria, otherwise returns 0.
+ */
 CAmount CWallet::GetCredit(const CTransaction& tx, int32_t voutNum, const isminefilter& filter) const
 {
     if (voutNum >= tx.vout.size() || !MoneyRange(tx.vout[voutNum].nValue))
@@ -5518,6 +7674,16 @@ CAmount CWallet::GetCredit(const CTransaction& tx, int32_t voutNum, const ismine
     return ((IsMine(tx.vout[voutNum]) & filter) ? tx.vout[voutNum].nValue : 0);
 }
 
+/**
+ * @brief Calculate total credit amount for a transaction
+ * @param tx The transaction to examine
+ * @param filter Filter specifying which types of ownership to consider
+ * @return Total amount being credited to this wallet
+ * 
+ * Calculates the total amount being received by this wallet by summing up
+ * the credit amounts for all transaction outputs. Only includes outputs that
+ * match the ownership filter criteria.
+ */
 CAmount CWallet::GetCredit(const CTransaction& tx, const isminefilter& filter) const
 {
     CAmount nCredit = 0;
@@ -5528,6 +7694,15 @@ CAmount CWallet::GetCredit(const CTransaction& tx, const isminefilter& filter) c
     return nCredit;
 }
 
+/**
+ * @brief Calculate total change amount for a transaction
+ * @param tx The transaction to examine
+ * @return Total amount of change outputs in the transaction
+ * 
+ * Calculates the total value of outputs that are determined to be change
+ * returning to this wallet. Uses the IsChange() heuristic to identify
+ * change outputs and sums their values.
+ */
 CAmount CWallet::GetChange(const CTransaction& tx) const
 {
     CAmount nChange = 0;
@@ -5540,12 +7715,34 @@ CAmount CWallet::GetChange(const CTransaction& tx) const
     return nChange;
 }
 
+/**
+ * @brief Check if hierarchical deterministic (HD) wallet features are fully enabled
+ * @return false (HD features are currently limited)
+ * 
+ * Currently returns false as only Sapling addresses support full HD functionality.
+ * This function may return true in the future when HD support is extended to
+ * all address types.
+ */
 bool CWallet::IsHDFullyEnabled() const
 {
     // Only Sapling addresses are HD for now
     return false;
 }
 
+/**
+ * @brief Generate a new random HD seed for the wallet
+ * @throws std::runtime_error if SetHDSeed fails
+ * 
+ * Generates a new random hierarchical deterministic seed and sets it as the
+ * wallet's master seed. This function:
+ * 
+ * - Creates a cryptographically secure random seed
+ * - Sets the seed in the wallet (requires unlocked wallet if encrypted)
+ * - Creates and stores the HD chain metadata with seed fingerprint
+ * - Records the creation time for the seed
+ * 
+ * This function is used for initial wallet setup or when creating a new seed.
+ */
 void CWallet::GenerateNewSeed()
 {
     LOCK(cs_wallet);
@@ -5568,6 +7765,15 @@ void CWallet::GenerateNewSeed()
     SetHDChain(newHdChain, false);
 }
 
+/**
+ * @brief Validate a BIP39 mnemonic phrase
+ * @param phrase The mnemonic phrase to validate
+ * @return true if the phrase is valid, false otherwise
+ * 
+ * Validates a BIP39 mnemonic phrase to ensure it conforms to the standard
+ * format and has a valid checksum. This function is used before attempting
+ * to restore a wallet from a mnemonic phrase.
+ */
 bool CWallet::IsValidPhrase(std::string &phrase)
 {
     LOCK(cs_wallet);
@@ -5576,6 +7782,22 @@ bool CWallet::IsValidPhrase(std::string &phrase)
     return checkSeed.IsValidPhrase(phrase);
 }
 
+/**
+ * @brief Restore wallet seed from a BIP39 mnemonic phrase
+ * @param phrase The BIP39 mnemonic phrase to restore from
+ * @return true if restoration was successful, false otherwise
+ * @throws std::runtime_error if SetHDSeed fails
+ * 
+ * Restores the wallet's HD seed from a BIP39 mnemonic phrase. This function:
+ * 
+ * - Validates the mnemonic phrase format and checksum
+ * - Converts the phrase to a binary seed
+ * - Sets the seed in the wallet (requires unlocked wallet if encrypted)
+ * - Creates and stores HD chain metadata
+ * - Records the restoration time
+ * 
+ * Used for wallet recovery from backup phrases.
+ */
 bool CWallet::RestoreSeedFromPhrase(std::string &phrase)
 {
     LOCK(cs_wallet);
@@ -5604,6 +7826,21 @@ bool CWallet::RestoreSeedFromPhrase(std::string &phrase)
     return true;
 }
 
+/**
+ * @brief Set the hierarchical deterministic seed for the wallet
+ * @param seed The HD seed to set
+ * @return true if the seed was successfully set, false otherwise
+ * 
+ * Sets the HD seed in the wallet's keystore. The seed is used as the master
+ * secret for deriving all hierarchical deterministic keys. The function:
+ * 
+ * - Fails if the wallet is encrypted and locked
+ * - Handles both encrypted and unencrypted wallets appropriately
+ * - Stores the seed in the appropriate keystore (encrypted or plain)
+ * - Returns success/failure status
+ * 
+ * This is a low-level function used by seed generation and restoration operations.
+ */
 bool CWallet::SetHDSeed(const HDSeed& seed)
 {
 
@@ -5661,6 +7898,19 @@ bool CWallet::SetHDSeed(const HDSeed& seed)
     return true;
 }
 
+/**
+ * @brief Set the HD chain metadata for the wallet
+ * @param chain The HD chain metadata to set
+ * @param memonly If true, only store in memory; if false, also persist to database
+ * @throws std::runtime_error if database write fails
+ * 
+ * Sets the hierarchical deterministic chain metadata, which includes information
+ * about key derivation paths, seed fingerprint, and creation time. The metadata
+ * is stored in memory and optionally persisted to the wallet database.
+ * 
+ * This function is used during wallet initialization, seed generation, and
+ * restoration operations to maintain HD key derivation state.
+ */
 void CWallet::SetHDChain(const CHDChain& chain, bool memonly)
 {
     LOCK(cs_wallet);
@@ -5670,16 +7920,47 @@ void CWallet::SetHDChain(const CHDChain& chain, bool memonly)
     hdChain = chain;
 }
 
+/**
+ * @brief Load an HD seed during wallet initialization
+ * @param seed The HD seed to load
+ * @return true if the seed was successfully loaded
+ * 
+ * Loads an unencrypted HD seed into the basic keystore during wallet loading.
+ * This function is called when reading wallet data from the database during
+ * wallet initialization. The seed is stored in unencrypted form.
+ */
 bool CWallet::LoadHDSeed(const HDSeed& seed)
 {
     return CBasicKeyStore::SetHDSeed(seed);
 }
 
+/**
+ * @brief Load an encrypted HD seed during wallet initialization
+ * @param seedFp The fingerprint of the encrypted seed
+ * @param seed The encrypted seed data
+ * @return true if the encrypted seed was successfully loaded
+ * 
+ * Loads an encrypted HD seed into the crypto keystore during wallet loading.
+ * This function is called when reading encrypted wallet data from the database.
+ * The seed remains in encrypted form until the wallet is unlocked.
+ */
 bool CWallet::LoadCryptedHDSeed(const uint256& seedFp, const std::vector<unsigned char>& seed)
 {
     return CCryptoKeyStore::SetCryptedHDSeed(seedFp, seed);
 }
 
+/**
+ * @brief Set Sprout note data for this wallet transaction
+ * @param noteData Map of JSOutPoint to SproutNoteData to set
+ * @throws std::logic_error if any note reference is invalid
+ * 
+ * Replaces the Sprout note data for this transaction with the provided data.
+ * Validates that all note references (JSOutPoint) correspond to valid outputs
+ * in the transaction's JoinSplit descriptions before storing the data.
+ * 
+ * This function is used when processing transactions to store decrypted note
+ * information and associated metadata like addresses and nullifiers.
+ */
 void CWalletTx::SetSproutNoteData(mapSproutNoteData_t &noteData)
 {
     mapSproutNoteData.clear();
@@ -5696,6 +7977,18 @@ void CWalletTx::SetSproutNoteData(mapSproutNoteData_t &noteData)
     }
 }
 
+/**
+ * @brief Set Sapling note data for this wallet transaction
+ * @param noteData Map of SaplingOutPoint to SaplingNoteData to set
+ * @throws std::logic_error if any note reference is invalid
+ * 
+ * Replaces the Sapling note data for this transaction with the provided data.
+ * Validates that all note references (SaplingOutPoint) correspond to valid outputs
+ * in the transaction's Sapling outputs before storing the data.
+ * 
+ * This function is used when processing transactions to store decrypted note
+ * information and associated metadata like addresses, nullifiers, and witnesses.
+ */
 void CWalletTx::SetSaplingNoteData(mapSaplingNoteData_t &noteData)
 {
     mapSaplingNoteData.clear();
@@ -5708,6 +8001,18 @@ void CWalletTx::SetSaplingNoteData(mapSaplingNoteData_t &noteData)
     }
 }
 
+/**
+ * @brief Set Orchard note data for this wallet transaction
+ * @param noteData Map of OrchardOutPoint to OrchardNoteData to set
+ * @throws std::logic_error if any note reference is invalid
+ * 
+ * Replaces the Orchard note data for this transaction with the provided data.
+ * Validates that all note references (OrchardOutPoint) correspond to valid actions
+ * in the transaction's Orchard actions before storing the data.
+ * 
+ * This function is used when processing transactions to store decrypted note
+ * information and associated metadata like addresses, nullifiers, and position data.
+ */
 void CWalletTx::SetOrchardNoteData(mapOrchardNoteData_t &noteData)
 {
     mapOrchardNoteData.clear();
@@ -5720,6 +8025,23 @@ void CWalletTx::SetOrchardNoteData(mapOrchardNoteData_t &noteData)
     }
 }
 
+/**
+ * @brief Decrypt a Sprout note from this wallet transaction
+ * @param jsop The JSOutPoint identifying the specific note to decrypt
+ * @return Pair containing the decrypted note plaintext and payment address
+ * @throws std::runtime_error if note decryptor not found or decryption fails
+ * 
+ * Decrypts a Sprout note that belongs to this wallet transaction using the cached
+ * note data and wallet's note decryptors. The function:
+ * 
+ * - Retrieves the payment address and note data from cached information
+ * - Gets the appropriate note decryptor for the payment address
+ * - Computes the signature hash for the JoinSplit
+ * - Decrypts the note ciphertext to recover the plaintext
+ * 
+ * This function is used when the wallet needs to access the details of a received
+ * Sprout note, such as for displaying balance information or preparing to spend the note.
+ */
 std::pair<SproutNotePlaintext, SproutPaymentAddress> CWalletTx::DecryptSproutNote(
     JSOutPoint jsop) const
 {
@@ -5760,6 +8082,28 @@ std::pair<SproutNotePlaintext, SproutPaymentAddress> CWalletTx::DecryptSproutNot
     }
 }
 
+/**
+ * @brief Decrypt a Sapling note from this wallet transaction
+ * @param params Consensus parameters for validation
+ * @param height Block height for validation context
+ * @param op The SaplingOutPoint identifying the specific note to decrypt
+ * @return Optional pair containing the decrypted note plaintext and payment address
+ * 
+ * Decrypts a Sapling note that belongs to this wallet transaction using the cached
+ * note data and incoming viewing key. The function:
+ * 
+ * - Retrieves the cached Sapling note data for the output point
+ * - Extracts the encrypted ciphertext and ephemeral key from the output
+ * - Uses the cached incoming viewing key to decrypt the note
+ * - Derives the payment address from the decrypted note and viewing key
+ * - Validates the decryption using consensus parameters and block height
+ * 
+ * Returns nullopt if the note data is not cached (indicating this wallet
+ * doesn't own the note) or if decryption fails for any reason.
+ * 
+ * This function is used when the wallet needs to access details of received
+ * Sapling notes for balance calculations, transaction creation, or display.
+ */
 std::optional<std::pair<
     SaplingNotePlaintext,
     SaplingPaymentAddress>> CWalletTx::DecryptSaplingNote(const Consensus::Params& params, int height, SaplingOutPoint op) const
@@ -5792,6 +8136,28 @@ std::optional<std::pair<
     return std::make_pair(notePt, pa);
 }
 
+/**
+ * @brief Decrypt a Sapling note without performing lead byte checks
+ * @param op The SaplingOutPoint identifying the specific note to decrypt
+ * @return Optional pair containing the decrypted note plaintext and payment address
+ * 
+ * Decrypts a Sapling note that belongs to this wallet transaction without
+ * performing the lead byte validation checks. This is a more lenient decryption
+ * method that skips height-dependent validation. The function:
+ * 
+ * - Retrieves the cached Sapling note data for the output point
+ * - Extracts the encrypted ciphertext and ephemeral key from the output
+ * - Uses the cached incoming viewing key to decrypt the note
+ * - Derives the payment address from the decrypted note and viewing key
+ * - Validates the decryption without height constraints
+ * 
+ * This method is useful for recovering notes from transactions that may have
+ * been created before certain consensus rules were enforced, or when height
+ * information is not available or reliable.
+ * 
+ * Returns nullopt if the note data is not cached (indicating this wallet
+ * doesn't own the note) or if decryption fails for any reason.
+ */
 std::optional<std::pair<
     SaplingNotePlaintext,
     SaplingPaymentAddress>> CWalletTx::DecryptSaplingNoteWithoutLeadByteCheck(SaplingOutPoint op) const
@@ -5828,6 +8194,29 @@ std::optional<std::pair<
     return std::make_pair(notePt, pa);
 }
 
+/**
+ * @brief Recover a Sapling note using outgoing viewing keys
+ * @param params Consensus parameters for validation
+ * @param height Block height for validation context
+ * @param op The SaplingOutPoint identifying the specific note to recover
+ * @param ovks Set of outgoing viewing keys to try for recovery
+ * @return Optional pair containing the recovered note plaintext and payment address
+ * 
+ * Attempts to recover a Sapling note by trying decryption with multiple outgoing
+ * viewing keys (OVKs). This is used to decrypt notes that were sent by this wallet
+ * to other addresses. The function:
+ * 
+ * - Extracts the encrypted ciphertext, outgoing ciphertext, and cryptographic commitments
+ * - Iterates through the provided set of outgoing viewing keys
+ * - For each OVK, attempts to decrypt the outgoing plaintext
+ * - If successful, uses the recovered ephemeral key to decrypt the note plaintext
+ * - Derives the payment address from the decrypted note
+ * - Validates all cryptographic commitments and addresses
+ * 
+ * This is primarily used for recovering sent notes when the wallet needs to
+ * display transaction history or verify outgoing payments. Returns nullopt
+ * if none of the provided OVKs can successfully decrypt the note.
+ */
 std::optional<std::pair<
     SaplingNotePlaintext,
     SaplingPaymentAddress>> CWalletTx::RecoverSaplingNote(const Consensus::Params& params, int height, SaplingOutPoint op, std::set<uint256>& ovks) const
@@ -5870,6 +8259,28 @@ std::optional<std::pair<
     return std::nullopt;
 }
 
+/**
+ * @brief Recover a Sapling note using outgoing viewing keys without lead byte checks
+ * @param op The SaplingOutPoint identifying the specific note to recover
+ * @param ovks Set of outgoing viewing keys to try for recovery
+ * @return Optional pair containing the recovered note plaintext and payment address
+ * 
+ * Attempts to recover a Sapling note by trying decryption with multiple outgoing
+ * viewing keys (OVKs) without performing lead byte validation checks. This is a
+ * more lenient recovery method that skips height-dependent validation. The function:
+ * 
+ * - Extracts the encrypted ciphertext, outgoing ciphertext, and cryptographic commitments
+ * - Iterates through the provided set of outgoing viewing keys
+ * - For each OVK, attempts to decrypt the outgoing plaintext
+ * - If successful, uses the recovered ephemeral key to decrypt the note plaintext
+ * - Derives the payment address from the decrypted note
+ * - Validates cryptographic commitments without height constraints
+ * 
+ * This method is useful for recovering sent notes from transactions that may have
+ * been created before certain consensus rules were enforced, or when height
+ * information is not available or reliable. Returns nullopt if none of the
+ * provided OVKs can successfully decrypt and recover the note.
+ */
 std::optional<std::pair<
     SaplingNotePlaintext,
     SaplingPaymentAddress>> CWalletTx::RecoverSaplingNoteWithoutLeadByteCheck(SaplingOutPoint op, std::set<uint256>& ovks) const
@@ -5916,11 +8327,30 @@ std::optional<std::pair<
     return std::nullopt;
 }
 
+/**
+ * @brief Decrypt an Orchard note from this wallet transaction
+ * @param op The OrchardOutPoint identifying the specific note to decrypt
+ * @return Optional pair containing the decrypted note plaintext and payment address
+ * 
+ * Decrypts an Orchard note that belongs to this wallet transaction using the cached
+ * note data and incoming viewing key. The function:
+ * 
+ * - Retrieves the cached Orchard note data for the action point
+ * - Uses the cached incoming viewing key to decrypt the note from the action
+ * - Derives the payment address from the decrypted note plaintext
+ * - Validates the decryption using Orchard cryptographic primitives
+ * 
+ * Returns nullopt if the note data is not cached (indicating this wallet
+ * doesn't own the note) or if decryption fails for any reason.
+ * 
+ * This function is used when the wallet needs to access details of received
+ * Orchard notes for balance calculations, transaction creation, or display.
+ */
 std::optional<std::pair<
     OrchardNotePlaintext,
     OrchardPaymentAddressPirate>> CWalletTx::DecryptOrchardNote(OrchardOutPoint op) const
 {
-    // Check whether we can decrypt this SaplingOutPoint
+    // Check whether we can decrypt this OrchardOutPoint
     if (this->mapOrchardNoteData.count(op) == 0) {
         return std::nullopt;
     }
@@ -5936,12 +8366,44 @@ std::optional<std::pair<
     return std::make_pair(notePt, pa);
 }
 
+/**
+ * @brief Get the effective timestamp for this wallet transaction
+ * @return The transaction timestamp (smart time if available, otherwise received time)
+ * 
+ * Returns the most appropriate timestamp for this transaction. Prefers the
+ * "smart time" (nTimeSmart) which is computed based on block timestamps and
+ * other heuristics, falling back to the received time (nTimeReceived) if
+ * smart time is not available.
+ * 
+ * Used for transaction ordering and display purposes in the wallet interface.
+ */
 int64_t CWalletTx::GetTxTime() const
 {
     int64_t n = nTimeSmart;
     return n ? n : nTimeReceived;
 }
 
+/**
+ * @brief Calculate transparent debits and credits for this wallet transaction
+ * @param listReceived[out] List of received outputs with destination and amount
+ * @param listSent[out] List of sent outputs with destination and amount
+ * @param nFee[out] Transaction fee amount (if this wallet sent the transaction)
+ * @param strSentAccount[out] Account name used for sending (if applicable)
+ * @param filter Filter specifying which types of ownership to consider
+ * 
+ * Analyzes this wallet transaction to determine the transparent (non-shielded)
+ * value flows. The function:
+ * 
+ * - Calculates transaction fees for outgoing transactions
+ * - Identifies received outputs and their destinations
+ * - Identifies sent outputs and their destinations
+ * - Handles value pool transfers (vpub_old/new)
+ * - Processes Sapling and Orchard value balances
+ * - Separates outputs into received vs. sent categories
+ * 
+ * This is used for transaction display, accounting, and balance calculations
+ * in the wallet interface.
+ */
 // GetAmounts will determine the transparent debits and credits for a given wallet tx.
 void CWalletTx::GetAmounts(list<COutputEntry>& listReceived,
                            list<COutputEntry>& listSent, CAmount& nFee, string& strSentAccount, const isminefilter& filter) const
@@ -6069,6 +8531,25 @@ void CWalletTx::GetAmounts(list<COutputEntry>& listReceived,
 
 }
 
+/**
+ * @brief Calculate account-specific amounts for this wallet transaction
+ * @param strAccount The account name to calculate amounts for
+ * @param nReceived[out] Total amount received by this account
+ * @param nSent[out] Total amount sent from this account  
+ * @param nFee[out] Transaction fee (if this account sent the transaction)
+ * @param filter Filter specifying which types of ownership to consider
+ * 
+ * Calculates the amounts received, sent, and fees for a specific account
+ * in this wallet transaction. The function:
+ * 
+ * - Uses GetAmounts() to get all transaction flows
+ * - Filters results to only include the specified account
+ * - Matches sent amounts by account name
+ * - Matches received amounts by address book entries
+ * - Only includes fees if the specified account sent the transaction
+ * 
+ * Used for account-based bookkeeping and balance calculations in the wallet.
+ */
 void CWalletTx::GetAccountAmounts(const string& strAccount, CAmount& nReceived,
                                   CAmount& nSent, CAmount& nFee, const isminefilter& filter) const
 {
@@ -6104,6 +8585,24 @@ void CWalletTx::GetAccountAmounts(const string& strAccount, CAmount& nReceived,
     }
 }
 
+/**
+ * @brief Generate Sprout witnesses for given note commitments
+ * @param commitments Vector of note commitments to generate witnesses for
+ * @param witnesses[out] Vector to populate with witnesses for the commitments
+ * @param final_anchor[out] The final anchor/root of the Merkle tree
+ * 
+ * Reconstructs the Sprout Merkle tree by processing all blocks from genesis
+ * and generates witnesses for the specified note commitments. The function:
+ * 
+ * - Rebuilds the Sprout commitment tree from genesis block
+ * - Processes all JoinSplit transactions in chronological order
+ * - Tracks witness paths for the requested commitments
+ * - Updates all witnesses as new commitments are added
+ * - Returns the final tree anchor
+ * 
+ * This is computationally expensive as it processes the entire blockchain.
+ * Used for generating witnesses when cached witnesses are not available.
+ */
 void CWallet::WitnessNoteCommitment(std::vector<uint256> commitments,
                                     std::vector<std::optional<SproutWitness>>& witnesses,
                                     uint256 &final_anchor)
@@ -6160,12 +8659,24 @@ void CWallet::WitnessNoteCommitment(std::vector<uint256> commitments,
         }
     }
 }
-/**
- * Reorder the transactions based on block hieght and block index.
- * Transactions can get out of order when they are deleted and subsequently
- * re-added during intial load rescan.
- */
 
+/**
+ * @brief Reorder wallet transactions based on block height and index
+ * @param mapSorted[out] Map to populate with sorted transaction pointers
+ * @param maxOrderPos[out] Maximum order position found during sorting
+ * 
+ * Reorders wallet transactions based on their block height and position within
+ * blocks to maintain chronological order. This function is needed because
+ * transactions can become out of order when they are deleted and subsequently
+ * re-added during initial wallet loading or rescanning operations.
+ * 
+ * The function processes all wallet transactions and sorts them by:
+ * 1. Block height (confirmed transactions first, by height)
+ * 2. Block index position (for transactions in the same block)
+ * 3. Hash-based ordering (for unconfirmed transactions)
+ * 
+ * Requires cs_main lock to be held for thread safety during block access.
+ */
 void CWallet::ReorderWalletTransactions(std::map<std::pair<int,int>, CWalletTx*> &mapSorted, int64_t &maxOrderPos) {
     AssertLockHeld(cs_main);
     AssertLockHeld(cs_wallet);
@@ -6189,9 +8700,25 @@ void CWallet::ReorderWalletTransactions(std::map<std::pair<int,int>, CWalletTx*>
         }
     }
 }
- /**Update the nOrderPos with passed in ordered map.
- */
 
+/**
+ * @brief Update wallet transaction order positions from sorted map
+ * @param mapSorted Map of sorted transactions by block height and index
+ * @param resetOrder If true, reset all positions starting from 0; if false, preserve existing positions where possible
+ * 
+ * Updates the nOrderPos values for wallet transactions based on a pre-sorted map
+ * to maintain proper chronological ordering. This function is called after
+ * ReorderWalletTransactions() to apply the new ordering to the wallet.
+ * 
+ * The function:
+ * - Assigns new order positions based on the sorted map
+ * - Optionally resets all positions to start from 0
+ * - Updates both in-memory and database storage
+ * - Only modifies transactions whose positions have changed
+ * - Updates the next available order position counter
+ * 
+ * Requires both cs_main and cs_wallet locks for thread safety.
+ */
 void CWallet::UpdateWalletTransactionOrder(std::map<std::pair<int,int>, CWalletTx*> &mapSorted, bool resetOrder) {
     AssertLockHeld(cs_main);
     AssertLockHeld(cs_wallet);
@@ -6234,7 +8761,23 @@ void CWallet::UpdateWalletTransactionOrder(std::map<std::pair<int,int>, CWalletT
 }
 
 /**
- * Delete transactions from the Wallet
+ * @brief Delete specified transactions from the wallet
+ * @param removeTxs Vector of transaction hashes to remove from main wallet
+ * @param removeArcTxs Vector of transaction hashes to remove from archive  
+ * @param fRescan If true, trigger a wallet rescan after deletion
+ * @return true if transactions were successfully deleted, false otherwise
+ * 
+ * Removes specified transactions from both the wallet's main storage and
+ * archived transaction storage. This function:
+ * 
+ * - Validates that transactions exist before attempting removal
+ * - Removes transactions from both main wallet and archive storage
+ * - Updates the wallet's transaction ordering after removal
+ * - Optionally triggers a rescan to rebuild wallet state
+ * - Maintains database consistency during the deletion process
+ * 
+ * Used for wallet cleanup operations and handling chain reorganizations.
+ * Requires cs_wallet lock to be held for thread safety.
  */
 bool CWallet::DeleteTransactions(std::vector<uint256> &removeTxs, std::vector<uint256> &removeArcTxs, bool fRescan) {
     AssertLockHeld(cs_wallet);
@@ -6291,6 +8834,25 @@ bool CWallet::DeleteTransactions(std::vector<uint256> &removeTxs, std::vector<ui
     return removingTransactions;
 }
 
+/**
+ * @brief Delete wallet transactions based on block height criteria
+ * @param pindex The current block index to use as reference point
+ * @param fRescan If true, trigger a wallet rescan after deletion
+ * @return true if any transactions were deleted, false otherwise
+ * 
+ * Automatically deletes old wallet transactions based on the configured
+ * deletion criteria to manage wallet database size. This function:
+ * 
+ * - Checks if transaction deletion is enabled (fTxDeleteEnabled)
+ * - Identifies transactions older than the deletion threshold
+ * - Moves old transactions to archive storage before deletion
+ * - Maintains accounting entries and essential transaction data
+ * - Reorders remaining transactions to maintain consistency
+ * - Optionally triggers wallet rescan to rebuild state
+ * 
+ * Used for automatic wallet maintenance to prevent excessive database growth.
+ * Requires both cs_main and cs_wallet locks for thread safety.
+ */
 bool CWallet::DeleteWalletTransactions(const CBlockIndex* pindex, bool fRescan) {
 
       AssertLockHeld(cs_main);
@@ -6518,7 +9080,24 @@ bool CWallet::DeleteWalletTransactions(const CBlockIndex* pindex, bool fRescan) 
       return deletedTransactions;
 }
 
-
+/**
+ * @brief Initialize archived transaction data for all wallet transactions
+ * @return false if any confirmed transaction lacks archive data, true otherwise
+ * 
+ * Validates that all confirmed wallet transactions have corresponding entries
+ * in the archived transaction map (mapArcTxs). This function:
+ * 
+ * - Iterates through all transactions in the wallet
+ * - Checks confirmed transactions for archive data presence
+ * - Calculates transaction heights for validation
+ * - Returns false if any confirmed transaction lacks archive data
+ * 
+ * Used during wallet initialization and maintenance to ensure archive
+ * consistency. This helps maintain transaction history even after
+ * transactions are moved to archive storage.
+ * 
+ * Requires both cs_main and cs_wallet locks for thread safety.
+ */
 bool CWallet::initalizeArcTx() {
     AssertLockHeld(cs_main);
     AssertLockHeld(cs_wallet);
@@ -6588,9 +9167,32 @@ bool CWallet::initalizeArcTx() {
 }
 
 /**
- * Scan the block chain (starting in pindexStart) for transactions
- * from or to us. If fUpdate is true, found transactions that already
- * exist in the wallet will be updated.
+ * @brief Scan the blockchain for wallet-relevant transactions starting from a specified block
+ * @param pindexStart The block index to start scanning from
+ * @param fUpdate If true, update existing wallet transactions that are found
+ * @param fIgnoreBirthday If true, scan all blocks regardless of wallet birthday
+ * @param LockOnFinish If true, lock the wallet after scanning completes (for encrypted wallets)
+ * @param resetWallets If true, reset Sapling and Orchard wallet states before scanning
+ * @return Number of transactions found and added to the wallet
+ * 
+ * Performs a comprehensive blockchain scan to find transactions involving this wallet.
+ * This is the primary function used for wallet synchronization and recovery operations.
+ * The function:
+ * 
+ * - Scans from the specified starting block to the chain tip
+ * - Discovers new Sapling and Orchard addresses and adds them to the wallet
+ * - Updates wallet transaction maps with newly found transactions
+ * - Maintains witness trees for shielded notes
+ * - Respects wallet birthday to optimize scanning performance
+ * - Provides progress updates to the UI during long scans
+ * - Handles transaction deletion and archival during scanning
+ * - Automatically locks encrypted wallets after completion if requested
+ * 
+ * This function is used during wallet initialization, recovery from backup,
+ * and manual rescans. It requires both cs_main and cs_wallet locks and
+ * temporarily locks cs_KeyStore to prevent wallet locking during operation.
+ * 
+ * @note In cold storage mode (nMaxConnections == 0), this function returns false immediately
  */
 int CWallet::ScanForWalletTransactions(CBlockIndex* pindexStart, bool fUpdate, bool fIgnoreBirthday, bool LockOnFinish, bool resetWallets)
 {
@@ -6751,6 +9353,23 @@ int CWallet::ScanForWalletTransactions(CBlockIndex* pindexStart, bool fUpdate, b
     return ret;
 }
 
+/**
+ * @brief Re-accept wallet transactions into the memory pool
+ * 
+ * Attempts to re-submit wallet transactions that may have been removed from
+ * the memory pool back into the mempool. This function:
+ * 
+ * - Skips operation during initial block download
+ * - Only processes transactions if broadcasting is enabled
+ * - Sorts pending transactions by their original insertion order
+ * - Identifies transactions with negative depth (not in main chain)
+ * - Attempts to re-add non-coinbase transactions to the mempool
+ * - Removes transactions from the wallet if they fail validation
+ * 
+ * This is typically called after network reconnection or when the mempool
+ * may have been cleared, to ensure wallet transactions remain propagated
+ * across the network. Requires both cs_main and cs_wallet locks.
+ */
 void CWallet::ReacceptWalletTransactions()
 {
     if ( IsInitialBlockDownload() )
@@ -6806,6 +9425,23 @@ void CWallet::ReacceptWalletTransactions()
     }
 }
 
+/**
+ * @brief Relay this wallet transaction to the network
+ * @return true if the transaction was successfully relayed, false otherwise
+ * 
+ * Attempts to broadcast this wallet transaction to the network if it meets
+ * the criteria for relaying. The function:
+ * 
+ * - Checks that the wallet instance is valid
+ * - Verifies that transaction broadcasting is enabled
+ * - Only relays non-coinbase transactions
+ * - Only relays transactions with zero depth (not yet in a block)
+ * - Uses the global RelayTransaction function to broadcast
+ * 
+ * This is used to ensure that wallet transactions are propagated across
+ * the network, particularly for transactions that may have been created
+ * locally but haven't been mined yet.
+ */
 bool CWalletTx::RelayWalletTransaction()
 {
     if ( pwallet == 0 )
@@ -6827,6 +9463,21 @@ bool CWalletTx::RelayWalletTransaction()
     return false;
 }
 
+/**
+ * @brief Get transactions that conflict with this wallet transaction
+ * @return Set of transaction hashes that conflict with this transaction
+ * 
+ * Returns a set of transaction hashes that conflict with this transaction
+ * by spending the same inputs. The function:
+ * 
+ * - Uses the wallet's conflict detection mechanism
+ * - Excludes this transaction's own hash from the result set
+ * - Returns empty set if wallet instance is not available
+ * 
+ * Conflicting transactions typically occur during chain reorganizations
+ * or double-spend scenarios. This information is used for transaction
+ * validation and display purposes in the wallet interface.
+ */
 set<uint256> CWalletTx::GetConflicts() const
 {
     set<uint256> result;
@@ -6839,6 +9490,19 @@ set<uint256> CWalletTx::GetConflicts() const
     return result;
 }
 
+/**
+ * @brief Calculate the total debit amount for this wallet transaction
+ * @param filter Filter specifying which ownership types to include in calculation
+ * @return The total amount debited from the wallet by this transaction
+ * 
+ * Calculates how much value this transaction is spending from the wallet.
+ * The function uses caching to avoid repeated expensive calculations and
+ * supports filtering by ownership type (spendable vs watch-only).
+ * 
+ * Returns 0 if the transaction has no inputs or if none of the inputs
+ * belong to this wallet according to the specified filter criteria.
+ * Used for balance calculations and transaction analysis.
+ */
 CAmount CWalletTx::GetDebit(const isminefilter& filter) const
 {
     if (vin.empty())
@@ -6870,6 +9534,23 @@ CAmount CWalletTx::GetDebit(const isminefilter& filter) const
     return debit;
 }
 
+/**
+ * @brief Calculate the total credit amount for this wallet transaction
+ * @param filter Filter specifying which ownership types to include in calculation
+ * @return The total amount credited to the wallet by this transaction
+ * 
+ * Calculates how much value this transaction is providing to the wallet.
+ * The function:
+ * 
+ * - Waits for coinbase transactions to mature before valuing them
+ * - Uses caching to avoid repeated expensive calculations
+ * - Supports filtering by ownership type (spendable vs watch-only)
+ * - Sums up all transaction outputs that belong to this wallet
+ * 
+ * Returns 0 for immature coinbase transactions or if no outputs belong
+ * to this wallet according to the specified filter criteria.
+ * Used for balance calculations and transaction analysis.
+ */
 CAmount CWalletTx::GetCredit(const isminefilter& filter) const
 {
     // Must wait until coinbase is safely deep enough in the chain before valuing it
@@ -6903,6 +9584,23 @@ CAmount CWalletTx::GetCredit(const isminefilter& filter) const
     return credit;
 }
 
+/**
+ * @brief Calculate the immature credit amount for this wallet transaction
+ * @param fUseCache If true, use cached value when available
+ * @return The immature credit amount for this transaction
+ * 
+ * Calculates the credit from immature transactions, typically coinbase
+ * transactions that haven't reached maturity yet. The function:
+ * 
+ * - Only applies to coinbase transactions
+ * - Requires the transaction to be in the main chain
+ * - Only counts transactions that still have blocks to maturity
+ * - Uses caching to improve performance when requested
+ * 
+ * Returns 0 for non-coinbase transactions, transactions not in the main
+ * chain, or mature coinbase transactions. This represents funds that
+ * will become spendable once the maturity period expires.
+ */
 CAmount CWalletTx::GetImmatureCredit(bool fUseCache) const
 {
     if (IsCoinBase() && GetBlocksToMaturity() > 0 && IsInMainChain())
@@ -6917,6 +9615,24 @@ CAmount CWalletTx::GetImmatureCredit(bool fUseCache) const
     return 0;
 }
 
+/**
+ * @brief Calculate the available credit amount for this wallet transaction
+ * @param fUseCache If true, use cached value when available
+ * @return The available (spendable) credit amount for this transaction
+ * 
+ * Calculates the credit from this transaction that is currently available
+ * for spending. The function:
+ * 
+ * - Returns 0 if wallet instance is not available
+ * - Waits for coinbase transactions to mature before valuing them
+ * - Only counts outputs that haven't been spent yet
+ * - Uses caching to improve performance when requested
+ * - Validates amounts are within the valid range
+ * 
+ * This represents the actual spendable balance from this transaction,
+ * excluding outputs that have already been spent in other transactions.
+ * Used for accurate balance calculations and coin selection.
+ */
 CAmount CWalletTx::GetAvailableCredit(bool fUseCache) const
 {
     if (pwallet == 0)
@@ -6946,6 +9662,24 @@ CAmount CWalletTx::GetAvailableCredit(bool fUseCache) const
     return nCredit;
 }
 
+/**
+ * @brief Calculate the immature watch-only credit amount for this wallet transaction
+ * @param fUseCache If true, use cached value when available
+ * @return The immature watch-only credit amount for this transaction
+ * 
+ * Calculates the credit from immature coinbase transactions for watch-only
+ * addresses. The function:
+ * 
+ * - Only applies to coinbase transactions
+ * - Requires the transaction to be in the main chain
+ * - Only counts transactions that still have blocks to maturity
+ * - Only considers watch-only outputs (addresses without spending keys)
+ * - Uses caching to improve performance when requested
+ * 
+ * Returns 0 for non-coinbase transactions, transactions not in the main
+ * chain, or mature coinbase transactions. This represents watch-only funds
+ * that will become visible once the maturity period expires.
+ */
 CAmount CWalletTx::GetImmatureWatchOnlyCredit(const bool& fUseCache) const
 {
     if (IsCoinBase() && GetBlocksToMaturity() > 0 && IsInMainChain())
@@ -6960,6 +9694,24 @@ CAmount CWalletTx::GetImmatureWatchOnlyCredit(const bool& fUseCache) const
     return 0;
 }
 
+/**
+ * @brief Calculate the available watch-only credit amount for this wallet transaction
+ * @param fUseCache If true, use cached value when available
+ * @return The available watch-only credit amount for this transaction
+ * 
+ * Calculates the credit from this transaction that is currently available
+ * from watch-only addresses. The function:
+ * 
+ * - Returns 0 if wallet instance is not available
+ * - Waits for coinbase transactions to mature before valuing them
+ * - Only counts watch-only outputs that haven't been spent yet
+ * - Uses caching to improve performance when requested
+ * - Validates amounts are within the valid range
+ * 
+ * This represents watch-only balance from this transaction, excluding
+ * outputs that have already been spent. Used for tracking funds in
+ * addresses where the wallet can observe but not spend.
+ */
 CAmount CWalletTx::GetAvailableWatchOnlyCredit(const bool& fUseCache) const
 {
     if (pwallet == 0)
@@ -6988,6 +9740,21 @@ CAmount CWalletTx::GetAvailableWatchOnlyCredit(const bool& fUseCache) const
     return nCredit;
 }
 
+/**
+ * @brief Calculate the change amount for this wallet transaction
+ * @return The total value of change outputs in this transaction
+ * 
+ * Calculates the amount of change (outputs returning to this wallet)
+ * in this transaction. The function:
+ * 
+ * - Uses caching to avoid repeated expensive calculations
+ * - Delegates to the wallet's change detection heuristic
+ * - Considers outputs that belong to the wallet but aren't in the address book
+ * 
+ * Used to distinguish between payments sent to others vs change returning
+ * to the wallet. This is important for accurate transaction display and
+ * fee calculations.
+ */
 CAmount CWalletTx::GetChange() const
 {
     if (fChangeCached)
@@ -6997,12 +9764,39 @@ CAmount CWalletTx::GetChange() const
     return nChangeCached;
 }
 
+/**
+ * @brief Check if this transaction is currently in the memory pool
+ * @return true if the transaction is in the mempool, false otherwise
+ * 
+ * Determines whether this transaction is currently waiting in the memory
+ * pool to be mined into a block. The function acquires the mempool lock
+ * and checks for the transaction's presence by hash.
+ * 
+ * Used to determine transaction status and for display purposes in the
+ * wallet interface to show pending/unconfirmed transactions.
+ */
 bool CWalletTx::InMempool() const
 {
     LOCK(mempool.cs);
     return mempool.exists(GetHash());
 }
 
+/**
+ * @brief Determine if this transaction can be trusted for spending
+ * @return true if the transaction is trusted, false otherwise
+ * 
+ * Determines whether this transaction can be trusted as a source of funds
+ * for creating new transactions. The function considers a transaction trusted if:
+ * 
+ * - The transaction passes final validation checks
+ * - It has at least 1 confirmation (is in the main chain)
+ * - For unconfirmed transactions, additional criteria may apply
+ * 
+ * This is used in coin selection to determine which transaction outputs
+ * are safe to spend. Untrusted transactions (like unconfirmed change)
+ * may be excluded from spending calculations to avoid issues with
+ * chain reorganizations.
+ */
 bool CWalletTx::IsTrusted() const
 {
     // Quick answer in most cases
@@ -7030,6 +9824,24 @@ bool CWalletTx::IsTrusted() const
     return true;
 }
 
+/**
+ * @brief Resend wallet transactions that were received before a specified time
+ * @param nTime The timestamp cutoff - only resend transactions received before this time
+ * @return Vector of transaction hashes that were resent
+ * 
+ * Attempts to rebroadcast wallet transactions that were received before the
+ * specified timestamp. This is used to ensure important transactions remain
+ * propagated across the network. The function:
+ * 
+ * - Sorts transactions chronologically by received time
+ * - Skips transactions newer than the specified time
+ * - Skips transactions with expired lock times
+ * - Only resends transactions that are eligible for relay
+ * - Collects and returns the hashes of successfully resent transactions
+ * 
+ * Used during wallet maintenance and network reconnection to ensure
+ * transaction propagation. Requires cs_wallet lock for thread safety.
+ */
 std::vector<uint256> CWallet::ResendWalletTransactionsBefore(int64_t nTime)
 {
     std::vector<uint256> result;
@@ -7070,6 +9882,24 @@ std::vector<uint256> CWallet::ResendWalletTransactionsBefore(int64_t nTime)
     return result;
 }
 
+/**
+ * @brief Periodically resend wallet transactions to maintain network propagation
+ * @param nBestBlockTime Timestamp of the best (most recent) block
+ * 
+ * Implements a periodic transaction rebroadcasting mechanism to ensure wallet
+ * transactions remain propagated across the network. The function:
+ * 
+ * - Uses randomized timing to avoid revealing transaction ownership patterns
+ * - Only operates if broadcasting is enabled and sufficient time has passed
+ * - Skips the first call to establish baseline timing
+ * - Only resends when new blocks have been found since last resend
+ * - Targets unconfirmed transactions older than 5 minutes before the last block
+ * - Logs the number of transactions rebroadcast for monitoring
+ * 
+ * Called periodically by the wallet maintenance system to ensure transaction
+ * propagation, particularly important for maintaining mempool presence during
+ * network partitions or high transaction volume periods.
+ */
 void CWallet::ResendWalletTransactions(int64_t nBestBlockTime)
 {
     // Do this infrequently and randomly to avoid giving away
@@ -7103,7 +9933,21 @@ void CWallet::ResendWalletTransactions(int64_t nBestBlockTime)
  * @{
  */
 
+/**
+ * @section Balance Calculation Functions
+ * 
+ * Functions for calculating various types of wallet balances including
+ * confirmed, unconfirmed, immature, and watch-only balances.
+ */
 
+/**
+ * @brief Get the confirmed spendable balance of the wallet
+ * @return The total confirmed balance in satoshis
+ * 
+ * Calculates the total confirmed and spendable balance by summing all
+ * trusted transactions that have available credit. Only includes mature
+ * transactions that can be spent. Thread-safe with wallet and chain locks.
+ */
 CAmount CWallet::GetBalance() const
 {
     CAmount nTotal = 0;
@@ -7120,6 +9964,14 @@ CAmount CWallet::GetBalance() const
     return nTotal;
 }
 
+/**
+ * @brief Get the unconfirmed balance of the wallet
+ * @return The total unconfirmed balance in satoshis
+ * 
+ * Calculates the balance from unconfirmed transactions. These are funds
+ * that have been received but not yet confirmed by the network. This
+ * balance cannot be spent until confirmation.
+ */
 CAmount CWallet::GetUnconfirmedBalance() const
 {
     CAmount nTotal = 0;
@@ -7135,6 +9987,14 @@ CAmount CWallet::GetUnconfirmedBalance() const
     return nTotal;
 }
 
+/**
+ * @brief Get the immature balance of the wallet
+ * @return The total immature balance in satoshis
+ * 
+ * Calculates the balance from immature transactions, typically coinbase
+ * rewards that haven't reached maturity yet. These funds cannot be spent
+ * until they mature (usually after 100 confirmations for coinbase).
+ */
 CAmount CWallet::GetImmatureBalance() const
 {
     CAmount nTotal = 0;
@@ -7149,6 +10009,14 @@ CAmount CWallet::GetImmatureBalance() const
     return nTotal;
 }
 
+/**
+ * @brief Get the watch-only balance of the wallet
+ * @return The total watch-only balance in satoshis
+ * 
+ * Calculates the balance from watch-only addresses. These are addresses
+ * for which the wallet can track incoming transactions but cannot spend
+ * the funds since it doesn't have the private keys.
+ */
 CAmount CWallet::GetWatchOnlyBalance() const
 {
     CAmount nTotal = 0;
@@ -7165,6 +10033,21 @@ CAmount CWallet::GetWatchOnlyBalance() const
     return nTotal;
 }
 
+/**
+ * @brief Get the unconfirmed watch-only balance of the wallet
+ * @return The total unconfirmed watch-only balance in satoshis
+ * 
+ * Calculates the balance from unconfirmed watch-only transactions. These are funds
+ * in watch-only addresses that have been received but not yet confirmed by the network.
+ * The function:
+ * 
+ * - Only includes transactions that are not final or are untrusted with zero depth
+ * - Only counts watch-only outputs (addresses without spending keys)
+ * - Uses thread-safe wallet and chain locks
+ * 
+ * This balance represents funds that can be observed but not spent, and are
+ * not yet confirmed by the network. Used for watch-only wallet balance display.
+ */
 CAmount CWallet::GetUnconfirmedWatchOnlyBalance() const
 {
     CAmount nTotal = 0;
@@ -7180,6 +10063,21 @@ CAmount CWallet::GetUnconfirmedWatchOnlyBalance() const
     return nTotal;
 }
 
+/**
+ * @brief Get the immature watch-only balance of the wallet
+ * @return The total immature watch-only balance in satoshis
+ * 
+ * Calculates the balance from immature watch-only transactions, typically coinbase
+ * rewards in watch-only addresses that haven't reached maturity yet. The function:
+ * 
+ * - Only counts watch-only outputs from coinbase transactions
+ * - Only includes transactions that are still immature
+ * - Uses thread-safe wallet and chain locks
+ * 
+ * This represents watch-only funds from coinbase rewards that cannot be spent
+ * until they mature (usually after 100 confirmations). Used for displaying
+ * pending coinbase rewards in watch-only addresses.
+ */
 CAmount CWallet::GetImmatureWatchOnlyBalance() const
 {
     CAmount nTotal = 0;
@@ -7194,6 +10092,23 @@ CAmount CWallet::GetImmatureWatchOnlyBalance() const
     return nTotal;
 }
 
+/**
+ * @brief Get the available balance considering coin control constraints
+ * @param coinControl Optional coin control settings to filter available coins
+ * @return The total available balance considering the constraints
+ * 
+ * Calculates the balance from coins that are available for spending, respecting
+ * any coin control constraints specified. The function:
+ * 
+ * - Uses AvailableCoins to get all spendable outputs
+ * - Includes confirmed transactions, zero-value outputs, and coinbase outputs
+ * - Only counts outputs marked as spendable
+ * - Applies coin control filters if specified
+ * 
+ * This represents the actual spendable balance that can be used for transactions,
+ * taking into account any user-specified coin selection constraints. Used for
+ * accurate balance display in transaction creation interfaces.
+ */
 CAmount CWallet::GetAvailableBalance(const CCoinControl *coinControl) const
 {
     LOCK2(cs_main, cs_wallet);
@@ -7212,7 +10127,25 @@ CAmount CWallet::GetAvailableBalance(const CCoinControl *coinControl) const
 }
 
 /**
- * populate vCoins with vector of available COutputs.
+ * @brief Populate vector with available coin outputs for spending
+ * @param vCoins[out] Vector to populate with available COutput objects
+ * @param fOnlyConfirmed If true, only include confirmed transactions
+ * @param coinControl Optional coin control settings to filter outputs
+ * @param fIncludeZeroValue If true, include zero-value outputs
+ * @param fIncludeCoinBase If true, include coinbase outputs
+ * 
+ * Scans the wallet's transactions to build a list of unspent transaction outputs
+ * that are available for spending. The function:
+ * 
+ * - Examines all wallet transactions and their outputs
+ * - Filters based on confirmation status, coin control settings, and value
+ * - Excludes outputs that are already spent
+ * - Excludes immature coinbase outputs unless specifically requested
+ * - Respects coin control filters for transaction and output selection
+ * - Calculates depth and interest for each output
+ * 
+ * This is the primary function for coin selection, providing the raw material
+ * for transaction creation and balance calculations. Thread-safe with wallet locks.
  */
 void CWallet::AvailableCoins(vector<COutput>& vCoins, bool fOnlyConfirmed, const CCoinControl *coinControl, bool fIncludeZeroValue, bool fIncludeCoinBase) const
 {
@@ -7293,6 +10226,25 @@ void CWallet::AvailableCoins(vector<COutput>& vCoins, bool fOnlyConfirmed, const
     }
 }
 
+/**
+ * @brief List all coins grouped by destination address
+ * @return Map of destination addresses to vectors of available outputs
+ * 
+ * Creates a comprehensive list of all available coins in the wallet, organized
+ * by their destination addresses. The function:
+ * 
+ * - Groups available coins by their destination addresses
+ * - Includes both confirmed and unconfirmed coins
+ * - Includes zero-value outputs and coinbase outputs
+ * - Marks locked coins as non-spendable
+ * - Handles various address types (P2PKH, P2SH, etc.)
+ * 
+ * This function is primarily used by wallet interfaces to display coin
+ * organization and for manual coin control features. The returned pointers
+ * to CWalletTx objects require the caller to hold cs_wallet lock for safety.
+ * 
+ * @note TODO: Caller should acquire cs_wallet lock before calling this function
+ */
 std::map<CTxDestination, std::vector<COutput>> CWallet::ListCoins() const
 {
     // TODO: Add AssertLockHeld(cs_wallet) here.
@@ -7345,6 +10297,24 @@ std::map<CTxDestination, std::vector<COutput>> CWallet::ListCoins() const
     return result;
 }
 
+/**
+ * @brief Find the non-change parent output by tracing back through change outputs
+ * @param tx The wallet transaction to start from
+ * @param output The output index to start tracing from
+ * @return Reference to the first non-change output found in the chain
+ * 
+ * Traces backwards through a chain of transactions to find the original non-change
+ * output that led to the current output. The function:
+ * 
+ * - Starts from the specified output in the given transaction
+ * - If the output is change, traces back to the first input's parent transaction
+ * - Continues this process until a non-change output is found
+ * - Stops if the parent transaction is not in the wallet or not owned
+ * 
+ * This is useful for determining the original source of funds and for
+ * displaying transaction history in wallet interfaces. Used to understand
+ * the flow of funds through change outputs back to their original source.
+ */
 const CTxOut &CWallet::FindNonChangeParentOutput(const CWalletTx &tx, int output) const
 {
     const CWalletTx *ptx = &tx;
@@ -7365,6 +10335,24 @@ const CTxOut &CWallet::FindNonChangeParentOutput(const CWalletTx &tx, int output
     return ptx->vout[n];
 }
 
+/**
+ * @brief Find approximate best subset of coins using randomized algorithm
+ * @param vValue Vector of (value, coin) pairs sorted by value
+ * @param nTotalLower Sum of all coin values in vValue
+ * @param nTargetValue The target amount to reach
+ * @param vfBest[out] Boolean vector indicating best subset selection
+ * @param nBest[out] Total value of best subset found
+ * @param iterations Number of random iterations to perform (default 1000)
+ * 
+ * Uses a randomized approximation algorithm to find a good subset of coins
+ * that gets as close as possible to the target value without going under.
+ * The algorithm runs multiple iterations with random coin selection to
+ * explore different combinations and find the optimal solution.
+ * 
+ * This is used as a fallback when exact coin selection algorithms fail,
+ * providing a reasonable approximation for complex coin selection scenarios.
+ * The algorithm prefers solutions that exactly match the target value.
+ */
 static void ApproximateBestSubset(vector<pair<CAmount, pair<const CWalletTx*,unsigned int> > >vValue, const CAmount& nTotalLower, const CAmount& nTargetValue,vector<char>& vfBest, CAmount& nBest, int iterations = 1000)
 {
     vector<char> vfIncluded;
@@ -7410,6 +10398,30 @@ static void ApproximateBestSubset(vector<pair<CAmount, pair<const CWalletTx*,uns
     }
 }
 
+/**
+ * @brief Select coins with minimum confirmation requirements
+ * @param nTargetValue The target amount to select
+ * @param nConfMine Minimum confirmations required for own transactions
+ * @param nConfTheirs Minimum confirmations required for others' transactions
+ * @param vCoins Vector of available coins to select from
+ * @param setCoinsRet[out] Set of selected coins (transaction pointer, output index pairs)
+ * @param nValueRet[out] Total value of selected coins
+ * @return true if target value was reached, false otherwise
+ * 
+ * Implements a coin selection algorithm that attempts to find the optimal
+ * subset of coins to meet a target value while respecting confirmation
+ * requirements. The algorithm:
+ * 
+ * - Filters coins by confirmation requirements (different thresholds for own vs others' transactions)
+ * - Prefers selecting a single coin that exactly matches or slightly exceeds the target
+ * - Falls back to subset selection if no single coin is suitable
+ * - Uses approximation algorithms for complex selection scenarios
+ * - Aims to minimize the number of coins selected to reduce transaction size
+ * 
+ * This is the core coin selection function used in transaction creation,
+ * balancing the need to meet value targets while minimizing fees and
+ * respecting confirmation requirements for transaction safety.
+ */
 bool CWallet::SelectCoinsMinConf(const CAmount& nTargetValue, int nConfMine, int nConfTheirs, vector<COutput> vCoins,set<pair<const CWalletTx*,unsigned int> >& setCoinsRet, CAmount& nValueRet) const
 {
     int32_t count = 0; //uint64_t lowest_interest = 0;
@@ -7516,6 +10528,33 @@ bool CWallet::SelectCoinsMinConf(const CAmount& nTargetValue, int nConfMine, int
     return true;
 }
 
+/**
+ * @brief Select coins for spending to meet a target value
+ * @param nTargetValue The amount of value needed to be selected
+ * @param setCoinsRet[out] Set of selected coin outpoints 
+ * @param nValueRet[out] Total value of selected coins
+ * @param fOnlyCoinbaseCoinsRet[out] True if only coinbase coins are available
+ * @param fNeedCoinbaseCoinsRet[out] True if coinbase coins are needed to meet target
+ * @param coinControl Optional coin control parameters for selection constraints
+ * @return true if sufficient coins were selected, false otherwise
+ * 
+ * Selects the optimal set of unspent transaction outputs (UTXOs) to spend
+ * in order to meet the target value requirement. The function implements
+ * a sophisticated coin selection algorithm that:
+ * 
+ * - Prefers higher confirmation depth for security
+ * - Handles coinbase protection rules (coinbase -> shielded only)
+ * - Supports manual coin control for specific UTXO selection
+ * - Tries multiple confirmation thresholds (6, 1, 0 confirmations)
+ * - Considers interest earnings in exchange wallet mode
+ * 
+ * The selection process follows this priority order:
+ * 1. Coins with 6+ confirmations
+ * 2. Coins with 1+ confirmations 
+ * 3. Unconfirmed change outputs (if enabled)
+ * 
+ * This function is critical for transaction creation and fee calculation.
+ */
 bool CWallet::SelectCoins(const CAmount& nTargetValue, set<pair<const CWalletTx*,unsigned int> >& setCoinsRet,
         CAmount& nValueRet,  bool& fOnlyCoinbaseCoinsRet, bool& fNeedCoinbaseCoinsRet,
         const CCoinControl* coinControl) const
@@ -7615,13 +10654,26 @@ bool CWallet::SelectCoins(const CAmount& nTargetValue, set<pair<const CWalletTx*
     return retval;
 }
 
-/****
- * @brief add vIns to transaction
- * @param tx the transaction with vouts
- * @param nFeeRet
- * @param nChangePosRet
- * @param strFailReason
- * @returns true on success
+/**
+ * @brief Add inputs to fund an existing transaction
+ * @param tx[in,out] The mutable transaction to add inputs to
+ * @param nFeeRet[out] The calculated transaction fee
+ * @param nChangePosRet[out] Position of change output (-1 if no change)
+ * @param strFailReason[out] Error message if funding fails
+ * @return true if transaction was successfully funded, false otherwise
+ * 
+ * Takes a partially constructed transaction (with outputs already set) and
+ * adds the necessary inputs to fund it. The function:
+ * 
+ * - Converts existing outputs to recipient list for fee calculation
+ * - Uses coin control to allow additional inputs beyond those already selected
+ * - Selects coins to cover the output values plus fees
+ * - May add a change output if needed
+ * - Preserves any inputs that were already in the transaction
+ * 
+ * This is commonly used for funding transactions that have been partially
+ * constructed by external processes or when specific outputs are required
+ * but input selection should be automatic.
  */
 bool CWallet::FundTransaction(CMutableTransaction& tx, CAmount &nFeeRet, int& nChangePosRet,
         std::string& strFailReason)
@@ -7669,16 +10721,29 @@ bool CWallet::FundTransaction(CMutableTransaction& tx, CAmount &nFeeRet, int& nC
     return true;
 }
 
-/*****
- * @brief create a transaction
- * @param vecSend who to send to
- * @param wtxNew wallet transaction
- * @param reservekey
- * @param nFeeRet
- * @param nChangePosRet
- * @param strFailReason
- * @param coinControl
- * @param sign true to sign inputs
+/**
+ * @brief Create a new transparent transaction
+ * @param vecSend Vector of recipients and amounts to send to
+ * @param wtxNew[out] The created wallet transaction
+ * @param reservekey Reserve key to use for change output
+ * @param nFeeRet[out] The calculated transaction fee
+ * @param nChangePosRet[out] Position of change output (-1 if no change)
+ * @param strFailReason[out] Error message if transaction creation fails
+ * @param nMinFeeOverride Minimum fee to override automatic calculation
+ * @param coinControl Optional coin control settings for input selection
+ * @param sign Whether to sign the transaction inputs (default true)
+ * @return true if transaction was successfully created
+ * 
+ * Creates a new transparent Bitcoin-style transaction with the specified outputs.
+ * The function handles:
+ * - Input selection and coin control
+ * - Fee calculation and adjustment
+ * - Change output creation
+ * - Transaction signing (if requested)
+ * - Validation of amounts and recipients
+ * 
+ * The created transaction is not committed to the wallet or broadcasted.
+ * Use CommitTransaction() to finalize and send the transaction.
  */
 bool CWallet::CreateTransaction(const vector<CRecipient>& vecSend, CWalletTx& wtxNew, CReserveKey& reservekey,
         CAmount& nFeeRet, int& nChangePosRet, std::string& strFailReason, CAmount& nMinFeeOverride, const CCoinControl* coinControl,
@@ -8046,7 +11111,21 @@ bool CWallet::CreateTransaction(const vector<CRecipient>& vecSend, CWalletTx& wt
 }
 
 /**
- * Call after CreateTransaction unless you want to abort
+ * @brief Commit a created transaction to the wallet and broadcast it to the network
+ * @param wtxNew The wallet transaction to commit and broadcast
+ * @param reservekey The reserve key used in transaction creation
+ * @return true if transaction was successfully committed and broadcasted
+ * 
+ * This function should be called after CreateTransaction to finalize and send
+ * the transaction. It performs the following operations:
+ * - Removes the reserve key from the key pool (KeepKey)
+ * - Adds the transaction to the wallet for record-keeping
+ * - Marks spent coins as used to prevent double-spending
+ * - Broadcasts the transaction to the network via RelayWalletTransaction
+ * - Updates wallet state and notifies UI components
+ * 
+ * If broadcasting fails, the transaction is still recorded in the wallet.
+ * The transaction will be rebroadcast automatically during wallet operations.
  */
 bool CWallet::CommitTransaction(CWalletTx& wtxNew, CReserveKey& reservekey)
 {
@@ -8096,16 +11175,42 @@ bool CWallet::CommitTransaction(CWalletTx& wtxNew, CReserveKey& reservekey)
     return true;
 }
 
+/**
+ * @brief Initialize loading of crypted wallet data
+ * @return DB_LOAD_OK on success, appropriate DBErrors code on failure
+ * 
+ * Creates a wallet database connection and initializes the loading
+ * of encrypted wallet data. This is typically called during wallet
+ * startup when the wallet has cryptographic protection enabled.
+ */
 DBErrors CWallet::InitalizeCryptedLoad()
 {
     return CWalletDB(strWalletFile,"cr+").InitalizeCryptedLoad(this);
 }
 
+/**
+ * @brief Load encrypted HD seed from database
+ * @return DB_LOAD_OK on success, appropriate DBErrors code on failure
+ * 
+ * Loads the encrypted hierarchical deterministic (HD) seed from the wallet
+ * database. This function is used for encrypted wallets to restore the
+ * master seed required for key derivation.
+ */
 DBErrors CWallet::LoadCryptedSeedFromDB()
 {
     return CWalletDB(strWalletFile,"cr+").LoadCryptedSeedFromDB(this);
 }
 
+/**
+ * @brief Load wallet data from the database file
+ * @param fFirstRunRet Set to true if this is the first wallet run (no existing data)
+ * @return DB_LOAD_OK on success, appropriate DBErrors code on failure
+ * 
+ * Loads all wallet data from the wallet database file, including keys, transactions,
+ * metadata, and settings. If database needs rewriting due to corruption or format
+ * changes, performs the rewrite operation. Sets fFirstRunRet to indicate whether
+ * this is a fresh wallet installation.
+ */
 DBErrors CWallet::LoadWallet(bool& fFirstRunRet)
 {
     if (!fFileBacked)
@@ -8133,6 +11238,14 @@ DBErrors CWallet::LoadWallet(bool& fFirstRunRet)
     return DB_LOAD_OK;
 }
 
+/**
+ * @brief Read the client version from the wallet database
+ * @return DB_LOAD_OK on success, appropriate DBErrors code on failure
+ * 
+ * Reads the client version information stored in the wallet database.
+ * This is used to determine wallet format compatibility and whether
+ * upgrade operations are needed.
+ */
 DBErrors CWallet::ReadClientVersion()
 {
     if (!fFileBacked)
@@ -8141,6 +11254,16 @@ DBErrors CWallet::ReadClientVersion()
     return CWalletDB(strWalletFile,"cr+").ReadClientVersion();
 }
 
+/**
+ * @brief Remove all wallet transactions from database
+ * @param vWtx Vector to store the removed transactions
+ * @return DB_LOAD_OK on success, appropriate DBErrors code on failure
+ * 
+ * Removes (zaps) all wallet transactions from the database while preserving
+ * keys and other wallet data. The removed transactions are stored in vWtx.
+ * This operation may trigger a database rewrite if needed for consistency.
+ * Clears the keypool which will require regeneration on next use.
+ */
 DBErrors CWallet::ZapWalletTx(std::vector<CWalletTx>& vWtx)
 {
     if (!fFileBacked)
@@ -8164,6 +11287,14 @@ DBErrors CWallet::ZapWalletTx(std::vector<CWalletTx>& vWtx)
     return DB_LOAD_OK;
 }
 
+/**
+ * @brief Remove old/deprecated records from wallet database
+ * @return DB_LOAD_OK on success, appropriate DBErrors code on failure
+ * 
+ * Removes outdated or deprecated records from the wallet database.
+ * This is used for database cleanup and migration operations to
+ * remove legacy data that is no longer needed or supported.
+ */
 DBErrors CWallet::ZapOldRecords()
 {
     if (!fFileBacked)
@@ -8171,6 +11302,19 @@ DBErrors CWallet::ZapOldRecords()
     return CWalletDB(strWalletFile,"cr+").ZapOldRecords(this);
 }
 
+/**
+ * @brief Set address book entry for a destination
+ * @param address The destination address (transparent or shielded)
+ * @param strName The human-readable name for this address
+ * @param strPurpose The purpose/category for this address (e.g., "send", "receive")
+ * @return true if successfully set, false on error
+ * 
+ * Adds or updates an entry in the wallet's address book. For encrypted wallets,
+ * the address book data is encrypted before storage. The address book is used
+ * to store user-friendly names and categorization for addresses.
+ * 
+ * Triggers UI notification of address book changes for wallet synchronization.
+ */
 bool CWallet::SetAddressBook(const CTxDestination& address, const string& strName, const string& strPurpose)
 {
     bool fUpdated = false;
@@ -8233,6 +11377,18 @@ bool CWallet::SetAddressBook(const CTxDestination& address, const string& strNam
     return true;
 }
 
+/**
+ * @brief Decrypt an address book entry from encrypted storage
+ * @param chash Hash fingerprint of the encrypted data
+ * @param vchCryptedSecret The encrypted address book data
+ * @param address[out] The decrypted address string
+ * @param entry[out] The decrypted entry data (name or purpose)
+ * @return true if successfully decrypted and hash matches
+ * 
+ * Decrypts previously encrypted address book entries from wallet storage.
+ * Used to recover address book information when the wallet is unlocked.
+ * Returns false if wallet is locked or decryption fails.
+ */
 bool CWallet::DecryptAddressBookEntry(const uint256 chash, std::vector<unsigned char> vchCryptedSecret, string& address, string& entry)
 {
 
@@ -8249,6 +11405,20 @@ bool CWallet::DecryptAddressBookEntry(const uint256 chash, std::vector<unsigned 
     return HashWithFP(address) == chash;
 }
 
+/**
+ * @brief Set shielded address book entry for a payment address
+ * @param address The shielded payment address (Sprout, Sapling, or Orchard)
+ * @param strName The human-readable name for this address
+ * @param strPurpose The purpose/category for this address
+ * @param fInTransaction True if this address was found in a transaction
+ * @return true if successfully set, false on error
+ * 
+ * Adds or updates an entry in the wallet's shielded address book (mapZAddressBook).
+ * For encrypted wallets, the address book data is encrypted before storage.
+ * If fInTransaction is true and the address already exists, no update is performed.
+ * 
+ * Triggers UI notification of shielded address book changes for wallet synchronization.
+ */
 bool CWallet::SetZAddressBook(const libzcash::PaymentAddress &address, const string &strName, const string &strPurpose, bool fInTransaction)
 {
     bool fUpdated = false;
@@ -8312,6 +11482,15 @@ bool CWallet::SetZAddressBook(const libzcash::PaymentAddress &address, const str
     return true;
 }
 
+/**
+ * @brief Delete an address book entry for a transparent destination
+ * @param address The destination address to remove from address book
+ * @return true if successfully deleted, false on error
+ * 
+ * Removes an entry from the wallet's transparent address book. Also removes
+ * associated destination data and sends deletion notifications to the UI.
+ * For encrypted wallets, removes both encrypted name and purpose entries.
+ */
 bool CWallet::DelAddressBook(const CTxDestination& address)
 {
     {
@@ -8355,6 +11534,15 @@ bool CWallet::DelAddressBook(const CTxDestination& address)
     return true;
 }
 
+/**
+ * @brief Delete a shielded address book entry
+ * @param address The shielded payment address to remove from address book
+ * @return true if successfully deleted, false on error
+ * 
+ * Removes an entry from the wallet's shielded address book (mapZAddressBook).
+ * Sends deletion notifications to the UI for wallet synchronization.
+ * Note: Destination data deletion is currently disabled for z-addresses.
+ */
 bool CWallet::DelZAddressBook(const libzcash::PaymentAddress &address)
 {
     {
@@ -8383,6 +11571,15 @@ bool CWallet::DelZAddressBook(const libzcash::PaymentAddress &address)
     return true;
 }
 
+/**
+ * @brief Set the default key for the wallet
+ * @param vchPubKey The public key to set as default
+ * @return true if successfully set, false on error
+ * 
+ * Sets the wallet's default public key used for receiving transparent payments.
+ * For encrypted wallets, the key is encrypted before storage. The default key
+ * is used when no specific key is requested for transparent operations.
+ */
 bool CWallet::SetDefaultKey(const CPubKey &vchPubKey)
 {
     if (IsCrypted() && IsLocked()) {
@@ -8416,6 +11613,17 @@ bool CWallet::SetDefaultKey(const CPubKey &vchPubKey)
     return true;
 }
 
+/**
+ * @brief Decrypt the default key from encrypted storage
+ * @param chash Hash fingerprint of the encrypted data
+ * @param vchCryptedSecret The encrypted default key data
+ * @param vchPubKey[out] The decrypted public key
+ * @return true if successfully decrypted and hash matches
+ * 
+ * Decrypts the wallet's default public key from encrypted storage.
+ * Used to recover the default key when the wallet is unlocked.
+ * Returns false if wallet is locked or decryption fails.
+ */
 bool CWallet::DecryptDefaultKey(const uint256 &chash, std::vector<unsigned char> &vchCryptedSecret, CPubKey &vchPubKey)
 {
     if (IsLocked()) {
@@ -8530,6 +11738,16 @@ bool CWallet::TopUpKeyPool(unsigned int kpSize)
     return true;
 }
 
+/**
+ * @brief Reserve a key from the key pool for use
+ * @param nIndex[out] The index of the reserved key (-1 if none available)
+ * @param keypool[out] The reserved key pool entry
+ * 
+ * Reserves a key from the wallet's key pool by removing it from the available
+ * set. The key can later be returned to the pool if not used. For encrypted
+ * wallets, the key is decrypted before returning. Sets nIndex to -1 if no
+ * keys are available or wallet is locked.
+ */
 void CWallet::ReserveKeyFromKeyPool(int64_t& nIndex, CKeyPool& keypool)
 {
     nIndex = -1;
@@ -8582,6 +11800,14 @@ void CWallet::ReserveKeyFromKeyPool(int64_t& nIndex, CKeyPool& keypool)
     }
 }
 
+/**
+ * @brief Permanently remove a key from the key pool
+ * @param nIndex The index of the key to remove permanently
+ * 
+ * Removes a key from the key pool database, indicating it has been used
+ * and should not be returned to the pool. This is called when a key
+ * from the pool is actually used in a transaction.
+ */
 void CWallet::KeepKey(int64_t nIndex)
 {
     // Remove from key pool
@@ -8593,6 +11819,14 @@ void CWallet::KeepKey(int64_t nIndex)
     LogPrintf("keypool keep %d\n", nIndex);
 }
 
+/**
+ * @brief Return a key to the key pool
+ * @param nIndex The index of the key to return to the pool
+ * 
+ * Returns a previously reserved key back to the available key pool.
+ * This is called when a key was reserved but ultimately not used,
+ * making it available for future use.
+ */
 void CWallet::ReturnKey(int64_t nIndex)
 {
     // Return to key pool
@@ -8603,6 +11837,15 @@ void CWallet::ReturnKey(int64_t nIndex)
     //LogPrintf("keypool return %d\n", nIndex);
 }
 
+/**
+ * @brief Get a key from the key pool
+ * @param result[out] The public key retrieved from the pool
+ * @return true if a key was successfully retrieved, false on error
+ * 
+ * Retrieves a public key from the wallet's key pool for use in transactions.
+ * If the pool is empty and wallet is unlocked, generates a new key.
+ * Returns false if pool is empty and wallet is locked.
+ */
 bool CWallet::GetKeyFromPool(CPubKey& result)
 {
     int64_t nIndex = 0;
@@ -9154,23 +12397,58 @@ std::vector<std::string> CWallet::GetDestValues(const std::string &prefix) const
     return values;
 }
 
+/**
+ * @brief Default constructor for CKeyPool
+ * 
+ * Initializes a new key pool entry with the current time as creation timestamp.
+ * The public key is left uninitialized and must be set separately.
+ */
 CKeyPool::CKeyPool()
 {
     nTime = GetTime();
 }
 
+/**
+ * @brief Constructor for CKeyPool with public key
+ * @param vchPubKeyIn The public key to store in this key pool entry
+ * 
+ * Initializes a new key pool entry with the specified public key and
+ * sets the creation time to the current timestamp.
+ */
 CKeyPool::CKeyPool(const CPubKey& vchPubKeyIn)
 {
     nTime = GetTime();
     vchPubKey = vchPubKeyIn;
 }
 
+/**
+ * @brief Constructor for CWalletKey with expiration time
+ * @param nExpires The expiration time for this wallet key (0 for no expiration)
+ * 
+ * Creates a new wallet key with the specified expiration time. If nExpires is 0,
+ * the key is created with no expiration (nTimeCreated = 0). Otherwise, the creation
+ * time is set to the current time and expiration is set as specified.
+ */
 CWalletKey::CWalletKey(int64_t nExpires)
 {
     nTimeCreated = (nExpires ? GetTime() : 0);
     nTimeExpires = nExpires;
 }
 
+/**
+ * @brief Set the Merkle branch for this transaction within a block
+ * @param block The block containing this transaction
+ * 
+ * Updates the transaction's block hash and calculates its Merkle branch within
+ * the block. This establishes proof that the transaction is included in the
+ * specified block. The function:
+ * - Sets hashBlock to the block's hash
+ * - Finds the transaction's position within the block
+ * - Generates the Merkle branch proof for the transaction
+ * 
+ * If the transaction is not found in the block, the Merkle branch is cleared
+ * and nIndex is set to -1, indicating an error condition.
+ */
 void CMerkleTx::SetMerkleBranch(const CBlock& block)
 {
     CBlock blockTmp;
@@ -9193,6 +12471,19 @@ void CMerkleTx::SetMerkleBranch(const CBlock& block)
     vMerkleBranch = block.GetMerkleBranch(nIndex);
 }
 
+/**
+ * @brief Internal function to get confirmation depth in main chain
+ * @param pindexRet[out] Pointer to the block index if transaction is found
+ * @return Number of confirmations (0 if not in main chain)
+ * 
+ * Internal implementation for checking transaction depth in the main blockchain.
+ * This function locates the block containing the transaction and calculates
+ * the number of confirmations based on current chain height.
+ * 
+ * Returns 0 if the transaction's block is not found or if the block is not
+ * part of the main chain. The pindexRet parameter is set to point to the
+ * block index if found.
+ */
 int CMerkleTx::GetDepthInMainChainINTERNAL(const CBlockIndex* &pindexRet) const
 {
     if (hashBlock.IsNull() || nIndex == -1)
@@ -9219,6 +12510,20 @@ int CMerkleTx::GetDepthInMainChainINTERNAL(const CBlockIndex* &pindexRet) const
     return chainActive.Height() - pindex->nHeight + 1;
 }
 
+/**
+ * @brief Get confirmation depth in main chain with mempool check
+ * @param pindexRet[out] Pointer to the block index if transaction is found
+ * @return Number of confirmations (-1 if conflicted, 0+ if confirmed/mempool)
+ * 
+ * Returns the number of confirmations for this transaction in the main chain.
+ * This function extends GetDepthInMainChainINTERNAL by checking the mempool
+ * for unconfirmed transactions.
+ * 
+ * Return values:
+ * - Positive number: Transaction is confirmed with that many confirmations
+ * - 0: Transaction is unconfirmed but in mempool
+ * - -1: Transaction conflicts with blockchain (not in chain or mempool)
+ */
 int CMerkleTx::GetDepthInMainChain(const CBlockIndex* &pindexRet) const
 {
     AssertLockHeld(cs_main);
@@ -9229,6 +12534,20 @@ int CMerkleTx::GetDepthInMainChain(const CBlockIndex* &pindexRet) const
     return nResult;
 }
 
+/**
+ * @brief Get number of blocks until coinbase transaction matures
+ * @return Number of blocks remaining until maturity (0 if not coinbase or already mature)
+ * 
+ * For coinbase transactions, calculates the number of blocks remaining until
+ * the transaction can be spent. Takes into account both the standard coinbase
+ * maturity period and any additional lock time specified in the transaction.
+ * 
+ * The function returns the maximum of:
+ * - Remaining blocks until coinbase maturity (typically 100 blocks)
+ * - Remaining blocks until unlock time (if specified)
+ * 
+ * Returns 0 for non-coinbase transactions or already mature coinbase transactions.
+ */
 int CMerkleTx::GetBlocksToMaturity() const
 {
     if (!IsCoinBase())
@@ -9241,12 +12560,45 @@ int CMerkleTx::GetBlocksToMaturity() const
     return(ut < toMaturity ? toMaturity : ut);
 }
 
+/**
+ * @brief Attempt to add transaction to memory pool
+ * @param fLimitFree Whether to apply free transaction limits
+ * @param fRejectAbsurdFee Whether to reject transactions with absurdly high fees
+ * @return true if successfully added to mempool, false otherwise
+ * 
+ * Attempts to add this transaction to the memory pool for network propagation.
+ * The transaction goes through all standard validation checks including:
+ * - Transaction format and signature validation
+ * - Input availability and value checks
+ * - Fee calculation and limits
+ * - Script execution and consensus rule compliance
+ * 
+ * This function is typically used for newly created transactions before
+ * broadcasting them to the network.
+ */
 bool CMerkleTx::AcceptToMemoryPool(bool fLimitFree, bool fRejectAbsurdFee)
 {
     CValidationState state;
     return ::AcceptToMemoryPool(mempool, state, *this, fLimitFree, NULL, fRejectAbsurdFee);
 }
 
+/**
+ * @brief Get address balances for the wallet GUI
+ * @param balances[out] Map to store address balances (PaymentAddress -> CAmount)
+ * @param minDepth Minimum confirmation depth required for notes
+ * @param requireSpendingKey Whether to only include notes with spending keys
+ * 
+ * Calculates the balance for each shielded address in the wallet by examining
+ * all confirmed transactions. This function:
+ * - Filters transactions by finality, maturity, and confirmation depth
+ * - Processes both Sapling and Orchard notes
+ * - Excludes spent notes from balance calculations
+ * - Optionally filters by spending key availability
+ * 
+ * The resulting balance map is used by the GUI to display per-address balances
+ * and is essential for the wallet's balance display functionality.
+ * Only confirmed balances meeting the minimum depth requirement are included.
+ */
 //Get Address balances for the GUI
 void CWallet::getZAddressBalances(std::map<libzcash::PaymentAddress, CAmount> &balances, int minDepth, bool requireSpendingKey)
 {
@@ -9311,35 +12663,104 @@ void CWallet::getZAddressBalances(std::map<libzcash::PaymentAddress, CAmount> &b
 }
 
 
+/**
+ * @brief Get Merkle path for a Sapling note
+ * @param txid Transaction ID containing the note
+ * @param outidx Output index of the note within the transaction
+ * @param merklePath[out] The Merkle path to the note's commitment
+ * @return true if Merkle path was successfully retrieved
+ * 
+ * Retrieves the Merkle path from a Sapling note's commitment to the Sapling
+ * commitment tree root. This path is required to prove the note's inclusion
+ * in the blockchain when spending it.
+ */
 bool CWallet::SaplingWalletGetMerklePathOfNote(const uint256 txid, int outidx, libzcash::MerklePath &merklePath) {
     return saplingWallet.GetMerklePathOfNote(txid, outidx, merklePath);
 }
 
+/**
+ * @brief Calculate anchor from Merkle path and commitment
+ * @param merklePath The Merkle path to validate
+ * @param cmu The note commitment to verify
+ * @param anchor[out] The calculated anchor (tree root)
+ * @return true if anchor calculation was successful
+ * 
+ * Computes the Sapling tree root (anchor) by applying the provided Merkle path
+ * to the given note commitment. This verifies that the commitment is properly
+ * included in the tree and provides the anchor needed for spending proofs.
+ */
 bool CWallet::SaplingWalletGetPathRootWithCMU(libzcash::MerklePath &merklePath, uint256 cmu, uint256 &anchor) {
    return saplingWallet.GetPathRootWithCMU(merklePath, cmu, anchor);
 }
 
+/**
+ * @brief Reset the Sapling wallet to initial state
+ * @return true if reset was successful and written to database
+ * 
+ * Resets the Sapling wallet's internal state, clearing all note commitments
+ * and witness information. This is typically used during wallet rebuilding
+ * operations. The reset state is persisted to the database.
+ */
 bool CWallet::SaplingWalletReset() {
    saplingWallet.Reset();
    return CWalletDB(strWalletFile).WriteSaplingWitnesses(saplingWallet);
 }
 
+/**
+ * @brief Get Merkle path for an Orchard note
+ * @param txid Transaction ID containing the note
+ * @param outidx Output index of the note within the transaction
+ * @param merklePath[out] The Merkle path to the note's commitment
+ * @return true if Merkle path was successfully retrieved
+ * 
+ * Retrieves the Merkle path from an Orchard note's commitment to the Orchard
+ * commitment tree root. This path is required to prove the note's inclusion
+ * in the blockchain when spending it.
+ */
 bool CWallet::OrchardWalletGetMerklePathOfNote(const uint256 txid, int outidx, libzcash::MerklePath &merklePath) {
     return orchardWallet.GetMerklePathOfNote(txid, outidx, merklePath);
 }
 
+/**
+ * @brief Calculate anchor from Orchard Merkle path and commitment
+ * @param merklePath The Merkle path to validate
+ * @param cmu The note commitment to verify
+ * @param anchor[out] The calculated anchor (tree root)
+ * @return true if anchor calculation was successful
+ * 
+ * Computes the Orchard tree root (anchor) by applying the provided Merkle path
+ * to the given note commitment. This verifies that the commitment is properly
+ * included in the tree and provides the anchor needed for spending proofs.
+ */
 bool CWallet::OrchardWalletGetPathRootWithCMU(libzcash::MerklePath &merklePath, uint256 cmu, uint256 &anchor) {
    return orchardWallet.GetPathRootWithCMU(merklePath, cmu, anchor);
 }
 
+/**
+ * @brief Reset the Orchard wallet to initial state
+ * @return true if reset was successful and written to database
+ * 
+ * Resets the Orchard wallet's internal state, clearing all note commitments
+ * and witness information. This is typically used during wallet rebuilding
+ * operations. The reset state is persisted to the database.
+ */
 bool CWallet::OrchardWalletReset() {
    orchardWallet.Reset();
    return CWalletDB(strWalletFile).WriteOrchardWitnesses(orchardWallet);
 }
 
 /**
- * Find notes in the wallet filtered by payment address, min depth and ability to spend.
- * These notes are decrypted and added to the output parameter vector, outEntries.
+ * @brief Find unspent notes in the wallet filtered by payment address and minimum depth
+ * @param saplingEntries[out] Vector to store found Sapling note entries
+ * @param orchardEntries[out] Vector to store found Orchard note entries
+ * @param address Payment address to filter by (empty string for all addresses)
+ * @param minDepth Minimum confirmation depth required for notes
+ * @param ignoreSpent Whether to exclude spent notes from results
+ * @param requireSpendingKey Whether to only include notes for which we have the spending key
+ * 
+ * This is a convenience wrapper around the more detailed GetFilteredNotes function.
+ * It handles address decoding and sets default values for maxDepth (INT_MAX) and 
+ * ignoreLocked (false) parameters.
  */
 void CWallet::GetFilteredNotes(
     std::vector<SaplingNoteEntry>& saplingEntries,
@@ -9359,9 +12780,27 @@ void CWallet::GetFilteredNotes(
 }
 
 /**
- * Find notes in the wallet filtered by payment addresses, min depth, max depth,
- * if the note is spent, if a spending key is required, and if the notes are locked.
- * These notes are decrypted and added to the output parameter vector, outEntries.
+ * @brief Find notes in the wallet with comprehensive filtering options
+ * @param saplingEntries[out] Vector to store found Sapling note entries
+ * @param orchardEntries[out] Vector to store found Orchard note entries  
+ * @param filterAddresses Set of payment addresses to filter by (empty for all addresses)
+ * @param minDepth Minimum confirmation depth required for notes
+ * @param maxDepth Maximum confirmation depth allowed for notes
+ * @param ignoreSpent Whether to exclude spent notes from results
+ * @param requireSpendingKey Whether to only include notes for which we have the spending key
+ * @param ignoreLocked Whether to exclude locked notes from results
+ * 
+ * This function performs a comprehensive search through all wallet transactions,
+ * extracting both Sapling and Orchard notes that match the specified criteria.
+ * The function respects depth-based network confirmation requirements using
+ * either regular depth checks or dPoW (delayed Proof of Work) confirmation counts.
+ * 
+ * For each matching note, the function:
+ * 1. Validates transaction finality and maturity
+ * 2. Checks confirmation depth requirements  
+ * 3. Attempts note decryption using stored viewing keys
+ * 4. Applies address, spending key, and lock filters
+ * 5. Adds qualifying notes to the appropriate output vector
  */
 void CWallet::GetFilteredNotes(
     std::vector<SaplingNoteEntry>& saplingEntries,
@@ -9375,33 +12814,39 @@ void CWallet::GetFilteredNotes(
 {
     LOCK2(cs_main, cs_wallet);
 
+    // Iterate through all wallet transactions to find matching notes
     for (auto & p : mapWallet) {
         CWalletTx wtx = p.second;
 
-        // Filter the transactions before checking for notes
+        // Skip transactions that are not final or still maturing
         if (!CheckFinalTx(wtx) || wtx.GetBlocksToMaturity() > 0)
             continue;
 
+        // Apply depth filtering based on confirmation requirements
         if (minDepth > 1) {
+            // For deeper requirements, use dPoW (delayed Proof of Work) confirmations
             int nHeight    = tx_height(wtx.GetHash());
             int nDepth     = wtx.GetDepthInMainChain();
-            int dpowconfs  = komodo_dpowconfs(nHeight,nDepth);
-            if ( dpowconfs < minDepth || dpowconfs > maxDepth) {
+            int dpowconfs  = komodo_dpowconfs(nHeight, nDepth);
+            if (dpowconfs < minDepth || dpowconfs > maxDepth) {
                 continue;
             }
         } else {
-            if ( wtx.GetDepthInMainChain() < minDepth ||
+            // For shallow requirements, use standard depth checks
+            if (wtx.GetDepthInMainChain() < minDepth ||
                 wtx.GetDepthInMainChain() > maxDepth) {
                 continue;
             }
         }
 
+        // Process Sapling notes in this transaction
         auto vOutputs = wtx.GetSaplingOutputs();
 
         for (auto & pair : wtx.mapSaplingNoteData) {
             SaplingOutPoint op = pair.first;
             SaplingNoteData nd = pair.second;
 
+            // Decrypt the note using the stored incoming viewing key
             auto encCiphertext = vOutputs[op.n].enc_ciphertext();
             auto ephemeralKey = uint256::FromRawBytes(vOutputs[op.n].ephemeral_key());
             auto optDeserialized = SaplingNotePlaintext::attempt_sapling_enc_decryption_deserialization(encCiphertext, nd.ivk, ephemeralKey);
@@ -9415,16 +12860,17 @@ void CWallet::GetFilteredNotes(
             assert(static_cast<bool>(maybe_pa));
             auto pa = maybe_pa.value();
 
-            // skip notes which belong to a different payment address in the wallet
+            // Skip notes that don't match the address filter
             if (!(filterAddresses.empty() || filterAddresses.count(pa))) {
                 continue;
             }
 
+            // Skip spent notes if requested
             if (ignoreSpent && nd.nullifier && IsSaplingSpent(*nd.nullifier)) {
                 continue;
             }
 
-            // skip notes which cannot be spent
+            // Skip notes for which we don't have the spending key (if required)
             if (requireSpendingKey) {
                 libzcash::SaplingExtendedFullViewingKey extfvk;
                 if (!(GetSaplingFullViewingKey(nd.ivk, extfvk) &&
@@ -9433,24 +12879,25 @@ void CWallet::GetFilteredNotes(
                 }
             }
 
-            // skip locked notes
-            // TODO: Add locking for Sapling notes -> done
-             if (ignoreLocked && IsLockedNote(op)) {
-                 continue;
-             }
+            // Skip locked notes if requested
+            if (ignoreLocked && IsLockedNote(op)) {
+                continue;
+            }
 
+            // Add qualifying Sapling note to results
             auto note = notePt.note(nd.ivk).value();
             saplingEntries.push_back(SaplingNoteEntry {
                 op, pa, note, notePt.memo(), wtx.GetDepthInMainChain() });
         }
 
-
+        // Process Orchard notes in this transaction
         auto vActions = wtx.GetOrchardActions();
 
         for (auto & pair : wtx.mapOrchardNoteData) {
             OrchardOutPoint op = pair.first;
             OrchardNoteData nd = pair.second;
 
+            // Decrypt the Orchard note using the stored incoming viewing key
             auto optDeserialized = OrchardNotePlaintext::AttemptDecryptOrchardAction(&vActions[op.n], nd.ivk);
 
             // The transaction would not have entered the wallet unless
@@ -9462,18 +12909,17 @@ void CWallet::GetFilteredNotes(
             auto memo = notePt.memo();
             auto note = notePt.note().value();
 
-            LogPrintf("Found Orchard Note with Outpoint %s, index %i, value %i\n", wtx.GetHash().ToString(), op.n, notePt.note().value().value());
-
-            // skip notes which belong to a different payment address in the wallet
+            // Skip notes that don't match the address filter
             if (!(filterAddresses.empty() || filterAddresses.count(pa))) {
                 continue;
             }
 
+            // Skip spent notes if requested
             if (ignoreSpent && nd.nullifier && IsOrchardSpent(*nd.nullifier)) {
                 continue;
             }
 
-            // skip notes which cannot be spent
+            // Skip notes for which we don't have the spending key (if required)
             if (requireSpendingKey) {
                 libzcash::OrchardExtendedFullViewingKeyPirate extfvk;
                 if (!(GetOrchardFullViewingKey(nd.ivk, extfvk) &&
@@ -9482,52 +12928,85 @@ void CWallet::GetFilteredNotes(
                 }
             }
 
-            // skip locked notes
-            // TODO: Add locking for Orchard notes -> done
+            // Skip locked notes if requested
             if (ignoreLocked && IsLockedNote(op)) {
-                 continue;
+                continue;
             }
 
+            // Add qualifying Orchard note to results
             LogPrintf("Adding Found Orchard Note with Outpoint\n");
             orchardEntries.push_back(OrchardNoteEntry {op, pa, note, memo, wtx.GetDepthInMainChain()});
         }
-
-
     }
 }
 
 
-//
-// Shielded key and address generalizations
-//
+/**
+ * @section Shielded Key and Address Generalizations
+ * 
+ * The following functions provide a unified interface for working with different
+ * types of shielded addresses (Sprout, Sapling, Orchard) through visitor pattern
+ * implementations. This allows generic handling of address operations across
+ * all shielded protocols supported by the wallet.
+ */
 
+/**
+ * @brief Check if an incoming viewing key belongs to this wallet (Sprout addresses)
+ * @param zaddr The Sprout payment address to check
+ * @return true if the wallet has the corresponding viewing key
+ */
 bool IncomingViewingKeyBelongsToWallet::operator()(const libzcash::SproutPaymentAddress &zaddr) const
 {
     return m_wallet->HaveSproutViewingKey(zaddr);
 }
 
+/**
+ * @brief Check if an incoming viewing key belongs to this wallet (Sapling addresses)
+ * @param zaddr The Sapling payment address to check
+ * @return true if the wallet has the corresponding incoming viewing key
+ */
 bool IncomingViewingKeyBelongsToWallet::operator()(const libzcash::SaplingPaymentAddress &zaddr) const
 {
     libzcash::SaplingIncomingViewingKey ivk;
     return m_wallet->GetSaplingIncomingViewingKey(zaddr, ivk);
 }
 
+/**
+ * @brief Check if an incoming viewing key belongs to this wallet (Orchard addresses)
+ * @param zaddr The Orchard payment address to check  
+ * @return true if the wallet has the corresponding incoming viewing key
+ */
 bool IncomingViewingKeyBelongsToWallet::operator()(const libzcash::OrchardPaymentAddressPirate &zaddr) const
 {
     libzcash::OrchardIncomingViewingKeyPirate ivk;
     return m_wallet->GetOrchardIncomingViewingKey(zaddr, ivk);
 }
 
+/**
+ * @brief Handle invalid address encodings
+ * @param no Invalid encoding object (not used)
+ * @return false (invalid encodings never belong to wallet)
+ */
 bool IncomingViewingKeyBelongsToWallet::operator()(const libzcash::InvalidEncoding& no) const
 {
     return false;
 }
 
+/**
+ * @brief Check if a payment address belongs to this wallet (Sprout addresses)
+ * @param zaddr The Sprout payment address to check
+ * @return true if the wallet has the spending key or viewing key for this address
+ */
 bool PaymentAddressBelongsToWallet::operator()(const libzcash::SproutPaymentAddress &zaddr) const
 {
     return m_wallet->HaveSproutSpendingKey(zaddr) || m_wallet->HaveSproutViewingKey(zaddr);
 }
 
+/**
+ * @brief Check if a payment address belongs to this wallet (Sapling addresses)
+ * @param zaddr The Sapling payment address to check
+ * @return true if the wallet has both the incoming viewing key and full viewing key
+ */
 bool PaymentAddressBelongsToWallet::operator()(const libzcash::SaplingPaymentAddress &zaddr) const
 {
     libzcash::SaplingIncomingViewingKey ivk;
@@ -9538,6 +13017,11 @@ bool PaymentAddressBelongsToWallet::operator()(const libzcash::SaplingPaymentAdd
         m_wallet->HaveSaplingFullViewingKey(ivk);
 }
 
+/**
+ * @brief Check if a payment address belongs to this wallet (Orchard addresses)
+ * @param zaddr The Orchard payment address to check
+ * @return true if the wallet has both the incoming viewing key and full viewing key
+ */
 bool PaymentAddressBelongsToWallet::operator()(const libzcash::OrchardPaymentAddressPirate &zaddr) const
 {
     libzcash::OrchardIncomingViewingKeyPirate ivk;
@@ -9548,11 +13032,25 @@ bool PaymentAddressBelongsToWallet::operator()(const libzcash::OrchardPaymentAdd
         m_wallet->HaveOrchardFullViewingKey(ivk);
 }
 
+/**
+ * @brief Handle invalid encoding for payment address ownership check
+ * @param no The invalid encoding object
+ * @return false (invalid encodings never belong to wallet)
+ */
 bool PaymentAddressBelongsToWallet::operator()(const libzcash::InvalidEncoding& no) const
 {
     return false;
 }
 
+/**
+ * @brief Get viewing key for Sprout payment address
+ * @param zaddr The Sprout payment address
+ * @return Optional ViewingKey if found, nullopt otherwise
+ * 
+ * Attempts to retrieve the viewing key for a Sprout address by first checking
+ * for a stored viewing key, then falling back to deriving it from the spending
+ * key if available.
+ */
 std::optional<libzcash::ViewingKey> GetViewingKeyForPaymentAddress::operator()(
     const libzcash::SproutPaymentAddress &zaddr) const
 {
@@ -9567,6 +13065,14 @@ std::optional<libzcash::ViewingKey> GetViewingKeyForPaymentAddress::operator()(
     return libzcash::ViewingKey(vk);
 }
 
+/**
+ * @brief Get viewing key for Sapling payment address
+ * @param zaddr The Sapling payment address
+ * @return Optional ViewingKey if found, nullopt otherwise
+ * 
+ * Retrieves the Sapling extended full viewing key for the given payment address
+ * by looking up the incoming viewing key and corresponding full viewing key.
+ */
 std::optional<libzcash::ViewingKey> GetViewingKeyForPaymentAddress::operator()(
     const libzcash::SaplingPaymentAddress &zaddr) const
 {
@@ -9582,6 +13088,14 @@ std::optional<libzcash::ViewingKey> GetViewingKeyForPaymentAddress::operator()(
     }
 }
 
+/**
+ * @brief Get viewing key for Orchard payment address
+ * @param zaddr The Orchard payment address
+ * @return Optional ViewingKey if found, nullopt otherwise
+ * 
+ * Retrieves the Orchard extended full viewing key for the given payment address
+ * by looking up the incoming viewing key and corresponding full viewing key.
+ */
 std::optional<libzcash::ViewingKey> GetViewingKeyForPaymentAddress::operator()(
     const libzcash::OrchardPaymentAddressPirate &zaddr) const
 {
@@ -9597,6 +13111,11 @@ std::optional<libzcash::ViewingKey> GetViewingKeyForPaymentAddress::operator()(
     }
 }
 
+/**
+ * @brief Handle invalid encoding for viewing key lookup
+ * @param no The invalid encoding object
+ * @return Default ViewingKey (InvalidEncoding)
+ */
 std::optional<libzcash::ViewingKey> GetViewingKeyForPaymentAddress::operator()(
     const libzcash::InvalidEncoding& no) const
 {
@@ -9604,11 +13123,24 @@ std::optional<libzcash::ViewingKey> GetViewingKeyForPaymentAddress::operator()(
     return libzcash::ViewingKey();
 }
 
+/**
+ * @brief Check if wallet has spending key for Sprout address
+ * @param zaddr The Sprout payment address to check
+ * @return true if spending key exists in wallet
+ */
 bool HaveSpendingKeyForPaymentAddress::operator()(const libzcash::SproutPaymentAddress &zaddr) const
 {
     return m_wallet->HaveSproutSpendingKey(zaddr);
 }
 
+/**
+ * @brief Check if wallet has spending key for Sapling address
+ * @param zaddr The Sapling payment address to check
+ * @return true if wallet has corresponding spending key (via full viewing key)
+ * 
+ * Verifies that the wallet has both the incoming viewing key and full viewing key
+ * for the address, which indicates a spending key exists.
+ */
 bool HaveSpendingKeyForPaymentAddress::operator()(const libzcash::SaplingPaymentAddress &zaddr) const
 {
     libzcash::SaplingIncomingViewingKey ivk;
@@ -9619,6 +13151,14 @@ bool HaveSpendingKeyForPaymentAddress::operator()(const libzcash::SaplingPayment
         m_wallet->HaveSaplingSpendingKey(extfvk);
 }
 
+/**
+ * @brief Check if wallet has spending key for Orchard address
+ * @param zaddr The Orchard payment address to check
+ * @return true if wallet has corresponding spending key (via full viewing key)
+ * 
+ * Verifies that the wallet has both the incoming viewing key and full viewing key
+ * for the address, which indicates a spending key exists.
+ */
 bool HaveSpendingKeyForPaymentAddress::operator()(const libzcash::OrchardPaymentAddressPirate &zaddr) const
 {
     libzcash::OrchardIncomingViewingKeyPirate ivk;
@@ -9629,11 +13169,21 @@ bool HaveSpendingKeyForPaymentAddress::operator()(const libzcash::OrchardPayment
         m_wallet->HaveOrchardSpendingKey(extfvk);
 }
 
+/**
+ * @brief Handle invalid encoding for spending key check
+ * @param no The invalid encoding object
+ * @return false (no spending key for invalid encoding)
+ */
 bool HaveSpendingKeyForPaymentAddress::operator()(const libzcash::InvalidEncoding& no) const
 {
     return false;
 }
 
+/**
+ * @brief Get spending key for Sprout payment address
+ * @param zaddr The Sprout payment address
+ * @return Optional SpendingKey if found, nullopt otherwise
+ */
 std::optional<libzcash::SpendingKey> GetSpendingKeyForPaymentAddress::operator()(
     const libzcash::SproutPaymentAddress &zaddr) const
 {
@@ -9645,6 +13195,11 @@ std::optional<libzcash::SpendingKey> GetSpendingKeyForPaymentAddress::operator()
     }
 }
 
+/**
+ * @brief Get spending key for Sapling payment address
+ * @param zaddr The Sapling payment address
+ * @return Optional SpendingKey if found, nullopt otherwise
+ */
 std::optional<libzcash::SpendingKey> GetSpendingKeyForPaymentAddress::operator()(
     const libzcash::SaplingPaymentAddress &zaddr) const
 {
@@ -9656,6 +13211,11 @@ std::optional<libzcash::SpendingKey> GetSpendingKeyForPaymentAddress::operator()
     }
 }
 
+/**
+ * @brief Get spending key for Orchard payment address
+ * @param zaddr The Orchard payment address
+ * @return Optional SpendingKey if found, nullopt otherwise
+ */
 std::optional<libzcash::SpendingKey> GetSpendingKeyForPaymentAddress::operator()(
     const libzcash::OrchardPaymentAddressPirate &zaddr) const
 {
@@ -9667,6 +13227,11 @@ std::optional<libzcash::SpendingKey> GetSpendingKeyForPaymentAddress::operator()
     }
 }
 
+/**
+ * @brief Handle invalid encoding for spending key lookup
+ * @param no The invalid encoding object
+ * @return Default SpendingKey (InvalidEncoding)
+ */
 std::optional<libzcash::SpendingKey> GetSpendingKeyForPaymentAddress::operator()(
     const libzcash::InvalidEncoding& no) const
 {
@@ -9674,6 +13239,11 @@ std::optional<libzcash::SpendingKey> GetSpendingKeyForPaymentAddress::operator()
     return libzcash::SpendingKey();
 }
 
+/**
+ * @brief Add Sprout viewing key to wallet
+ * @param vkey The Sprout viewing key to add
+ * @return KeyAddResult indicating the result of the operation
+ */
 KeyAddResult AddViewingKeyToWallet::operator()(const libzcash::SproutViewingKey &vkey) const {
     auto addr = vkey.address();
 
@@ -9688,6 +13258,14 @@ KeyAddResult AddViewingKeyToWallet::operator()(const libzcash::SproutViewingKey 
     }
 }
 
+/**
+ * @brief Add Sapling extended full viewing key to wallet
+ * @param extfvk The Sapling extended full viewing key to add
+ * @return KeyAddResult indicating the result of the operation
+ * 
+ * Adds the viewing key for watch-only functionality. If a spending key already
+ * exists, returns SpendingKeyExists. Also loads watch-only data for the key.
+ */
 KeyAddResult AddViewingKeyToWallet::operator()(const libzcash::SaplingExtendedFullViewingKey &extfvk) const {
     if (m_wallet->HaveSaplingSpendingKey(extfvk)) {
         return SpendingKeyExists;
@@ -9701,6 +13279,14 @@ KeyAddResult AddViewingKeyToWallet::operator()(const libzcash::SaplingExtendedFu
     }
 }
 
+/**
+ * @brief Add Orchard extended full viewing key to wallet
+ * @param extfvk The Orchard extended full viewing key to add
+ * @return KeyAddResult indicating the result of the operation
+ * 
+ * Adds the viewing key for watch-only functionality. If a spending key already
+ * exists, returns SpendingKeyExists. Also loads watch-only data for the key.
+ */
 KeyAddResult AddViewingKeyToWallet::operator()(const libzcash::OrchardExtendedFullViewingKeyPirate &extfvk) const {
     auto ivkOpt = extfvk.fvk.GetIVK();
     if (ivkOpt == nullopt) {
@@ -9720,10 +13306,23 @@ KeyAddResult AddViewingKeyToWallet::operator()(const libzcash::OrchardExtendedFu
     }
 }
 
+/**
+ * @brief Handle invalid encoding for viewing key addition
+ * @param no The invalid encoding object
+ * @throws JSONRPCError with RPC_INVALID_ADDRESS_OR_KEY
+ */
 KeyAddResult AddViewingKeyToWallet::operator()(const libzcash::InvalidEncoding& no) const {
     throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid viewing key");
 }
 
+/**
+ * @brief Add Sapling diversified extended full viewing key to wallet
+ * @param extdfvk The Sapling diversified extended full viewing key to add
+ * @return KeyAddResult indicating the result of the operation
+ * 
+ * Adds a diversified viewing key for watch-only functionality. The function will
+ * add the base viewing key if needed and then attempt to add the specific diversified address.
+ */
 KeyAddResult AddDiversifiedViewingKeyToWallet::operator()(const libzcash::SaplingDiversifiedExtendedFullViewingKey &extdfvk) const {
     auto extfvk = extdfvk.extfvk;
     auto ivk = extfvk.fvk.in_viewing_key();
@@ -9758,10 +13357,23 @@ KeyAddResult AddDiversifiedViewingKeyToWallet::operator()(const libzcash::Saplin
 
 }
 
+/**
+ * @brief Handle invalid encoding for diversified viewing key addition
+ * @param no The invalid encoding object
+ * @throws JSONRPCError with RPC_INVALID_ADDRESS_OR_KEY
+ */
 KeyAddResult AddDiversifiedViewingKeyToWallet::operator()(const libzcash::InvalidEncoding& no) const {
     throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid diversified viewing key");
 }
 
+/**
+ * @brief Add Sprout spending key to wallet
+ * @param sk The Sprout spending key to add
+ * @return KeyAddResult indicating the result of the operation
+ * 
+ * Imports a Sprout spending key into the wallet. Sets the creation time metadata
+ * to the specified time for proper birthday handling during wallet scans.
+ */
 KeyAddResult AddSpendingKeyToWallet::operator()(const libzcash::SproutSpendingKey &sk) const {
     auto addr = sk.address();
     if (log){
@@ -9777,6 +13389,15 @@ KeyAddResult AddSpendingKeyToWallet::operator()(const libzcash::SproutSpendingKe
     }
 }
 
+/**
+ * @brief Add Sapling extended spending key to wallet
+ * @param sk The Sapling extended spending key to add
+ * @return KeyAddResult indicating the result of the operation
+ * 
+ * Imports a Sapling spending key into the wallet. Handles creation time metadata
+ * based on network upgrade status - if Sapling is always active, uses the provided
+ * time, otherwise uses a safe historical time before Sapling activation.
+ */
 KeyAddResult AddSpendingKeyToWallet::operator()(const libzcash::SaplingExtendedSpendingKey &sk) const {
     auto extfvk = sk.ToXFVK();
     auto ivk = extfvk.fvk.in_viewing_key();
@@ -9813,6 +13434,16 @@ KeyAddResult AddSpendingKeyToWallet::operator()(const libzcash::SaplingExtendedS
     }
 }
 
+/**
+ * @brief Add Orchard extended spending key to wallet
+ * @param extsk The Orchard extended spending key to add
+ * @return KeyAddResult indicating the result of the operation
+ * 
+ * Imports an Orchard spending key into the wallet. Handles creation time metadata
+ * based on network upgrade status - if Orchard is always active, uses the provided
+ * time, otherwise uses a safe historical time before Orchard activation.
+ * Also handles HD keypath and seed fingerprint metadata if provided.
+ */
 KeyAddResult AddSpendingKeyToWallet::operator()(const libzcash::OrchardExtendedSpendingKeyPirate &extsk) const {
     auto extfvkOpt = extsk.GetXFVK();
     if (extfvkOpt == std::nullopt){
@@ -9864,10 +13495,24 @@ KeyAddResult AddSpendingKeyToWallet::operator()(const libzcash::OrchardExtendedS
     }
 }
 
+/**
+ * @brief Handle invalid encoding for spending key addition
+ * @param no The invalid encoding object
+ * @throws JSONRPCError with RPC_INVALID_ADDRESS_OR_KEY
+ */
 KeyAddResult AddSpendingKeyToWallet::operator()(const libzcash::InvalidEncoding& no) const {
     throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid spending key");
 }
 
+/**
+ * @brief Add Sapling diversified extended spending key to wallet
+ * @param extdsk The Sapling diversified extended spending key to add
+ * @return KeyAddResult indicating the result of the operation
+ * 
+ * Imports a diversified Sapling spending key and attempts to add its corresponding
+ * address to the wallet. The function will add the base spending key if needed
+ * and then attempt to add the specific diversified address for incoming viewing.
+ */
 KeyAddResult AddDiversifiedSpendingKeyToWallet::operator()(const libzcash::SaplingDiversifiedExtendedSpendingKey &extdsk) const {
     auto extfvk = extdsk.extsk.ToXFVK();
     auto ivk = extfvk.fvk.in_viewing_key();
@@ -9901,6 +13546,11 @@ KeyAddResult AddDiversifiedSpendingKeyToWallet::operator()(const libzcash::Sapli
 
 }
 
+/**
+ * @brief Handle invalid encoding for diversified spending key addition
+ * @param no The invalid encoding object
+ * @throws JSONRPCError with RPC_INVALID_ADDRESS_OR_KEY
+ */
 KeyAddResult AddDiversifiedSpendingKeyToWallet::operator()(const libzcash::InvalidEncoding& no) const {
     throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid diversified viewing key");
 }
