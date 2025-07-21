@@ -82,6 +82,13 @@ TEST(test_block, TestSpendInSameBlock)
     auto bob = std::make_shared<TestWallet>("bob");
     auto miner = std::make_shared<TestWallet>("miner");
     std::shared_ptr<CBlock> lastBlock = chain.generateBlock(notary); // genesis block
+    
+    // Mine enough blocks to mature the coinbase output
+    int maturity = Params().CoinbaseMaturity();
+    for (int i = 1; i < maturity; ++i) {
+        chain.generateBlock(miner);
+    }
+    
     ASSERT_GT( chain.GetIndex()->nHeight, 0 );
     CAmount notaryBalance = notary->GetBalance();
     // delay just a second to help with locktime
