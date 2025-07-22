@@ -153,6 +153,7 @@ struct BlockHasher
 extern unsigned int expiryDelta;
 extern CScript COINBASE_FLAGS;
 extern CCriticalSection cs_main;
+extern CCriticalSection cs_main_multithreaded;
 extern CBlockPolicyEstimator feeEstimator;
 extern CTxMemPool mempool;
 typedef boost::unordered_map<uint256, CBlockIndex*, BlockHasher> BlockMap;

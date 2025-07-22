@@ -93,6 +93,7 @@ using namespace std;
 
 #define TMPFILE_START 100000000
 CCriticalSection cs_main;
+CCriticalSection cs_main_multithreaded;
 int32_t KOMODO_NEWBLOCKS;
 
 BlockMap mapBlockIndex;
@@ -1490,37 +1491,39 @@ CheckTransationResults ContextualCheckTransactionShieldedBundles(
     for (int i = 0; i < vtx.size(); i++) {
 
         //Get Signature hash to pass to the sapling verifiers later
-
-          uint256 dataToBeSigned;
+        uint256 dataToBeSigned;
 
         if (!vtx[i]->vjoinsplit.empty() ||
             vtx[i]->GetSaplingBundle().IsPresent() ||
             vtx[i]->GetOrchardBundle().IsPresent()) {
+            
+            {   //TODO: Move this back to the single threaded function to eliminate the need for this lock
+                LOCK(cs_main_multithreaded); // Lock for multithreaded context
+                if (!view->HaveInputs(*vtx[i])) {
+                    txResults.validationPassed = false;
+                    txResults.dosLevel = 100;
+                    txResults.errorString = strprintf("ContextualCheckTransactionShieldedBundles: inputs missing/spent");
+                    txResults.reasonString = strprintf("bad-txns-inputs-missingorspent");
+                    return txResults;
+                }
 
-            if (!view->HaveInputs(*vtx[i])) {
-                txResults.validationPassed = false;
-                txResults.dosLevel = 100;
-                txResults.errorString = strprintf("ContextualCheckTransactionShieldedBundles: inputs missing/spent");
-                txResults.reasonString = strprintf("bad-txns-inputs-missingorspent");
-                return txResults;
-            }
+                std::vector<CTxOut> allPrevOutputs;
+                for (const auto& input : vtx[i]->vin) {
+                    allPrevOutputs.push_back(view->GetOutputFor(input));
+                }
+                PrecomputedTransactionData txdata(*vtx[i], allPrevOutputs);
 
-            std::vector<CTxOut> allPrevOutputs;
-            for (const auto& input : vtx[i]->vin) {
-                allPrevOutputs.push_back(view->GetOutputFor(input));
-            }
-            PrecomputedTransactionData txdata(*vtx[i], allPrevOutputs);
-
-            // Empty output script.
-            CScript scriptCode;
-            try {
-                dataToBeSigned = SignatureHash(scriptCode, *vtx[i], NOT_AN_INPUT, SIGHASH_ALL, 0, consensusBranchId, txdata);
-            } catch (std::logic_error ex) {
-                txResults.validationPassed = false;
-                txResults.dosLevel = 100;
-                txResults.errorString = strprintf("ContextualCheckTransactionShieldedBundles: error computing signature hash");
-                txResults.reasonString = strprintf("error-computing-signature-hash");
-                return txResults;
+                // Empty output script.
+                CScript scriptCode;
+                try {
+                    dataToBeSigned = SignatureHash(scriptCode, *vtx[i], NOT_AN_INPUT, SIGHASH_ALL, 0, consensusBranchId, txdata);
+                } catch (std::logic_error ex) {
+                    txResults.validationPassed = false;
+                    txResults.dosLevel = 100;
+                    txResults.errorString = strprintf("ContextualCheckTransactionShieldedBundles: error computing signature hash");
+                    txResults.reasonString = strprintf("error-computing-signature-hash");
+                    return txResults;
+                }
             }
         }
 
