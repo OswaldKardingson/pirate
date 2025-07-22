@@ -47,6 +47,7 @@ typedef std::tuple<COutPoint, CAmount, CScript> MergeToAddressInputUTXO;
 // typedef std::tuple<JSOutPoint, SproutNote, CAmount, SproutSpendingKey> MergeToAddressInputSproutNote;
 
 typedef std::tuple<SaplingOutPoint, SaplingNote, CAmount, SaplingExtendedSpendingKey> MergeToAddressInputSaplingNote;
+typedef std::tuple<OrchardOutPoint, OrchardNote, CAmount, OrchardExtendedSpendingKeyPirate> MergeToAddressInputOrchardNote;
 
 // A recipient is a tuple of address, memo (optional if zaddr)
 typedef std::tuple<std::string, std::string> MergeToAddressRecipient;
@@ -60,6 +61,7 @@ public:
         CMutableTransaction contextualTx,
         std::vector<MergeToAddressInputUTXO> utxoInputs,
         std::vector<MergeToAddressInputSaplingNote> saplingNoteInputs,
+        std::vector<MergeToAddressInputOrchardNote> orchardNoteInputs,
         MergeToAddressRecipient recipient,
         CAmount fee = MERGE_TO_ADDRESS_OPERATION_DEFAULT_MINERS_FEE,
         UniValue contextInfo = NullUniValue);
@@ -95,6 +97,7 @@ private:
 
     std::vector<MergeToAddressInputUTXO> utxoInputs_;
     std::vector<MergeToAddressInputSaplingNote> saplingNoteInputs_;
+    std::vector<MergeToAddressInputOrchardNote> orchardNoteInputs_;
 
     TransactionBuilder builder_;
     CTransaction tx_;
@@ -109,6 +112,12 @@ private:
     void lock_notes();
 
     void unlock_notes();
+
+    void lock_orchard_notes();
+
+    void unlock_orchard_notes();
+
+    
 
 };
 

@@ -139,16 +139,36 @@ std::optional<UnauthorizedBundle> Builder::Build()
 }
 
 std::optional<OrchardBundle> UnauthorizedBundle::ProveAndSign(
-    libzcash::OrchardSpendingKeyPirate key,
+    std::vector<libzcash::OrchardSpendingKeyPirate> keys,
     uint256 sighash)
 {
     if (!inner) {
         throw std::logic_error("orchard::UnauthorizedBundle has already been used");
     }
 
+    //Convert the vector of keys to a flat byte array
+    std::vector<unsigned char> sks;
+    sks.reserve(keys.size() * 32); // Each key is 32 bytes
+    for (const auto& key : keys) {
+        CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
+        ss << key.sk;
+        std::array<unsigned char, 32> sk_t;
+        std::move(ss.begin(), ss.end(), sk_t.begin());
+        for (const auto& byte : sk_t) {
+            sks.push_back(byte);
+        }
+    }
+
+    // Return an error if no keys were provided
+    if (sks.empty()) {
+        throw std::logic_error("No spending keys provided to ProveAndSign");
+    }
+
+    // Call the Rust function to prove and sign the bundle
     auto authorizedBundle = orchard_unauthorized_bundle_prove_and_sign(
         inner.release(),
-        key.sk.begin(),
+        sks.data(),
+        keys.size(),
         sighash.begin());
     if (authorizedBundle == nullptr) {
         return std::nullopt;
@@ -325,18 +345,13 @@ bool TransactionBuilder::AddSaplingSpendRaw(
         throw std::runtime_error("TransactionBuilder cannot add Sapling spend to pre-Sapling transaction");
     }
     
-    // Consistency check: all from addresses must equal the first one
-    if (!vSaplingSpends.empty()) {
-        if (!(vSaplingSpends[0].addr == addr)) {
-            return false;
-        }
-    }
-
     // Consistency check: all anchors must equal the first one
-    if (!vSaplingSpends.empty()) {
-        if (!(vSaplingSpends[0].anchor == anchor)) {
-            return false;
-        }
+    if (saplingAnchor.IsNull()) {
+        // Set the anchor if not already set
+        saplingAnchor = anchor;
+    } else if (saplingAnchor != anchor) {
+        // If the anchor is already set, it must match the new one
+        return false;
     }
 
     vSaplingSpends.emplace_back(op, addr, value, rcm, saplingMerklePath, anchor);
@@ -354,9 +369,11 @@ bool TransactionBuilder::ConvertRawSaplingSpend(libzcash::SaplingExtendedSpendin
     CDataStream ssExtSk(SER_NETWORK, PROTOCOL_VERSION);
     ssExtSk << extsk;
 
+    auto ivk = extsk.ToXFVK().fvk.in_viewing_key();
+
     // Consistency check: all anchors must equal the first one
     for (int i = 0; i < vSaplingSpends.size(); i++) {
-        if (vSaplingSpends[0].anchor != vSaplingSpends[i].anchor) {
+        if (saplingAnchor != vSaplingSpends[i].anchor) {
             return false;
         }
 
@@ -365,6 +382,20 @@ bool TransactionBuilder::ConvertRawSaplingSpend(libzcash::SaplingExtendedSpendin
         std::array<unsigned char, 1065> merkle_path;
         std::move(ss.begin(), ss.end(), merkle_path.begin());
 
+        // Check FVK is valid for Address
+        auto ckeckAddrOpt = ivk.address(vSaplingSpends[i].addr.d);
+        if (ckeckAddrOpt == std::nullopt) {
+            fprintf(stderr, "Nullopt - TransactionBuilder cannot add Sapling Spend with FVK that does not match Address\n");
+            throw std::runtime_error("TransactionBuilder cannot add Sapling Spend with FVK that does not match Address");
+        } else {
+            auto checkAddr = ckeckAddrOpt.value();
+            if (!(checkAddr == vSaplingSpends[i].addr)) {
+                fprintf(stderr, "TransactionBuilder cannot add Sapling Spend with FVK that does not match Address\n");
+                throw std::runtime_error("TransactionBuilder cannot add Sapling Spend with FVK that does not match Address");
+            }
+        }
+
+        // Add the spend to the sapling builder
         saplingBuilder->add_spend(
             {reinterpret_cast<uint8_t*>(ssExtSk.data()), ssExtSk.size()},
             vSaplingSpends[i].addr.d,
@@ -379,7 +410,7 @@ bool TransactionBuilder::ConvertRawSaplingSpend(libzcash::SaplingExtendedSpendin
 
         valueBalanceSapling += vSaplingSpends[i].value;
         LogPrintf("Adding sapling spend value %i\n", vSaplingSpends[i].value);
-        LogPrintf("Adding total orchard value %i\n", valueBalanceSapling);
+        LogPrintf("Total sapling value balance%i\n", valueBalanceSapling);
     }
 
     std::optional<CTransaction> maybe_tx = CTransaction(mtx);
@@ -418,7 +449,7 @@ bool TransactionBuilder::ConvertRawSaplingOutput(uint256 ovk)
         saplingBuilder->add_recipient(ovk.GetRawBytes(), vSaplingOutputs[i].addr.GetRawBytes(), vSaplingOutputs[i].value, vSaplingOutputs[i].memo);
         valueBalanceSapling -= vSaplingOutputs[i].value;
         LogPrintf("Adding sapling spend value %i\n", vSaplingOutputs[i].value);
-        LogPrintf("Adding total orchard value %i\n", valueBalanceSapling);
+        LogPrintf("Total sapling value balance %i\n", valueBalanceSapling);
     }
 
     // reset Output Vector
@@ -452,18 +483,13 @@ bool TransactionBuilder::AddOrchardSpendRaw(
         throw std::runtime_error("TransactionBuilder cannot add Orchard Spend before Orchard activation");
     }
 
-    // Consistency check: all from addresses must equal the first one
-    if (!vOrchardSpends.empty()) {
-        if (!(vOrchardSpends[0].addr == addr)) {
-            return false;
-        }
-    }
-
     // Consistency check: all anchors must equal the first one
-    if (!vOrchardSpends.empty()) {
-        if (!(vOrchardSpends[0].anchor == anchor)) {
-            return false;
-        }
+    if (orchardAnchor.IsNull()) {
+        // Set the anchor if not already set
+        orchardAnchor = anchor;
+    } else if (orchardAnchor != anchor) {
+        // If the anchor is already set, it must match the new one
+        return false;
     }
 
     vOrchardSpends.emplace_back(op, addr, value, rho, rseed, orchardMerklePath, anchor);
@@ -505,8 +531,22 @@ bool TransactionBuilder::ConvertRawOrchardSpend(libzcash::OrchardExtendedSpendin
     }
 
     for (int i = 0; i < vOrchardSpends.size(); i++) {
-        if (vOrchardSpends[0].anchor != vOrchardSpends[i].anchor) {
+        if (orchardAnchor != vOrchardSpends[i].anchor) {
             return false;
+        }
+
+        // Check FVK is valid for Address
+        auto checkAddrOpt = fvk.GetAddress(vOrchardSpends[i].addr.GetDiversifier());
+        if (checkAddrOpt == std::nullopt) {
+            throw std::runtime_error("NullOpt - TransactionBuilder cannot add Orchard Spend with FVK that does not match Address\n");
+        } else {
+            auto addr = checkAddrOpt.value();
+            if (addr != vOrchardSpends[i].addr) {
+                fprintf(stderr, "Note Address %s\n", EncodePaymentAddress(vOrchardSpends[i].addr).c_str());
+                fprintf(stderr, "FVK Address %s\n", EncodePaymentAddress(addr).c_str());
+                fprintf(stderr, "TransactionBuilder cannot add Orchard Spend with FVK that does not match Address\n");
+                throw std::runtime_error(strprintf("TransactionBuilder cannot add Orchard Spend with FVK that does not match Address\n"));
+            }
         }
 
         orchardBuilder.value().AddSpendFromParts(
@@ -764,7 +804,7 @@ TransactionBuilderResult TransactionBuilder::Build()
             }
         }
         auto authorizedBundle = orchardBundle.value().ProveAndSign(
-            orchardSpendingKeys[0],
+            orchardSpendingKeys,
             dataToBeSigned);
         if (authorizedBundle.has_value()) {
             mtx.orchardBundle = authorizedBundle.value();

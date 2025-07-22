@@ -6268,11 +6268,46 @@ UniValue consolidationstatus(const UniValue& params, bool fHelp, const CPubKey& 
 #define MERGE_TO_ADDRESS_DEFAULT_TRANSPARENT_LIMIT 50
 #define MERGE_TO_ADDRESS_DEFAULT_SPROUT_LIMIT 10
 #define MERGE_TO_ADDRESS_DEFAULT_SAPLING_LIMIT 90
+#define MERGE_TO_ADDRESS_DEFAULT_ORCHARD_LIMIT 90
 
 #define JOINSPLIT_SIZE GetSerializeSize(JSDescription(), SER_NETWORK, PROTOCOL_VERSION)
 #define OUTPUTDESCRIPTION_SIZE 948
 #define SPENDDESCRIPTION_SIZE 384
+#define ORCHARD_ACTIONSIZE 852
 
+/**
+ * @brief Merge multiple UTXOs and notes into a single UTXO or note
+ * 
+ * This RPC command provides functionality to consolidate multiple UTXOs (transparent outputs)
+ * and shielded notes (Sapling/Orchard) into a single output. This is useful for reducing
+ * wallet fragmentation and improving privacy by consolidating funds.
+ * 
+ * Key Features:
+ * - Supports merging from multiple transparent addresses (t-addrs)
+ * - Supports merging from multiple shielded addresses (z-addrs) 
+ * - Can merge to either transparent or shielded destinations
+ * - Implements transaction size limits and input count limits
+ * - Supports custom fees and memo fields for shielded destinations
+ * - Excludes coinbase UTXOs (use z_shieldcoinbase for those)
+ * 
+ * Security Considerations:
+ * - UTXOs selected for merging are locked during the operation
+ * - Operation is asynchronous to prevent wallet blocking
+ * - Validates network upgrade compatibility for shielded pools
+ * - Enforces minimum merge requirements to prevent trivial operations
+ * 
+ * @param params[0] fromaddresses - JSON array of source addresses or special keywords
+ * @param params[1] toaddress - Destination address (t-addr or z-addr)
+ * @param params[2] fee - Optional transaction fee (default: MERGE_TO_ADDRESS_OPERATION_DEFAULT_MINERS_FEE)
+ * @param params[3] transparent_limit - Optional limit on UTXOs to merge (default: 50)
+ * @param params[4] shielded_limit - Optional limit on notes to merge (default: 90 Sapling/Orchard)
+ * @param params[5] maximum_utxo_size - Optional max UTXO size filter for inclusion
+ * @param params[6] memo - Optional memo for shielded destinations (hex encoded)
+ * 
+ * @return UniValue object containing merge operation details and operation ID
+ * 
+ * @throws JSONRPCError Various validation errors for parameters and wallet state
+ */
 UniValue z_mergetoaddress(const UniValue& params, bool fHelp, const CPubKey& mypk)
 {
     if (!EnsureWalletIsAvailable(fHelp))
@@ -6314,10 +6349,10 @@ UniValue z_mergetoaddress(const UniValue& params, bool fHelp, const CPubKey& myp
             + strprintf("%s", FormatMoney(MERGE_TO_ADDRESS_OPERATION_DEFAULT_MINERS_FEE)) + ") The fee amount to attach to this transaction.\n"
             "4. transparent_limit     (numeric, optional, default="
             + strprintf("%d", MERGE_TO_ADDRESS_DEFAULT_TRANSPARENT_LIMIT) + ") Limit on the maximum number of UTXOs to merge.  Set to 0 to use node option -mempooltxinputlimit (before Overwinter), or as many as will fit in the transaction (after Overwinter).\n"
-            "4. shielded_limit        (numeric, optional, default="
+            "5. shielded_limit        (numeric, optional, default="
             + strprintf("%d Sprout or %d Sapling Notes", MERGE_TO_ADDRESS_DEFAULT_SPROUT_LIMIT, MERGE_TO_ADDRESS_DEFAULT_SAPLING_LIMIT) + ") Limit on the maximum number of notes to merge.  Set to 0 to merge as many as will fit in the transaction.\n"
-            "5. maximum_utxo_size       (numeric, optional) eg, 0.0001 anything under 10000 satoshies will be merged, ignores 10,000 sat p2pk utxo that iguana uses, and merges coinbase utxo.\n"
-            "6. \"memo\"                (string, optional) Encoded as hex. When toaddress is a z-addr, this will be stored in the memo field of the new note.\n"
+            "6. maximum_utxo_size     (numeric, optional) Maximum UTXO value to include in merge. UTXOs larger than this will be ignored. Useful for filtering out large UTXOs.\n"
+            "7. \"memo\"               (string, optional) Encoded as hex. When toaddress is a z-addr, this will be stored in the memo field of the new note.\n"
 
             "\nResult:\n"
             "{\n"
@@ -6341,10 +6376,11 @@ UniValue z_mergetoaddress(const UniValue& params, bool fHelp, const CPubKey& myp
     }
 
     LOCK2(cs_main, pwalletMain->cs_wallet);
-
     EnsureWalletIsUnlocked();
 
-    //THROW_IF_SYNCING(KOMODO_INSYNC);
+    // =====================================================
+    // SOURCE ADDRESS PROCESSING AND VALIDATION
+    // =====================================================
 
     bool useAnyUTXO = false;
     bool useAnySprout = false;
@@ -6353,26 +6389,28 @@ UniValue z_mergetoaddress(const UniValue& params, bool fHelp, const CPubKey& myp
     std::set<libzcash::PaymentAddress> zaddrs = {};
 
     UniValue addresses = params[0].get_array();
-    if (addresses.size()==0)
+    if (addresses.size() == 0)
         throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, fromaddresses array is empty.");
 
     // Keep track of addresses to spot duplicates
     std::set<std::string> setAddress;
 
-    // Sources
+    // Process source addresses
     for (const UniValue& o : addresses.getValues()) {
         if (!o.isStr())
             throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, expected string");
 
         std::string address = o.get_str();
 
+        // Handle special address keywords
         if (address == "ANY_TADDR") {
             useAnyUTXO = true;
         } else if (address == "ANY_SPROUT") {
-            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, Sprout Disabled.");
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, Sprout is disabled.");
         } else if (address == "ANY_SAPLING") {
             useAnySapling = true;
         } else {
+            // Validate individual addresses
             CTxDestination taddr = DecodeDestination(address);
             if (IsValidDestination(taddr)) {
                 taddrs.insert(taddr);
@@ -6386,11 +6424,13 @@ UniValue z_mergetoaddress(const UniValue& params, bool fHelp, const CPubKey& myp
             }
         }
 
+        // Check for duplicate addresses
         if (setAddress.count(address))
             throw JSONRPCError(RPC_INVALID_PARAMETER, string("Invalid parameter, duplicated address: ") + address);
         setAddress.insert(address);
     }
 
+    // Validate address combination logic
     if (useAnyUTXO && taddrs.size() > 0) {
         throw JSONRPCError(RPC_INVALID_PARAMETER, "Cannot specify specific t-addrs when using \"ANY_TADDR\"");
     }
@@ -6398,31 +6438,50 @@ UniValue z_mergetoaddress(const UniValue& params, bool fHelp, const CPubKey& myp
         throw JSONRPCError(RPC_INVALID_PARAMETER, "Cannot specify specific z-addrs when using \"ANY_SPROUT\" or \"ANY_SAPLING\"");
     }
 
+    // =====================================================
+    // NETWORK UPGRADE STATUS AND DESTINATION VALIDATION
+    // =====================================================
+    
     const int nextBlockHeight = chainActive.Height() + 1;
     const bool overwinterActive = NetworkUpgradeActive(nextBlockHeight, Params().GetConsensus(), Consensus::UPGRADE_OVERWINTER);
     const bool saplingActive = NetworkUpgradeActive(nextBlockHeight, Params().GetConsensus(), Consensus::UPGRADE_SAPLING);
+    const bool orchardActive = NetworkUpgradeActive(nextBlockHeight, Params().GetConsensus(), Consensus::UPGRADE_ORCHARD);
 
     // Validate the destination address
     auto destaddress = params[1].get_str();
-    // bool isToSproutZaddr = false;
     bool isToSaplingZaddr = false;
+    bool isToOrchardZaddr = false;
     CTxDestination taddr = DecodeDestination(destaddress);
+    
     if (!IsValidDestination(taddr)) {
         auto decodeAddr = DecodePaymentAddress(destaddress);
         if (IsValidPaymentAddress(decodeAddr)) {
+            // Validate Sapling destination
             if (std::get_if<libzcash::SaplingPaymentAddress>(&decodeAddr) != nullptr) {
                 isToSaplingZaddr = true;
-                // If Sapling is not active, do not allow sending to a sapling addresses.
                 if (!saplingActive) {
                     throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, Sapling has not activated");
                 }
-            } else {
-                throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, Sprout Disabled.");
+            } 
+            // Validate Orchard destination
+            else if (std::get_if<libzcash::OrchardPaymentAddressPirate>(&decodeAddr) != nullptr) {
+                isToOrchardZaddr = true;
+                if (!orchardActive) {
+                    throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, Orchard has not activated");
+                }
+            } 
+            // Reject Sprout destinations
+            else if (std::get_if<libzcash::SproutPaymentAddress>(&decodeAddr) != nullptr) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, Sprout is disabled.");
             }
         } else {
-            throw JSONRPCError(RPC_INVALID_PARAMETER, string("Invalid parameter, unknown address format: ") + destaddress );
+            throw JSONRPCError(RPC_INVALID_PARAMETER, string("Invalid parameter, unknown address format: ") + destaddress);
         }
     }
+
+    // =====================================================
+    // PARAMETER PROCESSING AND VALIDATION
+    // =====================================================
 
     // Convert fee from currency format to zatoshis
     CAmount nFee = SHIELD_COINBASE_DEFAULT_MINERS_FEE;
@@ -6431,6 +6490,13 @@ UniValue z_mergetoaddress(const UniValue& params, bool fHelp, const CPubKey& myp
             nFee = 0;
         } else {
             nFee = AmountFromValue( params[2] );
+            if (nFee > maxTxFee) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf(
+                    "Fee (%s) is greater than the maximum fee allowed by this instance (%s). Run "
+                    "pirated with `-maxtxfee` to adjust this limit.",
+                    FormatMoney(nFee) + " " + CURRENCY_UNIT,
+                    FormatMoney(maxTxFee) + " " + CURRENCY_UNIT));
+            }
         }
     }
 
@@ -6442,15 +6508,16 @@ UniValue z_mergetoaddress(const UniValue& params, bool fHelp, const CPubKey& myp
         }
     }
 
-    // int sproutNoteLimit = MERGE_TO_ADDRESS_DEFAULT_SPROUT_LIMIT;
     int saplingNoteLimit = MERGE_TO_ADDRESS_DEFAULT_SAPLING_LIMIT;
+    int orchardNoteLimit = MERGE_TO_ADDRESS_DEFAULT_ORCHARD_LIMIT;
     if (params.size() > 4) {
         int nNoteLimit = params[4].get_int();
         if (nNoteLimit < 0) {
             throw JSONRPCError(RPC_INVALID_PARAMETER, "Limit on maximum number of notes cannot be negative");
         }
-        // sproutNoteLimit = nNoteLimit;
+
         saplingNoteLimit = nNoteLimit;
+        orchardNoteLimit = nNoteLimit;
     }
 
     CAmount maximum_utxo_size;
@@ -6466,22 +6533,27 @@ UniValue z_mergetoaddress(const UniValue& params, bool fHelp, const CPubKey& myp
     std::string memo;
     if (params.size() > 6) {
         memo = params[6].get_str();
-        if (!(isToSaplingZaddr)) {
-            throw JSONRPCError(RPC_INVALID_PARAMETER, "Memo can not be used with a taddr.  It can only be used with a zaddr.");
+        // FIXED: Memo can only be used with shielded destinations (Sapling OR Orchard)
+        if (!(isToSaplingZaddr || isToOrchardZaddr)) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Memo can only be used with shielded addresses (z-addrs), not transparent addresses (t-addrs).");
         } else if (!IsHex(memo)) {
             throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, expected memo data in hexadecimal format.");
         }
-        if (memo.length() > ZC_MEMO_SIZE*2) {
-            throw JSONRPCError(RPC_INVALID_PARAMETER,  strprintf("Invalid parameter, size of memo is larger than maximum allowed %d", ZC_MEMO_SIZE ));
+        if (memo.length() > ZC_MEMO_SIZE * 2) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Invalid parameter, size of memo is larger than maximum allowed %d", ZC_MEMO_SIZE));
         }
     }
 
     MergeToAddressRecipient recipient(destaddress, memo);
 
+    // =====================================================
+    // UTXO AND NOTE COLLECTION SETUP
+    // =====================================================
+
     // Prepare to get UTXOs and notes
     std::vector<MergeToAddressInputUTXO> utxoInputs;
-    // std::vector<MergeToAddressInputSproutNote> sproutNoteInputs;
     std::vector<MergeToAddressInputSaplingNote> saplingNoteInputs;
+    std::vector<MergeToAddressInputOrchardNote> orchardNoteInputs;
     CAmount mergedUTXOValue = 0;
     CAmount mergedNoteValue = 0;
     CAmount remainingUTXOValue = 0;
@@ -6492,17 +6564,19 @@ UniValue z_mergetoaddress(const UniValue& params, bool fHelp, const CPubKey& myp
     bool maxedOutNotesFlag = false;
     size_t mempoolLimit = (nUTXOLimit != 0) ? nUTXOLimit : (overwinterActive ? 0 : (size_t)GetArg("-mempooltxinputlimit", 0));
 
+    // Calculate transaction size limits
     unsigned int max_tx_size = saplingActive ? MAX_TX_SIZE_AFTER_SAPLING : MAX_TX_SIZE_BEFORE_SAPLING;
     size_t estimatedTxSize = 200;  // tx overhead + wiggle room
-    // if (isToSproutZaddr) {
-    //     throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, Sprout Disabled.");
-    // } else
     if (isToSaplingZaddr) {
         estimatedTxSize += OUTPUTDESCRIPTION_SIZE;
     }
 
+    // =====================================================
+    // TRANSPARENT UTXO COLLECTION AND PROCESSING
+    // =====================================================
+
     if (useAnyUTXO || taddrs.size() > 0) {
-        // Get available utxos
+        // Get available UTXOs from wallet
         vector<COutput> vecOutputs;
         pwalletMain->AvailableCoins(vecOutputs, true, NULL, false, maximum_utxo_size != 0 ? true : false);
 
@@ -6555,16 +6629,26 @@ UniValue z_mergetoaddress(const UniValue& params, bool fHelp, const CPubKey& myp
         }
     }
 
+    // =====================================================
+    // SHIELDED NOTE COLLECTION AND PROCESSING
+    // =====================================================
+
     if (useAnySapling || zaddrs.size() > 0) {
-        // Get available notes
+        // Get available shielded notes from wallet
         std::vector<SaplingNoteEntry> saplingEntries;
         std::vector<OrchardNoteEntry> orchardEntries;
         pwalletMain->GetFilteredNotes(saplingEntries, orchardEntries, zaddrs);
 
-        // If Sapling is not active, do not allow sending from a sapling addresses.
+        // Validate network upgrade compatibility for source addresses
         if (!saplingActive && saplingEntries.size() > 0) {
             throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, Sapling has not activated");
         }
+
+        if (!orchardActive && orchardEntries.size() > 0) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, Orchard has not activated");
+        }
+
+        // Process Sapling notes
 
         for (const SaplingNoteEntry& entry : saplingEntries) {
             noteCounter++;
@@ -6590,24 +6674,55 @@ UniValue z_mergetoaddress(const UniValue& params, bool fHelp, const CPubKey& myp
                 remainingNoteValue += nValue;
             }
         }
+
+        for (const OrchardNoteEntry& entry : orchardEntries) {
+            noteCounter++;
+            CAmount nValue = entry.note.value();
+            if (!maxedOutNotesFlag) {
+                size_t increase = ORCHARD_ACTIONSIZE;
+                if (estimatedTxSize + increase >= max_tx_size ||
+                    (orchardNoteLimit > 0 && noteCounter > orchardNoteLimit))
+                {
+                    maxedOutNotesFlag = true;
+                } else {
+                    estimatedTxSize += increase;
+                    libzcash::OrchardExtendedSpendingKeyPirate extsk;
+                    if (!pwalletMain->GetOrchardExtendedSpendingKey(entry.address, extsk)) {
+                        throw JSONRPCError(RPC_INVALID_PARAMETER, "Could not find spending key for payment address.");
+                    }
+
+                    orchardNoteInputs.emplace_back(entry.op, entry.note, nValue, extsk);
+                    mergedNoteValue += nValue;
+                }
+            }
+
+            if (maxedOutNotesFlag) {
+                remainingNoteValue += nValue;
+            }
+        }
     }
 
-    size_t numUtxos = utxoInputs.size();
-    size_t numNotes = saplingNoteInputs.size();
+    // =====================================================
+    // FINAL VALIDATION AND OPERATION CREATION
+    // =====================================================
 
-    //fprintf(stderr, "num utxos.%li\n", numUtxos);
+    size_t numUtxos = utxoInputs.size();
+    size_t numNotes = saplingNoteInputs.size() + orchardNoteInputs.size();
+
+    // Ensure we have sufficient inputs to justify a merge operation
     if (numUtxos < 2 && numNotes == 0) {
         throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS, "Could not find any funds to merge.");
     }
 
-    // Sanity check: Don't do anything if:
+    // Sanity check: Prevent trivial merge operations
     // - We only have one from address
-    // - It's equal to toaddress
+    // - It's equal to toaddress  
     // - The address only contains a single UTXO or note
     if (setAddress.size() == 1 && setAddress.count(destaddress) && (numUtxos + numNotes) == 1) {
         throw JSONRPCError(RPC_INVALID_PARAMETER, "Destination address is also the only source address, and all its funds are already merged.");
     }
 
+    // Validate sufficient funds for transaction
     CAmount mergedValue = mergedUTXOValue + mergedNoteValue;
     if (mergedValue < nFee) {
         throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS,
@@ -6615,29 +6730,33 @@ UniValue z_mergetoaddress(const UniValue& params, bool fHelp, const CPubKey& myp
                                      FormatMoney(mergedValue), FormatMoney(nFee)));
     }
 
-    // Check that the user specified fee is sane (if too high, it can result in error -25 absurd fee)
+    // Check that the user specified fee is sane (prevent absurd fee error -25)
     CAmount netAmount = mergedValue - nFee;
     if (nFee > netAmount) {
-        throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Fee %s is greater than the net amount to be shielded %s", FormatMoney(nFee), FormatMoney(netAmount)));
+        throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Fee %s is greater than the net amount to be merged %s", FormatMoney(nFee), FormatMoney(netAmount)));
     }
 
-    // Keep record of parameters in context object
+    // Keep record of parameters in context object for operation tracking
     UniValue contextInfo(UniValue::VOBJ);
     contextInfo.push_back(Pair("fromaddresses", params[0]));
     contextInfo.push_back(Pair("toaddress", params[1]));
     contextInfo.push_back(Pair("fee", ValueFromAmount(nFee)));
 
-    // Contextual transaction we will build on
-    CMutableTransaction contextualTx = CreateNewContextualCMutableTransaction(Params().GetConsensus(),nextBlockHeight);
+    // Create contextual transaction for the operation
+    CMutableTransaction contextualTx = CreateNewContextualCMutableTransaction(Params().GetConsensus(), nextBlockHeight);
 
-    // Create operation and add to global queue
+    // Create operation and add to global async queue
     std::shared_ptr<AsyncRPCQueue> q = getAsyncRPCQueue();
     std::shared_ptr<AsyncRPCOperation> operation(
-                                                 new AsyncRPCOperation_mergetoaddress(Params().GetConsensus(), nextBlockHeight, contextualTx, utxoInputs, saplingNoteInputs, recipient, nFee, contextInfo) );
+        new AsyncRPCOperation_mergetoaddress(Params().GetConsensus(), nextBlockHeight, contextualTx, utxoInputs, saplingNoteInputs, orchardNoteInputs, recipient, nFee, contextInfo));
     q->addOperation(operation);
     AsyncRPCOperationId operationId = operation->getId();
 
-    // Return continuation information
+    // =====================================================
+    // RETURN OPERATION STATUS AND STATISTICS
+    // =====================================================
+
+    // Return comprehensive information about the merge operation
     UniValue o(UniValue::VOBJ);
     o.push_back(Pair("remainingUTXOs", static_cast<uint64_t>(utxoCounter - numUtxos)));
     o.push_back(Pair("remainingTransparentValue", ValueFromAmount(remainingUTXOValue)));

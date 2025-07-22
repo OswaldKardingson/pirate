@@ -76,17 +76,18 @@ AsyncRPCOperation_mergetoaddress::AsyncRPCOperation_mergetoaddress(
     CMutableTransaction contextualTx,
     std::vector<MergeToAddressInputUTXO> utxoInputs,
     std::vector<MergeToAddressInputSaplingNote> saplingNoteInputs,
+    std::vector<MergeToAddressInputOrchardNote> orchardNoteInputs,
     MergeToAddressRecipient recipient,
     CAmount fee,
     UniValue contextInfo) : tx_(contextualTx), utxoInputs_(utxoInputs),
-                            saplingNoteInputs_(saplingNoteInputs), recipient_(recipient), fee_(fee), contextinfo_(contextInfo),
+                            saplingNoteInputs_(saplingNoteInputs), orchardNoteInputs_(orchardNoteInputs), recipient_(recipient), fee_(fee), contextinfo_(contextInfo),
                             builder_(TransactionBuilder(consensusParams, nHeight, pwalletMain))
 {
     if (fee < 0 || fee > MAX_MONEY) {
         throw JSONRPCError(RPC_INVALID_PARAMETER, "Fee is out of range");
     }
 
-    if (utxoInputs.empty() && saplingNoteInputs.empty()) {
+    if (utxoInputs.empty() && saplingNoteInputs.empty() && orchardNoteInputs.empty()) {
         throw JSONRPCError(RPC_INVALID_PARAMETER, "No inputs");
     }
 
@@ -118,6 +119,7 @@ AsyncRPCOperation_mergetoaddress::AsyncRPCOperation_mergetoaddress(
     // Lock UTXOs
     lock_utxos();
     lock_notes();
+    lock_orchard_notes();
 }
 
 AsyncRPCOperation_mergetoaddress::~AsyncRPCOperation_mergetoaddress()
@@ -129,6 +131,7 @@ void AsyncRPCOperation_mergetoaddress::main()
     if (isCancelled()) {
         unlock_utxos(); // clean up
         unlock_notes();
+        unlock_orchard_notes(); // clean up
         return;
     }
 
@@ -192,6 +195,7 @@ void AsyncRPCOperation_mergetoaddress::main()
 
     unlock_utxos(); // clean up
     unlock_notes(); // clean up
+    unlock_orchard_notes(); // clean up
 }
 
 // Notes:
@@ -201,7 +205,7 @@ bool AsyncRPCOperation_mergetoaddress::main_impl()
 {
     assert(isToTaddr_ != isToZaddr_);
 
-    bool isPureTaddrOnlyTx = (saplingNoteInputs_.empty() && isToTaddr_);
+    bool isPureTaddrOnlyTx = (saplingNoteInputs_.empty() && orchardNoteInputs_.empty() && isToTaddr_);
     CAmount minersFee = fee_;
 
     size_t numInputs = utxoInputs_.size();
@@ -228,6 +232,10 @@ bool AsyncRPCOperation_mergetoaddress::main_impl()
     CAmount z_inputs_total = 0;
 
     for (const MergeToAddressInputSaplingNote& t : saplingNoteInputs_) {
+        z_inputs_total += std::get<2>(t);
+    }
+
+    for (const MergeToAddressInputOrchardNote& t : orchardNoteInputs_) {
         z_inputs_total += std::get<2>(t);
     }
 
@@ -311,12 +319,93 @@ bool AsyncRPCOperation_mergetoaddress::main_impl()
                         throw JSONRPCError(RPC_WALLET_ERROR, strprintf("%s: Adding Raw Sapling Spend failed. Stopping.\n", getId()));
                     }
                 }
-            }
 
-            if (!builder_.ConvertRawSaplingSpend(currentExtsk)) {
-                throw JSONRPCError(RPC_WALLET_ERROR, strprintf("%s: Converting Raw Sapling Spends failed.\n", getId()));
+                if (!builder_.ConvertRawSaplingSpend(currentExtsk)) {
+                    throw JSONRPCError(RPC_WALLET_ERROR, strprintf("%s: Converting Raw Sapling Spends failed.\n", getId()));
+                }
             }
         }
+    }
+
+    // Select Orchard notes
+    std::vector<OrchardOutPoint> orchardOPs;
+    std::vector<OrchardNote> orchardNotes;
+    std::vector<OrchardExtendedSpendingKeyPirate> orchardExtsks;
+    std::set<OrchardExtendedSpendingKeyPirate> setOrchardExtsks;
+    for (const MergeToAddressInputOrchardNote& orchardNoteInput : orchardNoteInputs_) {
+        orchardOPs.push_back(std::get<0>(orchardNoteInput));
+        orchardNotes.push_back(std::get<1>(orchardNoteInput));
+        auto extsk = std::get<3>(orchardNoteInput);
+        orchardExtsks.push_back(extsk);
+        setOrchardExtsks.insert(extsk);
+        if (!ovk) {
+            auto fvkOpt = extsk.GetXFVK();
+            if (fvkOpt == std::nullopt) {
+            throw JSONRPCError(
+                RPC_WALLET_ERROR,
+                strprintf("%s: FVK not found for Orchard spending key. Stopping.\n", getId()));
+            }
+
+            auto fvk = fvkOpt.value().fvk;
+            auto ovkOpt = fvk.GetOVK();
+            if (fvkOpt == std::nullopt) {
+            throw JSONRPCError(
+                RPC_WALLET_ERROR,
+                strprintf("%s: OVK not found for Orchard spending key. Stopping.\n", getId()));
+            }
+
+            ovk = ovkOpt.value().ovk;
+        }
+    }
+    
+    //Iterate thru all the selected notes and add them to the transactions
+    {
+        LOCK2(cs_main, pwalletMain->cs_wallet);
+
+        bool orchardInitialized = false;
+        uint256 anchor;
+
+        for (std::set<OrchardExtendedSpendingKeyPirate>::iterator it = setOrchardExtsks.begin(); it != setOrchardExtsks.end(); it++) {
+            auto currentExtsk = *it;
+
+            for (int i = 0; i < orchardExtsks.size(); i++) {
+                if (currentExtsk == orchardExtsks[i]) {
+                    libzcash::MerklePath orchardMerklePath;
+                    if (!pwalletMain->OrchardWalletGetMerklePathOfNote(orchardOPs[i].hash, orchardOPs[i].n, orchardMerklePath)) {
+                        throw JSONRPCError(RPC_WALLET_ERROR, strprintf("%s: Merkle Path not found for Orchard note. Stopping.\n", getId()));
+                    }
+
+                    uint256 pathAnchor;
+                    if (!pwalletMain->OrchardWalletGetPathRootWithCMU(orchardMerklePath, orchardNotes[i].cmx(), pathAnchor)) {
+                        throw JSONRPCError(RPC_WALLET_ERROR, strprintf("%s: Getting Anchor failed. Stopping.\n", getId()));
+                    }
+
+                    //Set orchard anchor for transaction
+                    if (anchor.IsNull()) {
+                        anchor = pathAnchor;
+                    }
+
+                    if (!builder_.AddOrchardSpendRaw(orchardOPs[i], orchardNotes[i].address, orchardNotes[i].value(), orchardNotes[i].rho(), orchardNotes[i].rseed(), orchardMerklePath, anchor)) {
+                        throw JSONRPCError(RPC_WALLET_ERROR, strprintf("%s: Adding Raw Orchard Spend failed. Stopping.\n", getId()));
+                    }
+                }
+            
+                if (!orchardInitialized) {
+                    // Initialize Orchard builder only once
+                    builder_.InitializeOrchard(true, true, anchor);
+                    orchardInitialized = true;
+                }
+                
+                if (!builder_.ConvertRawOrchardSpend(currentExtsk)) {
+                    throw JSONRPCError(RPC_WALLET_ERROR, strprintf("%s: Converting Raw Orchard Spends failed.\n", getId()));
+                }
+            }
+        }
+        if (!orchardInitialized) {
+            // Initialize Orchard builder if no notes were selected
+            builder_.InitializeOrchard(false, true, uint256());
+        }
+
     }
 
 
@@ -350,11 +439,14 @@ bool AsyncRPCOperation_mergetoaddress::main_impl()
         }
 
         auto saplingPaymentAddress = std::get_if<libzcash::SaplingPaymentAddress>(&toPaymentAddress_);
-        if (saplingPaymentAddress == nullptr) {
+        auto orchardPaymentAddress = std::get_if<libzcash::OrchardPaymentAddressPirate>(&toPaymentAddress_);
+
+        if (saplingPaymentAddress == nullptr && orchardPaymentAddress == nullptr) {
             // This should never happen as we have already determined that the payment is to sapling
-            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Could not get Sapling payment address.");
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Could not get Sapling or Orchard payment address.");
         }
-        if (saplingNoteInputs_.size() == 0 && utxoInputs_.size() > 0) {
+
+        if (saplingNoteInputs_.size() == 0 && orchardNoteInputs_.size() == 0 && utxoInputs_.size() > 0) {
             // Sending from t-addresses, which we don't have ovks for. Instead,
             // generate a common one from the HD seed. This ensures the data is
             // recoverable, while keeping it logically separate from the ZIP 32
@@ -363,16 +455,23 @@ bool AsyncRPCOperation_mergetoaddress::main_impl()
             if (!pwalletMain->GetHDSeed(seed)) {
                 throw JSONRPCError(
                     RPC_WALLET_ERROR,
-                    "AsyncRPCOperation_sendmany: HD seed not found");
+                    "AsyncRPCOperation_mergetoaddress: HD seed not found");
             }
             ovk = ovkForShieldingFromTaddr(seed);
         }
         if (!ovk) {
-            throw JSONRPCError(RPC_WALLET_ERROR, "Sending to a Sapling address requires an ovk.");
+            throw JSONRPCError(RPC_WALLET_ERROR, "Sending to a Sapling or Orchard address requires an ovk.");
         }
 
-        builder_.AddSaplingOutputRaw(*saplingPaymentAddress, sendAmount, caMemo);
-        builder_.ConvertRawSaplingOutput(ovk.value());
+        if (saplingPaymentAddress != nullptr) {
+            builder_.AddSaplingOutputRaw(*saplingPaymentAddress, sendAmount, caMemo);
+            builder_.ConvertRawSaplingOutput(ovk.value());
+        } else if (orchardPaymentAddress != nullptr) {
+            builder_.AddOrchardOutputRaw(*orchardPaymentAddress, sendAmount, caMemo);
+            builder_.ConvertRawOrchardOutput(ovk.value());
+        } else {
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid output address, not a valid zaddr.");
+        }
     }
 
 
@@ -472,7 +571,7 @@ void AsyncRPCOperation_mergetoaddress::unlock_utxos()
 
 
 /**
- * Lock input notes
+ * Lock sapling input notes
  */
 void AsyncRPCOperation_mergetoaddress::lock_notes()
 {
@@ -483,12 +582,33 @@ void AsyncRPCOperation_mergetoaddress::lock_notes()
 }
 
 /**
- * Unlock input notes
+ * Unlock sapling input notes
  */
 void AsyncRPCOperation_mergetoaddress::unlock_notes()
 {
     LOCK2(cs_main, pwalletMain->cs_wallet);
     for (auto note : saplingNoteInputs_) {
+        pwalletMain->UnlockNote(std::get<0>(note));
+    }
+}
+
+/**
+ * Lock orchard input notes
+ */
+void AsyncRPCOperation_mergetoaddress::lock_orchard_notes()
+{
+    LOCK2(cs_main, pwalletMain->cs_wallet);
+    for (auto note : orchardNoteInputs_) {
+        pwalletMain->LockNote(std::get<0>(note));
+    }
+}
+/** 
+ * Unlock orchard input notes
+ */
+void AsyncRPCOperation_mergetoaddress::unlock_orchard_notes()
+{
+    LOCK2(cs_main, pwalletMain->cs_wallet);
+    for (auto note : orchardNoteInputs_) {
         pwalletMain->UnlockNote(std::get<0>(note));
     }
 }
