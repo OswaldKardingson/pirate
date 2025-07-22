@@ -740,8 +740,11 @@ void CTxMemPool::check(const CCoinsViewCache *pcoins) const
         }
 
         if (tx.GetOrchardBundle().IsPresent()) {
-            OrchardMerkleFrontier orchardFrontierTree;
-            assert(!pcoins->GetOrchardFrontierAnchorAt(tx.GetOrchardBundle().GetAnchor().value(), orchardFrontierTree));
+            std::optional<uint256> root = tx.GetOrchardBundle().GetAnchor();
+            if (root) {
+                OrchardMerkleFrontier tree;
+                assert(pcoins->GetOrchardFrontierAnchorAt(root.value(), tree));
+            }
         }
 
         if (fDependsWait)
