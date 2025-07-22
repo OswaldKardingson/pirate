@@ -1054,44 +1054,6 @@ CAmount CCoinsViewCache::GetTransparentValueIn(int32_t nHeight,int64_t &interest
     return nResult;
 }
 
-static bool HaveJoinSplitRequirementsWorkerNullifierSapling(const CCoinsViewCache *coinCache,const std::vector<uint256> vSpendNullifer, int threadNum)
-{
-    //Perform Sapling Spend checks
-    for (int i = 0; i < vSpendNullifer.size(); i++) {
-        auto nullifier = vSpendNullifer[i];
-        if (coinCache->GetNullifier(nullifier, SAPLINGFRONTIER)) // Prevent double spends
-            return false;
-    }
-
-    return true;
-}
-
-static bool HaveJoinSplitRequirementsWorkerNullifierOrchard(const CCoinsViewCache *coinCache,const std::vector<uint256> vSpendNullifer, int threadNum)
-{
-    //Perform Sapling Spend checks
-    for (int i = 0; i < vSpendNullifer.size(); i++) {
-        auto nullifier = vSpendNullifer[i];
-        if (coinCache->GetNullifier(nullifier, ORCHARDFRONTIER)) // Prevent double spends
-            return false;
-    }
-
-    return true;
-}
-
-static bool HaveJoinSplitRequirementsWorkerAnchorSapling(const CCoinsViewCache *coinCache,const std::vector<uint256> vSpendAnchor, int threadNum)
-{
-    //Perform Orchard Spend checks
-    for (int i = 0; i < vSpendAnchor.size(); i++) {
-        auto anchor = vSpendAnchor[i];
-        SaplingMerkleFrontier tree;
-        if (!coinCache->GetSaplingFrontierAnchorAt(anchor, tree)) {
-            return false;
-        }
-    }
-
-    return true;
-}
-
 bool CCoinsViewCache::HaveJoinSplitRequirements(const CTransaction& tx, int maxProcessingThreads) const
 {
     boost::unordered_map<uint256, SproutMerkleTree, CCoinsKeyHasher> intermediates;
@@ -1126,111 +1088,44 @@ bool CCoinsViewCache::HaveJoinSplitRequirements(const CTransaction& tx, int maxP
     auto now = GetTimeMicros();
 
 
-    // Check Orchard bundlde Anchor befor processing multithreaded operations
-    if (tx.GetOrchardBundle().IsPresent()) {
-        OrchardMerkleFrontier tree;
-        if (!GetOrchardFrontierAnchorAt(tx.GetOrchardBundle().GetAnchor().value(), tree)) {
-            return false;
-        }
-    }
-
-    //Create a Vector of futures to be collected later
-    std::vector<std::future<bool>> vFutures;
-
-    //Setup batches
-    std::vector<uint256> vSaplingSpendAnchor;
-    std::vector<std::vector<uint256>> vvSaplingSpendAnchor;
-    std::vector<uint256> vSaplingSpendNullifier;
-    std::vector<std::vector<uint256>> vvSaplingSpendNullifier;
-
-    std::vector<uint256> vOrchardSpendNullifier;
-    std::vector<std::vector<uint256>> vvOrchardSpendNullifier;
-
-    //Create Thread Vectors
-    for (int i = 0; i < maxProcessingThreads; i++) {
-        vvSaplingSpendAnchor.emplace_back(vSaplingSpendAnchor);
-        vvSaplingSpendNullifier.emplace_back(vSaplingSpendNullifier);
-
-        vvOrchardSpendNullifier.emplace_back(vOrchardSpendNullifier);
-    }
-
-    //Thread counter
-    int t = 0;
 
     //Add this transaction sapling spend to spend thread batches
     for (const auto& spend : tx.GetSaplingSpends()) {
         auto nullifier = uint256::FromRawBytes(spend.nullifier());
         auto anchor = uint256::FromRawBytes(spend.anchor());
 
-        //Push spend data to thread vector
-        vvSaplingSpendNullifier[t].emplace_back(nullifier);
-        vvSaplingSpendAnchor[t].emplace_back(anchor);
-
-        //Increment thread vector
-        t++;
-        //reset if tread vector is greater qty of threads being used
-        if (t >= vvSaplingSpendNullifier.size()) {
-            t = 0;
+        if (GetNullifier(nullifier, SAPLINGFRONTIER)) {// Prevent double spends
+            return false;
+        }
+        
+        SaplingMerkleFrontier tree;
+        if (!GetSaplingFrontierAnchorAt(anchor, tree)) {
+            return false;
         }
     }
 
-    // Reset thread counter
-    t = 0;
+    // Check Orchard bundle Anchor
+    if (tx.GetOrchardBundle().IsPresent()) {
+        std::optional<uint256> root = tx.GetOrchardBundle().GetAnchor();
+        if (root) {
+            OrchardMerkleFrontier tree;
+            if (!GetOrchardFrontierAnchorAt(root.value(), tree)) {
+                return false;
+            }
+        }
+    }
 
-    //Add this transaction orchard actions to spend thread batches
+    //Check Orchard nullifiers
     for (const auto& action : tx.GetOrchardActions()) {
         auto nullifier = uint256::FromRawBytes(action.nullifier());
 
-        //Push spend data to thread vector
-        vvOrchardSpendNullifier[t].emplace_back(nullifier);
-
-        //Increment thread vector
-        t++;
-        //reset if tread vector is greater qty of threads being used
-        if (t >= vvOrchardSpendNullifier.size()) {
-            t = 0;
+        if (GetNullifier(nullifier, ORCHARDFRONTIER)) {// Prevent double spends
+            return false;
         }
     }
+    
 
-    //Push batches of spends to async threads
-    for (int i = 0; i < vvSaplingSpendNullifier.size(); i++) {
-        if (!vvSaplingSpendNullifier[i].empty()) {
-            vFutures.emplace_back(std::async(std::launch::async, HaveJoinSplitRequirementsWorkerNullifierSapling, this, vvSaplingSpendNullifier[i], 1000 + i));
-        }
-    }
-
-    for (int i = 0; i < vvSaplingSpendAnchor.size(); i++) {
-        if (!vvSaplingSpendAnchor[i].empty()) {
-            vFutures.emplace_back(std::async(std::launch::async, HaveJoinSplitRequirementsWorkerAnchorSapling, this, vvSaplingSpendAnchor[i], 2000 + i));
-        }
-    }
-
-    for (int i = 0; i < vvOrchardSpendNullifier.size(); i++) {
-        if (!vvOrchardSpendNullifier[i].empty()) {
-            vFutures.emplace_back(std::async(std::launch::async, HaveJoinSplitRequirementsWorkerNullifierOrchard, this, vvOrchardSpendNullifier[i], 3000 + i));
-        }
-    }
-
-    //Wait for all threads to complete
-    for (auto &future : vFutures) {
-        future.wait();
-    }
-
-    //Collect the async results
-    bool ret = true;
-    for (auto &future : vFutures) {
-        if (!future.get()) {
-            ret = false;
-        }
-    }
-
-    //cleanup
-    vFutures.resize(0);
-    vvSaplingSpendNullifier.resize(0);
-    vvSaplingSpendAnchor.resize(0);
-    vvOrchardSpendNullifier.resize(0);
-
-    return ret;
+    return true;
 }
 
 bool CCoinsViewCache::HaveInputs(const CTransaction& tx) const
