@@ -811,8 +811,8 @@ endif
 
 # FIXME: Is libzcash needed for zcash_tx?
 pirate_tx_LDADD = \
-  $(LIBUNIVALUE) \
   $(LIBBITCOIN_COMMON) \
+  $(LIBUNIVALUE) \
   $(LIBBITCOIN_UTIL) \
   $(LIBSECP256K1) \
   $(LIBZCASH) \
