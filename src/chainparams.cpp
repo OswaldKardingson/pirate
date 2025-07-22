@@ -685,14 +685,14 @@ void komodo_setactivation(int32_t height)
     pCurrentParams->consensus.vUpgrades[Consensus::UPGRADE_SAPLING].nActivationHeight = height;
     pCurrentParams->consensus.vUpgrades[Consensus::UPGRADE_OVERWINTER].nActivationHeight = height;
     ASSETCHAINS_SAPLING = height;
-    fprintf(stderr,"SET SAPLING ACTIVATION height.%d\n",height);
+    fprintf(stdout,"SET SAPLING ACTIVATION height.%d\n",height);
 }
 
 void komodo_setorchard(int32_t height)
 {
     pCurrentParams->consensus.vUpgrades[Consensus::UPGRADE_ORCHARD].nActivationHeight = height;
     ASSETCHAINS_ORCHARD = height;
-    fprintf(stderr,"SET ORCHARD ACTIVATION height.%d\n",height);
+    fprintf(stdout,"SET ORCHARD ACTIVATION height.%d\n",height);
 }
 
 /* This function returns the checkpoint list for a currently active asset chain.
@@ -1030,7 +1030,7 @@ void *chainparams_commandline()
         pCurrentParams->pchMessageStart[1] = (ASSETCHAINS_MAGIC >> 8) & 0xff;
         pCurrentParams->pchMessageStart[2] = (ASSETCHAINS_MAGIC >> 16) & 0xff;
         pCurrentParams->pchMessageStart[3] = (ASSETCHAINS_MAGIC >> 24) & 0xff;
-        fprintf(stderr,">>>>>>>>>> %s: p2p.%u rpc.%u magic.%08x %u %u coins\n",chainName.symbol().c_str(),ASSETCHAINS_P2PPORT,ASSETCHAINS_RPCPORT,ASSETCHAINS_MAGIC,ASSETCHAINS_MAGIC,(uint32_t)ASSETCHAINS_SUPPLY);
+        fprintf(stdout,">>>>>>>>>> %s: p2p.%u rpc.%u magic.%08x %u %u coins\n",chainName.symbol().c_str(),ASSETCHAINS_P2PPORT,ASSETCHAINS_RPCPORT,ASSETCHAINS_MAGIC,ASSETCHAINS_MAGIC,(uint32_t)ASSETCHAINS_SUPPLY);
 
         pCurrentParams->consensus.vUpgrades[Consensus::UPGRADE_SAPLING].nActivationHeight = ASSETCHAINS_SAPLING;
         pCurrentParams->consensus.vUpgrades[Consensus::UPGRADE_OVERWINTER].nActivationHeight = ASSETCHAINS_OVERWINTER;

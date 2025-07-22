@@ -1877,7 +1877,7 @@ bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
     newInstall = GetBoolArg("-setup_cold_storage", false);
 
     //Prompt on new install: Cold storage or normal operation?
-    if (newInstall && !IsArgSet("maxconnections")) {
+    if (usingGUI && newInstall && !IsArgSet("maxconnections")) {
         int fColdStorage_Offline = uiInterface.ThreadSafeMessageBox(
             "\n\n" + _("New install detected.\n\nPress YES to setup this wallet in the tradional online mode, i.e. a full function wallet that can create, authorise (sign) and send transactions.\n\nPress No to setup this instance as a cold storage offline wallet which only authorise (sign) transactions"),
             "", CClientUIInterface::ICON_INFORMATION | CClientUIInterface::MSG_INFORMATION | CClientUIInterface::MODAL | CClientUIInterface::BTN_YES | CClientUIInterface::BTN_NO );
@@ -1900,7 +1900,7 @@ bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
             newInstall = true;
 
         //Prompt on new install
-        if (newInstall && !GetBoolArg("-bootstrap", false)) {
+        if (usingGUI &&newInstall && !GetBoolArg("-bootstrap", false)) {
             int fBoot = uiInterface.ThreadSafeMessageBox(
                 "\n\n" + _("New install detected.\n\nPress OK to download the blockchain bootstrap (faster, less secure).\n\nPress Cancel to continue on and sync the blockchain from peer nodes (slower, more secure)."),
                 "", CClientUIInterface::ICON_INFORMATION | CClientUIInterface::MSG_INFORMATION | CClientUIInterface::MODAL | CClientUIInterface::BTN_OK | CClientUIInterface::BTN_CANCEL);
@@ -1910,7 +1910,7 @@ bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
         }
 
         //Prompt GUI
-        if (GetBoolArg("-bootstrap", false) && GetArg("-bootstrap", "1") != "2" && !useBootstrap) {
+        if (usingGUI &&GetBoolArg("-bootstrap", false) && GetArg("-bootstrap", "1") != "2" && !useBootstrap) {
             int fBoot = uiInterface.ThreadSafeMessageBox(
                 "\n\n" + _("Bootstrap option detected.\n\nPress OK to download the blockchain bootstrap (faster, less secure).\n\nPress Cancel to continue on and sync the blockchain from peer nodes (slower, more secure)."),
                 "", CClientUIInterface::ICON_INFORMATION | CClientUIInterface::MSG_INFORMATION | CClientUIInterface::MODAL | CClientUIInterface::BTN_OK | CClientUIInterface::BTN_CANCEL);
@@ -1934,7 +1934,7 @@ bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
             boost::filesystem::remove(GetDataDir() / "komodostate");
             boost::filesystem::remove(GetDataDir() / "signedmasks");
             boost::filesystem::remove(GetDataDir() / "komodostate.ind");
-            if (!getBootstrap() && !fRequestShutdown ) {
+            if (usingGUI && !getBootstrap() && !fRequestShutdown ) {
                 int keepRunning = uiInterface.ThreadSafeMessageBox(
                     "\n\n" + _("Bootstrap download failed!!!\n\nPress OK to continue and sync from the network."),
                     "", CClientUIInterface::ICON_INFORMATION | CClientUIInterface::MSG_INFORMATION | CClientUIInterface::MODAL | CClientUIInterface::BTN_OK | CClientUIInterface::BTN_CANCEL);
@@ -2709,7 +2709,7 @@ bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
             nLocalServices |= NODE_ADDRINDEX;
         if ( GetBoolArg("-spentindex", DEFAULT_SPENTINDEX) != 0 )
             nLocalServices |= NODE_SPENTINDEX;
-        fprintf(stderr,"nLocalServices %llx %d, %d\n",(long long)nLocalServices,GetBoolArg("-addressindex", DEFAULT_ADDRESSINDEX),GetBoolArg("-spentindex", DEFAULT_SPENTINDEX));
+        fprintf(stdout,"nLocalServices %llx %d, %d\n",(long long)nLocalServices,GetBoolArg("-addressindex", DEFAULT_ADDRESSINDEX),GetBoolArg("-spentindex", DEFAULT_SPENTINDEX));
     }
     // ********************************************************* Step 10: import blocks
 
