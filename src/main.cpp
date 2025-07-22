@@ -32,6 +32,7 @@
 #include "checkqueue.h"
 #include "consensus/upgrades.h"
 #include "consensus/validation.h"
+#include "consensus/params.h"
 #include "deprecation.h"
 #include "init.h"
 #include "merkleblock.h"
@@ -2226,7 +2227,32 @@ CAmount GetMinRelayFee(const CTransaction& tx, unsigned int nBytes, bool fAllowF
  * @param dosLevel
  * @returns true on success
  */
-bool AcceptToMemoryPool(CTxMemPool& pool, CValidationState &state, const CTransaction &tx, bool fLimitFree,bool* pfMissingInputs, bool fRejectAbsurdFee, int dosLevel)
+// Version/upgrade gate for correct reject reasons in the mempool path.
+static bool EarlyUpgradeVersionCheck(const CTransaction& tx,
+    int nextBlockHeight,
+    const Consensus::Params& params,
+    CValidationState& state)
+{
+const bool overwinterActive =
+NetworkUpgradeActive(nextBlockHeight, params, Consensus::UPGRADE_OVERWINTER);
+
+// Overwinter NOT active: overwintered txs are invalid
+if (!overwinterActive) {
+if (tx.fOverwintered) {
+return state.Invalid(false, REJECT_INVALID, "tx-overwinter-not-active");
+}
+return true; // let other checks handle everything else
+}
+
+// Overwinter IS active: Sprout-style v3 txs must set the overwinter flag
+if (!tx.fOverwintered && tx.nVersion == OVERWINTER_TX_VERSION) {
+return state.Invalid(false, REJECT_INVALID, "tx-overwintered-flag-not-set");
+}
+
+return true;
+}
+
+ bool AcceptToMemoryPool(CTxMemPool& pool, CValidationState &state, const CTransaction &tx, bool fLimitFree,bool* pfMissingInputs, bool fRejectAbsurdFee, int dosLevel)
 {
     AssertLockHeld(cs_main);
     if (pfMissingInputs != nullptr)
@@ -2294,6 +2320,11 @@ bool AcceptToMemoryPool(CTxMemPool& pool, CValidationState &state, const CTransa
     if (!CheckTransaction(tiptime,tx, state, verifier, 0, 0))
     {
         return error("AcceptToMemoryPool: CheckTransaction failed");
+    }
+
+    // Fast path to get correct Overwinter/Sprout reject reasons
+    if (!EarlyUpgradeVersionCheck(tx, nextBlockHeight, Params().GetConsensus(), state)) {
+        return false;
     }
 
     // DoS mitigation: reject transactions expiring soon
