@@ -1393,13 +1393,23 @@ bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
     // a transaction spammer can cheaply fill blocks using
     // 1-satoshi-fee transactions. It should be set above the real
     // cost to you of processing a transaction.
+    
     if (mapArgs.count("-minrelaytxfee"))
-    {
+    {   
         CAmount n = 0;
-        if (ParseMoney(mapArgs["-minrelaytxfee"], n) && n > 0)
-            ::minRelayTxFee = CFeeRate(n);
-        else
-            return InitError(strprintf(_("Invalid amount for -minrelaytxfee=<amount>: '%s'"), mapArgs["-minrelaytxfee"]));
+        if (Params().NetworkIDString() != "regtest") {
+            if (ParseMoney(mapArgs["-minrelaytxfee"], n) && n > 0)
+                ::minRelayTxFee = CFeeRate(n);
+            else
+                return InitError(strprintf(_("Invalid amount for -minrelaytxfee=<amount>: '%s'"), mapArgs["-minrelaytxfee"]));
+        } else {
+            // In regtest mode, we allow a zero minrelaytxfee, so that
+            // transactions can be relayed without fees.
+            if (ParseMoney(mapArgs["-minrelaytxfee"], n))
+                ::minRelayTxFee = CFeeRate(n);
+            else
+                return InitError(strprintf(_("Invalid amount for -minrelaytxfee=<amount>: '%s'"), mapArgs["-minrelaytxfee"]));
+        }
     }
 
 #ifdef ENABLE_WALLET
