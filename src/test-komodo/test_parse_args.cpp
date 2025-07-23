@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <map>
 #include <string>
+#include <unordered_map>
 
 #include "komodo_globals.h"
 #include "komodo_utils.h"
@@ -8,6 +9,33 @@
 
 void chainparams_commandline();
 namespace fs = boost::filesystem;
+
+namespace {
+    struct ACDefaults { uint16_t p2p, rpc; uint32_t magic; };
+
+    static const std::unordered_map<std::string, ACDefaults> kKnownAC = {
+        {"CCL",     {20848, 20849, 0x66ff315c}},
+        {"CLC",     {20931, 20932, 0xd7f43d5b}},
+        {"DOC",     {62415, 62416, 0x566f8433}},
+        {"GLEEC",   {23225, 23226, 0x6cc31add}},
+        {"ILN",     {12985, 12986, 0x23cbb4fe}},
+        {"KOIN",    {10701, 10702, 0xb6564c76}},
+        {"MARTY",   {52592, 52593, 0x632ccb9c}},
+        {"NINJA",   {8426,  8427,  0xb26f8eb3}},
+        {"PIRATE",  {45452, 45453, 0x17b6e058}},
+        {"SUPERNET",{11340, 11341, 0xb9112456}},
+        {"ERA7",    {37332, 37333, 0xb1a890bc}},
+        {"TXX001",  {55965, 55966, 0x38b66ca9}},
+    };
+
+    static inline void ApplyACDefaults(const std::string& name) {
+        auto it = kKnownAC.find(name);
+        if (it == kKnownAC.end()) return;
+        if (!ASSETCHAINS_P2PPORT) ASSETCHAINS_P2PPORT = it->second.p2p;
+        if (!ASSETCHAINS_RPCPORT) ASSETCHAINS_RPCPORT = it->second.rpc;
+        if (!ASSETCHAINS_MAGIC)   ASSETCHAINS_MAGIC   = it->second.magic;
+    }
+}
 
 namespace ParseArgumentsTests {
 
@@ -46,8 +74,19 @@ namespace ParseArgumentsTests {
 
     void ClearAssetchainGlobalParams() {
 
-        ASSETCHAINS_RPCPORT = 0;
-
+        ASSETCHAINS_P2PPORT    = 0;
+        ASSETCHAINS_RPCPORT    = 0;
+        ASSETCHAINS_MAGIC      = 0;
+        ASSETCHAINS_SUPPLY     = 0;
+        ASSETCHAINS_BLOCKTIME  = 60;
+        ASSETCHAINS_SAPLING    = 0;
+        ASSETCHAINS_OVERWINTER = 0;
+        ASSETCHAINS_ORCHARD    = 0;
+        ASSETCHAINS_NK[0]      = 0;
+        ASSETCHAINS_NK[1]      = 0;
+        STAKED_NOTARY_ID       = -1;
+        chainName = assetchain();
+        
     }
 
     void SplitStrSpace(const std::string& strVal, std::vector<std::string> &outVals)
@@ -219,6 +258,7 @@ namespace ParseArgumentsTests {
             int64_t oldMAX_MONEY = MAX_MONEY;
             komodo_args(argv0Data.get());      // argv0 is passed in try to get ac_name from program suffixes (works for MNZ and BTCH only)
             MAX_MONEY = oldMAX_MONEY;
+            ApplyACDefaults(chainName.ToString());
             chainparams_commandline();         // set CChainParams (pCurrentParams) from ASSETCHAINS_* global variables
 
             assetchain_info current_ac = {chainName.ToString(), ASSETCHAINS_P2PPORT, ASSETCHAINS_RPCPORT, static_cast<int32_t>(ASSETCHAINS_MAGIC)};
