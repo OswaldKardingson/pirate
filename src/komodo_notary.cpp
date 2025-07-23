@@ -29,6 +29,16 @@ static int32_t hwmheight; // highest height ever passed to komodo_notariesinit
 static int32_t hadnotarization; // used in komodo_dpowconfs
 static bool didinit_NOTARIES[NUM_KMD_SEASONS]; // komodo_notaries()
 
+// Return highest season index (1-based) that actually has a notary set defined.
+static int32_t last_defined_season()
+{
+    for (int i = NUM_KMD_SEASONS - 1; i >= 0; --i) {
+        // notaries_elected[season][notary][1] is the hex pubkey string
+        if (notaries_elected[i][0][1] && notaries_elected[i][0][1][0] != '\0')
+            return i + 1;
+    }
+    return 0;
+}
 
 /****
  * @brief get the kmd season based on height (used on the KMD chain)
@@ -37,14 +47,20 @@ static bool didinit_NOTARIES[NUM_KMD_SEASONS]; // komodo_notaries()
  */
 int32_t getkmdseason(int32_t height)
 {
-    if ( height <= KMD_SEASON_HEIGHTS[0] )
-        return 1;
-    for (int32_t i = 1; i < NUM_KMD_SEASONS; i++)
-    {
-        if ( height <= KMD_SEASON_HEIGHTS[i] && height > KMD_SEASON_HEIGHTS[i-1] )
-            return i+1;
+    int32_t s = 0;
+    if (height <= KMD_SEASON_HEIGHTS[0]) s = 1;
+    else {
+        for (int i = 1; i < NUM_KMD_SEASONS; ++i) {
+            if (height <= KMD_SEASON_HEIGHTS[i] && height > KMD_SEASON_HEIGHTS[i-1]) {
+                s = i + 1;
+                break;
+            }
+        }
+        if (s == 0) s = NUM_KMD_SEASONS; // past last cutoff
     }
-    return 0;
+    int32_t maxLive = last_defined_season();
+    if (maxLive && s > maxLive) s = maxLive;
+    return s;
 }
 
 /****
@@ -54,14 +70,20 @@ int32_t getkmdseason(int32_t height)
  */
 int32_t getacseason(uint32_t timestamp)
 {
-    if ( timestamp <= KMD_SEASON_TIMESTAMPS[0] )
-        return 1;
-    for (int32_t i = 1; i < NUM_KMD_SEASONS; i++)
-    {
-        if ( timestamp <= KMD_SEASON_TIMESTAMPS[i] && timestamp > KMD_SEASON_TIMESTAMPS[i-1] )
-            return i+1;
+    int32_t s = 0;
+    if (timestamp <= KMD_SEASON_TIMESTAMPS[0]) s = 1;
+    else {
+        for (int i = 1; i < NUM_KMD_SEASONS; ++i) {
+            if (timestamp <= KMD_SEASON_TIMESTAMPS[i] && timestamp > KMD_SEASON_TIMESTAMPS[i-1]) {
+                s = i + 1;
+                break;
+            }
+        }
+        if (s == 0) s = NUM_KMD_SEASONS;
     }
-    return 0;
+    int32_t maxLive = last_defined_season();
+    if (maxLive && s > maxLive) s = maxLive;
+    return s;
 }
 
 /*****
