@@ -90,13 +90,17 @@ TEST(test_block, TestSpendInSameBlock)
     }
     
     ASSERT_GT( chain.GetIndex()->nHeight, 0 );
-    CAmount notaryBalance = notary->GetBalance();
+    
     // delay just a second to help with locktime
     std::this_thread::sleep_for(std::chrono::seconds(1));
     // Start to build a block
     int32_t newHeight = chain.GetIndex()->nHeight + 1;
+    
+    // Capture balance right before creating the transaction to avoid timing issues
+    CAmount notaryBalanceBefore = notary->GetBalance();
     TransactionInProcess fundAlice = notary->CreateSpendTransaction(alice, 100000, 5000, true);
-    notaryBalance -= 105000; // transfer + fee  
+    CAmount expectedBalance = notaryBalanceBefore - 105000; // transfer + fee  
+    
     // now have Alice move some funds to Bob in the same block
     CCoinControl useThisTransaction;
     COutPoint tx(fundAlice.transaction.GetHash(), 1);
@@ -109,7 +113,7 @@ TEST(test_block, TestSpendInSameBlock)
     EXPECT_TRUE( lastBlock != nullptr);
     // balances should be correct
     EXPECT_EQ( bob->GetBalance() + bob->GetUnconfirmedBalance() + bob->GetImmatureBalance(), CAmount(50000));
-    EXPECT_EQ( notary->GetBalance(), notaryBalance);
+    EXPECT_EQ( notary->GetBalance(), expectedBalance);
     EXPECT_EQ( alice->GetBalance() + alice->GetUnconfirmedBalance() + alice->GetImmatureBalance(), CAmount(45000));
 }
 
