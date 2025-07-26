@@ -73,6 +73,10 @@ namespace TestEvalNotarisation {
             notary.vin.resize(11);
             for (int i=0; i<notary.vin.size(); i++) {
                 CMutableTransaction txIn;
+                // Set valid transaction format fields
+                txIn.nVersion = CTransaction::SPROUT_MIN_CURRENT_VERSION;
+                txIn.fOverwintered = false;
+                
                 txIn.vout.resize(1);
                 txIn.vout[0].scriptPubKey << VCH(eval.notaries[i*2], 33) << OP_CHECKSIG;
                 notary.vin[i].prevout = COutPoint(txIn.GetHash(), 0);

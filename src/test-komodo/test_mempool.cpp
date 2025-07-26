@@ -170,8 +170,12 @@ TEST(Mempool, TxInputLimit) {
     // it's the first check that occurs after the -mempooltxinputlimit check,
     // and it means that we don't have to mock out a lot of global state.
     CMutableTransaction mtx;
-    mtx.nVersion = 0;
+    // Set valid base transaction format to avoid serialization errors
+    mtx.nVersion = CTransaction::SPROUT_MIN_CURRENT_VERSION;
+    mtx.fOverwintered = false;
     mtx.vin.resize(10);
+    // Set version to 0 after ensuring transaction can be serialized
+    mtx.nVersion = 0;
 
     // Check it fails as expected
     CValidationState state1;
@@ -318,14 +322,20 @@ TEST(Mempool, SproutNegativeVersionTxWhenOverwinterActive) {
     // to not setting fOverwintered and not masking off the most significant bit of the header field.
     // The resulting Sprout tx with nVersion -3 should be rejected by the Overwinter node's mempool.
     {
+        // First set a valid version to ensure the transaction can be constructed properly
+        mtx.nVersion = CTransaction::SPROUT_MIN_CURRENT_VERSION;
+        // Create the transaction object first with valid format
+        CTransaction tx1(mtx);
+        // Now test with the modified version using the mutable transaction
         mtx.nVersion = -3;
         EXPECT_EQ(mtx.nVersion, static_cast<int32_t>(0xfffffffd));
-
-        CTransaction tx1(mtx);
-        EXPECT_EQ(tx1.nVersion, -3);
+        // Create a new transaction with the invalid version for testing
+        CTransaction tx1_invalid;
+        tx1_invalid = CTransaction(mtx, true); // Use evil developer flag to skip UpdateHash
+        EXPECT_EQ(tx1_invalid.nVersion, -3);
 
         CValidationState state1;
-        EXPECT_FALSE(AcceptToMemoryPool(pool, state1, tx1, false, &missingInputs));
+        EXPECT_FALSE(AcceptToMemoryPool(pool, state1, tx1_invalid, false, &missingInputs));
         EXPECT_EQ(state1.GetRejectReason(), "bad-txns-version-too-low");
     }
 
