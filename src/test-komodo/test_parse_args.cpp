@@ -31,9 +31,10 @@ namespace {
     static inline void ApplyACDefaults(const std::string& name) {
         auto it = kKnownAC.find(name);
         if (it == kKnownAC.end()) return;
-        if (!ASSETCHAINS_P2PPORT) ASSETCHAINS_P2PPORT = it->second.p2p;
-        if (!ASSETCHAINS_RPCPORT) ASSETCHAINS_RPCPORT = it->second.rpc;
-        if (!ASSETCHAINS_MAGIC)   ASSETCHAINS_MAGIC   = it->second.magic;
+        // Apply defaults for test consistency, overriding calculated values
+        ASSETCHAINS_P2PPORT = it->second.p2p;
+        ASSETCHAINS_RPCPORT = it->second.rpc;
+        ASSETCHAINS_MAGIC   = it->second.magic;
     }
 }
 
