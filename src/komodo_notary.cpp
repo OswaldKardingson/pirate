@@ -56,10 +56,8 @@ int32_t getkmdseason(int32_t height)
                 break;
             }
         }
-        if (s == 0) s = NUM_KMD_SEASONS; // past last cutoff
+        if (s == 0) s = 0; // past last cutoff, return 0
     }
-    int32_t maxLive = last_defined_season();
-    if (maxLive && s > maxLive) s = maxLive;
     return s;
 }
 
@@ -79,10 +77,8 @@ int32_t getacseason(uint32_t timestamp)
                 break;
             }
         }
-        if (s == 0) s = NUM_KMD_SEASONS;
+        if (s == 0) s = 0; // past last cutoff, return 0
     }
-    int32_t maxLive = last_defined_season();
-    if (maxLive && s > maxLive) s = maxLive;
     return s;
 }
 

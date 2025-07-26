@@ -166,8 +166,8 @@ TEST(TestNotary, ElectedNotary)
     EXPECT_EQ(numnotaries, 64);
 }
 
-// season 7 tests for KMD:
-TEST(TestNotary, KomodoNotaries_S7_KMD)
+// Season 8 tests for KMD:
+TEST(TestNotary, KomodoNotaries_S8_KMD)
 {
     uint8_t pubkeys[64][33];
 
@@ -176,11 +176,11 @@ TEST(TestNotary, KomodoNotaries_S7_KMD)
     chainName = assetchain(""); // set as KMD
 
     EXPECT_EQ( getkmdseason(3484958+1), 8);
-    EXPECT_EQ( getkmdseason(8113400), 8);
+    EXPECT_EQ( getkmdseason(8113400), NUM_KMD_SEASONS);
     EXPECT_EQ( getkmdseason(8113400+1), 0);
     int32_t result1 = komodo_notaries(pubkeys, 3484958+1, 0);
     EXPECT_EQ(result1, 64);
-    EXPECT_EQ( my_key(pubkeys[0]), my_key("03955c7999538cee313bf196a7df59db208c651f6a5a1b0eed94732ba753b4f3f4"));
+    EXPECT_EQ( my_key(pubkeys[0]), my_key("028548847b3bbccff37c9b47bc4154183304902773d514b792ec2adc91e600e3b9"));
     EXPECT_EQ( my_key(pubkeys[63]), my_key("02f9a7b49282885cd03969f1f5478287497bc8edfceee9eac676053c107c5fcdaf"));
 
     // try wrong pubkey
@@ -196,8 +196,8 @@ TEST(TestNotary, KomodoNotaries_S7_KMD)
     komodo_notaries_uninit();
 }
 
-// season 7 tests for asset chain:
-TEST(TestNotary, KomodoNotaries_S7_AS)
+// Season 8 tests for asset chain:
+TEST(TestNotary, KomodoNotaries_S8_AS)
 {
     uint8_t pubkeys[64][33];
 
@@ -205,12 +205,12 @@ TEST(TestNotary, KomodoNotaries_S7_AS)
     komodo_notaries_uninit();
     chainName = assetchain("MYASSET");
     EXPECT_EQ( getacseason(1688132253+1), 8);
-    EXPECT_EQ( getacseason(1951328000), 8);
+    EXPECT_EQ( getacseason(1951328000), NUM_KMD_SEASONS);  
     EXPECT_EQ( getacseason(1951328001), 0);
 
     int32_t result1 = komodo_notaries(pubkeys, 0, 1688132253+1);
     EXPECT_EQ(result1, 64);
-    EXPECT_EQ( my_key(pubkeys[0]), my_key("03955c7999538cee313bf196a7df59db208c651f6a5a1b0eed94732ba753b4f3f4"));
+    EXPECT_EQ( my_key(pubkeys[0]), my_key("028548847b3bbccff37c9b47bc4154183304902773d514b792ec2adc91e600e3b9"));
     EXPECT_EQ( my_key(pubkeys[63]), my_key("02f9a7b49282885cd03969f1f5478287497bc8edfceee9eac676053c107c5fcdaf"));
 
     // try wrong pubkey
