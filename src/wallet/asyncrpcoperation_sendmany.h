@@ -1,4 +1,5 @@
 // Copyright (c) 2016 The Zcash developers
+// Copyright (c) 2022-2025 Pirate developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -83,21 +84,21 @@ private:
     CAmount fee_;
     int mindepth_;
     std::string fromaddress_;
-    bool isfromtaddr_;
-    bool isfromsaplingaddr_;
-    bool isfromorchardaddr_;
-    bool isfromprivate_;
+    bool isFromTransparentAddress_;
+    bool isFromSaplingAddress_;
+    bool isFromOrchardAddress_;
+    bool isFromPrivateAddress_;
     CTxDestination fromtaddr_;
     std::string fromAddress_;
     PaymentAddress frompaymentaddress_;
     SpendingKey spendingkey_;
-    bool bOfflineSpendingKey;
+    bool hasOfflineSpendingKey;
 
-    std::vector<SendManyRecipient> sapling_outputs_;
-    std::vector<SendManyRecipient> orchard_outputs_;
-    std::vector<SendManyInputUTXO> t_inputs_;
-    std::vector<SaplingNoteEntry> z_sapling_inputs_;
-    std::vector<OrchardNoteEntry> z_orchard_inputs_;
+    std::vector<SendManyRecipient> saplingOutputs_;
+    std::vector<SendManyRecipient> orchardOutputs_;
+    std::vector<SendManyInputUTXO> transparentInputs_;
+    std::vector<SaplingNoteEntry> saplingInputs_;
+    std::vector<OrchardNoteEntry> orchardInputs_;
 
     TransactionBuilder builder_;
     CTransaction tx_;

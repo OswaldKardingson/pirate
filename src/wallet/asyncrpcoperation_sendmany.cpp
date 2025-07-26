@@ -1,4 +1,5 @@
 // Copyright (c) 2016 The Zcash developers
+// Copyright (c) 2022-2025 Pirate developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -55,6 +56,15 @@
 
 using namespace libzcash;
 
+/**
+ * @brief Find output index in JoinSplit outputmap
+ * 
+ * @param obj UniValue object containing the outputmap
+ * @param n The output number to find
+ * @return int The index in the outputmap where the output number is found
+ * @throws JSONRPCError if outputmap is missing
+ * @throws std::logic_error if n is not present in outputmap
+ */
 int find_output(UniValue obj, int n)
 {
     UniValue outputMapValue = find_value(obj, "outputmap");
@@ -64,114 +74,191 @@ int find_output(UniValue obj, int n)
 
     UniValue outputMap = outputMapValue.get_array();
     assert(outputMap.size() == ZC_NUM_JS_OUTPUTS);
+    
     for (size_t i = 0; i < outputMap.size(); i++) {
         if (outputMap[i].get_int() == n) {
-            return i;
+            return static_cast<int>(i);
         }
     }
 
     throw std::logic_error("n is not present in outputmap");
 }
 
+/**
+ * @brief Constructor for AsyncRPCOperation_sendmany
+ * 
+ * Initializes the sendmany operation with the specified parameters and validates
+ * input parameters. Sets up address types and spending keys as needed.
+ * 
+ * @param consensusParams Consensus parameters for the current network
+ * @param blockHeight Current blockchain height
+ * @param fromAddress Source address (transparent, Sapling, or Orchard)
+ * @param saplingOutputs Vector of Sapling recipients
+ * @param orchardOutputs Vector of Orchard recipients  
+ * @param minimumConfirmationDepth Minimum confirmation depth for inputs
+ * @param transactionFee Transaction fee amount
+ * @param contextInfo Context information for logging and status
+ * 
+ * @throws JSONRPCError for invalid parameters or addresses
+ */
 AsyncRPCOperation_sendmany::AsyncRPCOperation_sendmany(
     const Consensus::Params& consensusParams,
-    const int nHeight,
+    const int blockHeight,
     std::string fromAddress,
     std::vector<SendManyRecipient> saplingOutputs,
     std::vector<SendManyRecipient> orchardOutputs,
-    int minDepth,
-    CAmount fee,
-    UniValue contextInfo) : fromaddress_(fromAddress), sapling_outputs_(saplingOutputs), orchard_outputs_(orchardOutputs), mindepth_(minDepth), fee_(fee), contextinfo_(contextInfo),
-                            builder_(TransactionBuilder(consensusParams, nHeight, pwalletMain))
+    int minimumConfirmationDepth,
+    CAmount transactionFee,
+    UniValue contextInfo) 
+    : fromaddress_(fromAddress), 
+      saplingOutputs_(saplingOutputs), 
+      orchardOutputs_(orchardOutputs), 
+      mindepth_(minimumConfirmationDepth), 
+      fee_(transactionFee), 
+      contextinfo_(contextInfo),
+      builder_(TransactionBuilder(consensusParams, blockHeight, pwalletMain))
 {
+    // =================================================================
+    // PARAMETER VALIDATION
+    // =================================================================
+    
     assert(fee_ >= 0);
 
-    if (minDepth < 0) {
+    if (minimumConfirmationDepth < 0) {
         throw JSONRPCError(RPC_INVALID_PARAMETER, "Minconf cannot be negative");
     }
 
-    if (fromAddress.size() == 0) {
+    if (fromAddress.empty()) {
         throw JSONRPCError(RPC_INVALID_PARAMETER, "From address parameter missing");
     }
 
-    if (saplingOutputs.size() == 0 && orchardOutputs.size() == 0) {
+    if (saplingOutputs.empty() && orchardOutputs.empty()) {
         throw JSONRPCError(RPC_INVALID_PARAMETER, "No recipients");
     }
 
+    // =================================================================
+    // ADDRESS TYPE DETECTION AND INITIALIZATION
+    // =================================================================
+
+    // Initialize address type flags with descriptive names
     fromtaddr_ = DecodeDestination(fromAddress);
-    isfromtaddr_ = IsValidDestination(fromtaddr_);
-    isfromsaplingaddr_ = false;
-    isfromorchardaddr_ = false;
-    isfromprivate_ = false;
+    isFromTransparentAddress_ = IsValidDestination(fromtaddr_);
+    isFromSaplingAddress_ = false;
+    isFromOrchardAddress_ = false;
+    isFromPrivateAddress_ = false;
 
-    int ivOUT = (int)saplingOutputs.size();
-
-    bOfflineSpendingKey = false;
-    if (!isfromtaddr_) {
-        fromAddress_ = fromAddress; // Initialise private, persistant Address for the object.
-        auto address = DecodePaymentAddress(fromAddress);
-        if (IsValidPaymentAddress(address)) {
-
-            auto saplingPaymentAddress = std::get_if<libzcash::SaplingPaymentAddress>(&address);
+    // Initialize offline spending key flag
+    hasOfflineSpendingKey = false;
+    
+    // =================================================================
+    // SHIELDED ADDRESS PROCESSING
+    // =================================================================
+    // Process shielded addresses (not transparent)
+    if (!isFromTransparentAddress_) {
+        // Store the original address string for later use
+        fromAddress_ = fromAddress;
+        
+        auto decodedAddress = DecodePaymentAddress(fromAddress);
+        if (IsValidPaymentAddress(decodedAddress)) {
+            
+            // Check if this is a Sapling payment address
+            auto saplingPaymentAddress = std::get_if<libzcash::SaplingPaymentAddress>(&decodedAddress);
             if (saplingPaymentAddress != nullptr) {
-                isfromsaplingaddr_ = true;
-                isfromprivate_ = true;
+                isFromSaplingAddress_ = true;
+                isFromPrivateAddress_ = true;
             }
 
-            auto orchardPaymentAddress = std::get_if<libzcash::OrchardPaymentAddressPirate>(&address);
+            // Check if this is an Orchard payment address
+            auto orchardPaymentAddress = std::get_if<libzcash::OrchardPaymentAddressPirate>(&decodedAddress);
             if (orchardPaymentAddress != nullptr) {
-                isfromorchardaddr_ = true;
-                isfromprivate_ = true;
+                isFromOrchardAddress_ = true;
+                isFromPrivateAddress_ = true;
             }
 
-            if(!isfromsaplingaddr_ && !isfromorchardaddr_) {
+            // Ensure we have a valid shielded address type
+            if (!isFromSaplingAddress_ && !isFromOrchardAddress_) {
                 throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid from address");
             }
 
-            frompaymentaddress_ = address;
-            // We don't need to lock on the wallet as spending key related methods are thread-safe
-            if (!std::visit(HaveSpendingKeyForPaymentAddress(pwalletMain), address)) {
-                // TBD: confirm if the from addr is in our wallet. From the GUI is will be, but maybe not from CLI.
-                // Leave spendingkey_ uninitialised
-                bOfflineSpendingKey = true;
+            frompaymentaddress_ = decodedAddress;
+            
+            // =================================================================
+            // SPENDING KEY VERIFICATION
+            // =================================================================
+            
+            // Check if we have the spending key for this address
+            // Wallet spending key methods are thread-safe, so no locking needed
+            if (!std::visit(HaveSpendingKeyForPaymentAddress(pwalletMain), decodedAddress)) {
+                // Address is valid but we don't have the spending key
+                // This enables offline transaction preparation
+                hasOfflineSpendingKey = true;
             } else {
-                spendingkey_ = std::visit(GetSpendingKeyForPaymentAddress(pwalletMain), address).value();
-                bOfflineSpendingKey = false;
+                // We have the spending key, retrieve it for transaction building
+                spendingkey_ = std::visit(GetSpendingKeyForPaymentAddress(pwalletMain), decodedAddress).value();
+                hasOfflineSpendingKey = false;
             }
         } else {
             throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid from address");
         }
     }
 
-    if ((isfromsaplingaddr_ || isfromorchardaddr_) && minDepth == 0) {
+    // =================================================================
+    // FINAL VALIDATION AND LOGGING
+    // =================================================================
+    
+    // Shielded addresses require minimum confirmation depth > 0
+    if ((isFromSaplingAddress_ || isFromOrchardAddress_) && minimumConfirmationDepth == 0) {
         throw JSONRPCError(RPC_INVALID_PARAMETER, "Minconf cannot be zero when sending from zaddr");
     }
 
-    // Log the context info i.e. the call parameters to z_sendmany
+    // Log operation initialization with appropriate detail level
     if (LogAcceptCategory("zrpcunsafe")) {
         LogPrint("zrpcunsafe", "%s: z_sendmany initialized (params=%s)\n", getId(), contextInfo.write());
     } else {
         LogPrint("zrpc", "%s: z_sendmany initialized\n", getId());
     }
 
-    // Enable payment disclosure if requested
+    // Enable payment disclosure if experimental mode is active
     paymentDisclosureMode = fExperimentalMode && GetBoolArg("-paymentdisclosure", true);
 }
 
+/**
+ * @brief Destructor for AsyncRPCOperation_sendmany
+ * 
+ * Currently performs no cleanup as resources are managed automatically.
+ */
 AsyncRPCOperation_sendmany::~AsyncRPCOperation_sendmany()
 {
+    // No explicit cleanup required - all resources are RAII managed
 }
 
+/**
+ * @brief Main execution wrapper for the sendmany operation
+ * 
+ * This function handles the overall operation lifecycle including:
+ * - State management
+ * - Mining control during execution  
+ * - Exception handling and error reporting
+ * - Payment disclosure processing
+ * - Execution timing
+ */
 void AsyncRPCOperation_sendmany::main()
 {
-    if (isCancelled())
+    // Early exit if operation was cancelled
+    if (isCancelled()) {
         return;
+    }
 
+    // =================================================================
+    // EXECUTION SETUP
+    // =================================================================
+    
     set_state(OperationStatus::EXECUTING);
     start_execution_clock();
 
-    bool success = false;
+    bool operationSuccessful = false;
 
+    // Temporarily disable mining during transaction creation to avoid conflicts
 #ifdef ENABLE_MINING
 #ifdef ENABLE_WALLET
     GenerateBitcoins(false, NULL, 0);
@@ -180,27 +267,41 @@ void AsyncRPCOperation_sendmany::main()
 #endif
 #endif
 
+    // =================================================================
+    // MAIN OPERATION EXECUTION WITH EXCEPTION HANDLING
+    // =================================================================
+
     try {
-        success = main_impl();
+        operationSuccessful = main_impl();
     } catch (const UniValue& objError) {
-        int code = find_value(objError, "code").get_int();
-        std::string message = find_value(objError, "message").get_str();
-        set_error_code(code);
-        set_error_message(message);
-    } catch (const runtime_error& e) {
+        // Handle JSON RPC errors with structured error information
+        int errorCode = find_value(objError, "code").get_int();
+        std::string errorMessage = find_value(objError, "message").get_str();
+        set_error_code(errorCode);
+        set_error_message(errorMessage);
+    } catch (const std::runtime_error& e) {
+        // Handle runtime errors (file I/O, network, etc.)
         set_error_code(-1);
-        set_error_message("runtime error: " + string(e.what()));
-    } catch (const logic_error& e) {
+        set_error_message("runtime error: " + std::string(e.what()));
+    } catch (const std::logic_error& e) {
+        // Handle logic errors (programming errors, assertions, etc.)
         set_error_code(-1);
-        set_error_message("logic error: " + string(e.what()));
-    } catch (const exception& e) {
+        set_error_message("logic error: " + std::string(e.what()));
+    } catch (const std::exception& e) {
+        // Handle all other standard exceptions
         set_error_code(-1);
-        set_error_message("general exception: " + string(e.what()));
+        set_error_message("general exception: " + std::string(e.what()));
     } catch (...) {
+        // Handle any non-standard exceptions
         set_error_code(-2);
         set_error_message("unknown error");
     }
 
+    // =================================================================
+    // EXECUTION CLEANUP AND STATE MANAGEMENT
+    // =================================================================
+    
+    // Re-enable mining if it was previously enabled
 #ifdef ENABLE_MINING
 #ifdef ENABLE_WALLET
     GenerateBitcoins(GetBoolArg("-gen", false), pwalletMain, GetArg("-genproclimit", 1));
@@ -209,205 +310,243 @@ void AsyncRPCOperation_sendmany::main()
 #endif
 #endif
 
+    // Stop timing and set final operation state
     stop_execution_clock();
 
-    if (success) {
+    if (operationSuccessful) {
         set_state(OperationStatus::SUCCESS);
     } else {
         set_state(OperationStatus::FAILED);
     }
 
-    std::string s = strprintf("%s: z_sendmany finished (status=%s", getId(), getStateAsString());
-    if (success) {
-        s += strprintf(", txid=%s)\n", tx_.GetHash().ToString());
+    // Log operation completion with appropriate details
+    std::string logMessage = strprintf("%s: z_sendmany finished (status=%s", getId(), getStateAsString());
+    if (operationSuccessful) {
+        logMessage += strprintf(", txid=%s)\n", tx_.GetHash().ToString());
     } else {
-        s += strprintf(", error=%s)\n", getErrorMessage());
+        logMessage += strprintf(", error=%s)\n", getErrorMessage());
     }
-    LogPrintf("%s", s);
+    LogPrintf("%s", logMessage);
 
-    // !!! Payment disclosure START
-    if (success && paymentDisclosureMode && paymentDisclosureData_.size() > 0) {
-        uint256 txidhash = tx_.GetHash();
-        std::shared_ptr<PaymentDisclosureDB> db = PaymentDisclosureDB::sharedInstance();
-        for (PaymentDisclosureKeyInfo p : paymentDisclosureData_) {
-            p.first.hash = txidhash;
-            if (!db->Put(p.first, p.second)) {
-                LogPrint("paymentdisclosure", "%s: Payment Disclosure: Error writing entry to database for key %s\n", getId(), p.first.ToString());
+    // =================================================================
+    // PAYMENT DISCLOSURE PROCESSING
+    // =================================================================
+    
+    if (operationSuccessful && paymentDisclosureMode && !paymentDisclosureData_.empty()) {
+        uint256 transactionHash = tx_.GetHash();
+        std::shared_ptr<PaymentDisclosureDB> paymentDisclosureDB = PaymentDisclosureDB::sharedInstance();
+        
+        for (PaymentDisclosureKeyInfo& disclosureInfo : paymentDisclosureData_) {
+            disclosureInfo.first.hash = transactionHash;
+            
+            if (!paymentDisclosureDB->Put(disclosureInfo.first, disclosureInfo.second)) {
+                LogPrint("paymentdisclosure", "%s: Payment Disclosure: Error writing entry to database for key %s\n", 
+                        getId(), disclosureInfo.first.ToString());
             } else {
-                LogPrint("paymentdisclosure", "%s: Payment Disclosure: Successfully added entry to database for key %s\n", getId(), p.first.ToString());
+                LogPrint("paymentdisclosure", "%s: Payment Disclosure: Successfully added entry to database for key %s\n", 
+                        getId(), disclosureInfo.first.ToString());
             }
         }
     }
-    // !!! Payment disclosure END
 }
 
-// Notes:
-// 1. #1159 Currently there is no limit set on the number of joinsplits, so size of tx could be invalid.
-// 2. #1360 Note selection is not optimal
-// 3. #1277 Spendable notes are not locked, so an operation running in parallel could also try to use them
+/**
+ * @brief Main implementation of the sendmany operation
+ * 
+ * This function performs the core logic for sending funds from various address types
+ * (transparent, Sapling shielded, Orchard shielded) to multiple recipients.
+ * 
+ * Known issues (TODO items):
+ * 1. #1159 Currently there is no limit set on the number of joinsplits, so size of tx could be invalid.
+ * 2. #1360 Note selection is not optimal
+ * 3. #1277 Spendable notes are not locked, so an operation running in parallel could also try to use them
+ * 
+ * @return true if the transaction was successfully created and sent, false otherwise
+ * @throws JSONRPCError for various error conditions (insufficient funds, wallet errors, etc.)
+ */
 bool AsyncRPCOperation_sendmany::main_impl()
 {
-    assert(isfromtaddr_ != isfromprivate_);
-
-    bool isSingleZaddrOutput = (sapling_outputs_.size() + orchard_outputs_.size() == 1);
-    bool isMultipleZaddrOutput = (sapling_outputs_.size() + orchard_outputs_.size() >= 1);
-    bool isPureTaddrOnlyTx = (isfromtaddr_ && sapling_outputs_.size() == 0 & orchard_outputs_.size() == 0);
+    // Ensure we have exactly one type of source address (transparent XOR private)
+    assert(isFromTransparentAddress_ != isFromPrivateAddress_);
     CAmount minersFee = fee_;
 
-    // When spending coinbase utxos, you can only specify a single zaddr as the change must go somewhere
-    // and if there are multiple zaddrs, we don't know where to send it.
-    if (isfromtaddr_) {
-        if (isSingleZaddrOutput) {
-            bool b = find_utxos(true);
-            if (!b) {
-                throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS, "Insufficient funds, no UTXOs found for taddr from address.");
-            }
-        } else {
-            bool b = find_utxos(false);
-            if (!b) {
-                if (isMultipleZaddrOutput) {
-                    throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS, "Could not find any non-coinbase UTXOs to spend. Coinbase UTXOs can only be sent to a single zaddr recipient.");
-                } else {
-                    throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS, "Could not find any non-coinbase UTXOs to spend.");
-                }
-            }
+    // =================================================================
+    // STEP 1: Find and validate input sources (UTXOs or notes)
+    // =================================================================
+
+    // Check if the from address is a taddr, and if so, find UTXOs to spend
+    if (isFromTransparentAddress_) {
+        bool foundUtxos = find_utxos(true);
+        if (!foundUtxos) {
+            throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS, "Insufficient funds, no UTXOs found for taddr from address.");
         }
     }
 
-    if ((isfromsaplingaddr_ || isfromorchardaddr_) && !find_unspent_notes()) {
+    // Check if the from address is a shielded address, and if so, find unspent notes
+    if ((isFromSaplingAddress_ || isFromOrchardAddress_) && !find_unspent_notes()) {
         throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS, "Insufficient funds, no unspent notes found for from address.");
     }
 
-    CAmount t_inputs_total = 0;
-    for (SendManyInputUTXO& t : t_inputs_) {
-        t_inputs_total += std::get<2>(t);
+    // =================================================================
+    // STEP 2: Calculate total input and output amounts
+    // =================================================================
+    
+    // Calculate total transparent inputs
+    CAmount totalTransparentInputs = 0;
+    for (const SendManyInputUTXO& utxo : transparentInputs_) {
+        totalTransparentInputs += std::get<2>(utxo);
     }
 
-    CAmount sapling_inputs_total = 0;
-    for (auto t : z_sapling_inputs_) {
-        sapling_inputs_total += t.note.value();
+    // Calculate total Sapling inputs
+    CAmount totalSaplingInputs = 0;
+    for (const auto& saplingInput : saplingInputs_) {
+        totalSaplingInputs += saplingInput.note.value();
     }
 
-    CAmount orchard_inputs_total = 0;
-    for (auto t : z_orchard_inputs_) {
-        orchard_inputs_total += t.note.value();
+    // Calculate total Orchard inputs
+    CAmount totalOrchardInputs = 0;
+    for (const auto& orchardInput : orchardInputs_) {
+        totalOrchardInputs += orchardInput.note.value();
     }
 
-    CAmount sapling_outputs_total = 0;
-    for (SendManyRecipient& t : sapling_outputs_) {
-        sapling_outputs_total += std::get<1>(t);
+    // Calculate total Sapling outputs
+    CAmount totalSaplingOutputs = 0;
+    for (const SendManyRecipient& saplingOutput : saplingOutputs_) {
+        totalSaplingOutputs += std::get<1>(saplingOutput);
     }
 
-    CAmount orchard_outputs_total = 0;
-    for (SendManyRecipient& t : orchard_outputs_) {
-        orchard_outputs_total += std::get<1>(t);
+    // Calculate total Orchard outputs
+    CAmount totalOrchardOutputs = 0;
+    for (const SendManyRecipient& orchardOutput : orchardOutputs_) {
+        totalOrchardOutputs += std::get<1>(orchardOutput);
     }
 
+    CAmount totalSendAmount = totalSaplingOutputs + totalOrchardOutputs;
+    CAmount totalTargetAmount = totalSendAmount + minersFee;
 
-    CAmount sendAmount = sapling_outputs_total + orchard_outputs_total;
-    CAmount targetAmount = sendAmount + minersFee;
+    // =================================================================
+    // STEP 3: Validate input/output consistency and sufficiency
+    // =================================================================
+    
+    // Ensure input sources are mutually exclusive
+    assert(!isFromTransparentAddress_ || totalSaplingInputs + totalOrchardInputs == 0);
+    assert((!isFromSaplingAddress_ && !isFromOrchardAddress_) || totalTransparentInputs == 0);
 
-    assert(!isfromtaddr_ || sapling_inputs_total + orchard_inputs_total == 0);
-    assert((!isfromsaplingaddr_ && !isfromorchardaddr_) || t_inputs_total == 0);
-
-    if (isfromtaddr_ && (t_inputs_total < targetAmount)) {
+    // Check if we have sufficient funds for each address type
+    if (isFromTransparentAddress_ && (totalTransparentInputs < totalTargetAmount)) {
         throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS,
                            strprintf("Insufficient transparent funds, have %s, need %s",
-                                     FormatMoney(t_inputs_total), FormatMoney(targetAmount)));
+                                     FormatMoney(totalTransparentInputs), FormatMoney(totalTargetAmount)));
     }
 
-    if (isfromsaplingaddr_ && (sapling_inputs_total < targetAmount)) {
+    if (isFromSaplingAddress_ && (totalSaplingInputs < totalTargetAmount)) {
         throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS,
                            strprintf("Insufficient shielded funds, have %s, need %s",
-                                     FormatMoney(sapling_inputs_total), FormatMoney(targetAmount)));
+                                     FormatMoney(totalSaplingInputs), FormatMoney(totalTargetAmount)));
     }
 
-    if (isfromorchardaddr_ && (orchard_inputs_total < targetAmount)) {
+    if (isFromOrchardAddress_ && (totalOrchardInputs < totalTargetAmount)) {
         throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS,
                            strprintf("Insufficient shielded funds, have %s, need %s",
-                                     FormatMoney(orchard_inputs_total), FormatMoney(targetAmount)));
+                                     FormatMoney(totalOrchardInputs), FormatMoney(totalTargetAmount)));
     }
+
+    // =================================================================
+    // STEP 4: Handle transparent input selection and change logic
+    // =================================================================
 
     // If from address is a taddr, select UTXOs to spend
-    CAmount selectedUTXOAmount = 0;
-    bool selectedUTXOCoinbase = false;
-    if (isfromtaddr_) {
-        // Get dust threshold
-        CKey secret;
-        secret.MakeNewKey(true);
-        CScript scriptPubKey = GetScriptForDestination(secret.GetPubKey().GetID());
-        CTxOut out(CAmount(1), scriptPubKey);
-        CAmount dustThreshold = out.GetDustThreshold(minRelayTxFee);
-        CAmount dustChange = -1;
+    CAmount selectedUtxoAmount = 0;
+    bool hasSelectedCoinbaseUtxo = false;
+    if (isFromTransparentAddress_) {
+        // Get dust threshold for change calculation
+        CKey temporaryKey;
+        temporaryKey.MakeNewKey(true);
+        CScript temporaryScriptPubKey = GetScriptForDestination(temporaryKey.GetPubKey().GetID());
+        CTxOut temporaryOutput(CAmount(1), temporaryScriptPubKey);
+        CAmount dustThreshold = temporaryOutput.GetDustThreshold(minRelayTxFee);
+        CAmount changeAmount = -1;
 
-        std::vector<SendManyInputUTXO> selectedTInputs;
-        for (SendManyInputUTXO& t : t_inputs_) {
-            bool b = std::get<3>(t);
-            if (b) {
-                selectedUTXOCoinbase = true;
+        std::vector<SendManyInputUTXO> selectedTransparentInputs;
+        for (SendManyInputUTXO& utxo : transparentInputs_) {
+            bool isCoinbaseUtxo = std::get<3>(utxo);
+            if (isCoinbaseUtxo) {
+                hasSelectedCoinbaseUtxo = true;
             }
-            selectedUTXOAmount += std::get<2>(t);
-            selectedTInputs.push_back(t);
-            if (selectedUTXOAmount >= targetAmount) {
+            selectedUtxoAmount += std::get<2>(utxo);
+            selectedTransparentInputs.push_back(utxo);
+            if (selectedUtxoAmount >= totalTargetAmount) {
                 // Select another utxo if there is change less than the dust threshold.
-                dustChange = selectedUTXOAmount - targetAmount;
-                if (dustChange == 0 || dustChange >= dustThreshold) {
+                changeAmount = selectedUtxoAmount - totalTargetAmount;
+                if (changeAmount == 0 || changeAmount >= dustThreshold) {
                     break;
                 }
             }
         }
 
-        // If there is transparent change, is it valid or is it dust?
-        if (dustChange < dustThreshold && dustChange != 0) {
+        // Check if we have sufficient funds
+        if (selectedUtxoAmount < totalTargetAmount) {
             throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS,
-                               strprintf("Insufficient transparent funds, have %s, need %s more to avoid creating invalid change output %s (dust threshold is %s)",
-                                         FormatMoney(t_inputs_total), FormatMoney(dustThreshold - dustChange), FormatMoney(dustChange), FormatMoney(dustThreshold)));
+                               strprintf("Insufficient transparent funds, have %s, need %s",
+                                         FormatMoney(selectedUtxoAmount), FormatMoney(totalTargetAmount)));
         }
 
-        t_inputs_ = selectedTInputs;
-        t_inputs_total = selectedUTXOAmount;
+        // If there is transparent change, is it valid or is it dust?
+        if (changeAmount < dustThreshold && changeAmount != 0) {
+            throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS,
+                               strprintf("Insufficient transparent funds, have %s, need %s more to avoid creating invalid change output %s (dust threshold is %s)",
+                                         FormatMoney(totalTransparentInputs), FormatMoney(dustThreshold - changeAmount), FormatMoney(changeAmount), FormatMoney(dustThreshold)));
+        }
+
+        transparentInputs_ = selectedTransparentInputs;
+        totalTransparentInputs = selectedUtxoAmount;
 
         // Check mempooltxinputlimit to avoid creating a transaction which the local mempool rejects
-        size_t limit = (size_t)GetArg("-mempooltxinputlimit", 0);
+        size_t inputLimit = (size_t)GetArg("-mempooltxinputlimit", 0);
         {
             LOCK(cs_main);
             if (NetworkUpgradeActive(chainActive.Height() + 1, Params().GetConsensus(), Consensus::UPGRADE_OVERWINTER)) {
-                limit = 0;
+                inputLimit = 0;
             }
         }
-        if (limit > 0) {
-            size_t n = t_inputs_.size();
-            if (n > limit) {
-                throw JSONRPCError(RPC_WALLET_ERROR, strprintf("Too many transparent inputs %zu > limit %zu", n, limit));
+        if (inputLimit > 0) {
+            size_t numberOfInputs = transparentInputs_.size();
+            if (numberOfInputs > inputLimit) {
+                throw JSONRPCError(RPC_WALLET_ERROR, strprintf("Too many transparent inputs %zu > limit %zu", numberOfInputs, inputLimit));
             }
         }
 
-        // update the transaction with these inputs
-        CScript scriptPubKeyInputs;
-        for (auto t : t_inputs_) {
-            scriptPubKeyInputs = GetScriptForDestination(std::get<4>(t));
-            // printf("Checking new script: %s\n", scriptPubKey.ToString().c_str());
-            uint256 txid = std::get<0>(t);
-            int vout = std::get<1>(t);
-            CAmount amount = std::get<2>(t);
-            builder_.AddTransparentInput(COutPoint(txid, vout), scriptPubKeyInputs, amount);
+        // Add the selected transparent inputs to the transaction builder
+        CScript inputScriptPubKey;
+        for (const auto& utxo : transparentInputs_) {
+            inputScriptPubKey = GetScriptForDestination(std::get<4>(utxo));
+            uint256 transactionId = std::get<0>(utxo);
+            int outputIndex = std::get<1>(utxo);
+            CAmount utxoAmount = std::get<2>(utxo);
+            builder_.AddTransparentInput(COutPoint(transactionId, outputIndex), inputScriptPubKey, utxoAmount);
         }
-        // for Komodo, set lock time to accure interest, for other chains, set
+        
+        // For Komodo, set lock time to accrue interest, for other chains, set
         // locktime to spend time locked coinbases
         if (chainName.isKMD()) {
-            // if ((uint32_t)chainActive.Tip()->nTime < ASSETCHAINS_STAKED_HF_TIMESTAMP)
-            if (!komodo_hardfork_active((uint32_t)chainActive.Tip()->nTime))
+            if (!komodo_hardfork_active((uint32_t)chainActive.Tip()->nTime)) {
                 builder_.SetLockTime((uint32_t)time(NULL) - 60); // set lock time for Komodo interest
-            else
+            } else {
                 builder_.SetLockTime((uint32_t)chainActive.Tip()->GetMedianTimePast());
+            }
         }
     }
 
-    LogPrint((isfromtaddr_) ? "zrpc" : "zrpcunsafe", "%s: spending %s to send %s with fee %s\n",
-             getId(), FormatMoney(targetAmount), FormatMoney(sendAmount), FormatMoney(minersFee));
-    LogPrint("zrpc", "%s: transparent input: %s (to choose from)\n", getId(), FormatMoney(t_inputs_total));
-    LogPrint("zrpcunsafe", "%s: private input: %s (to choose from)\n", getId(), FormatMoney(sapling_inputs_total));
-    LogPrint("zrpcunsafe", "%s: private output: %s\n", getId(), FormatMoney(sapling_outputs_total));
+    // Log transaction composition for debugging purposes
+    LogPrint((isFromTransparentAddress_) ? "zrpc" : "zrpcunsafe", "%s: spending %s to send %s with fee %s\n",
+             getId(), FormatMoney(totalTargetAmount), FormatMoney(totalSendAmount), FormatMoney(minersFee));
+    LogPrint("zrpc", "%s: transparent input: %s (to choose from)\n", getId(), FormatMoney(totalTransparentInputs));
+    LogPrint("zrpcunsafe", "%s: shielded input: %s sapling + %s orchard = %s total (to choose from)\n", 
+             getId(), FormatMoney(totalSaplingInputs), FormatMoney(totalOrchardInputs), 
+             FormatMoney(totalSaplingInputs + totalOrchardInputs));
+    LogPrint("zrpcunsafe", "%s: shielded output: %s sapling + %s orchard = %s total\n", 
+             getId(), FormatMoney(totalSaplingOutputs), FormatMoney(totalOrchardOutputs), 
+             FormatMoney(totalSaplingOutputs + totalOrchardOutputs));
     LogPrint("zrpc", "%s: fee: %s\n", getId(), FormatMoney(minersFee));
 
     // Offline Signing
@@ -537,21 +676,24 @@ bool AsyncRPCOperation_sendmany::main_impl()
     // }
 
     /**
-     * SCENARIO #0
-     *
-     * Sprout not involved, so we just use the TransactionBuilder and we're done.
-     * We added the transparent inputs to the builder earlier.
+     * TRANSACTION BUILDING PHASE
+     * 
+     * All input validation and selection is complete. Now we build the actual transaction.
+     * For shielded transactions, we need to use the TransactionBuilder with proper OVK handling.
      */
 
     builder_.SetFee(minersFee);
 
-    //ovk will be set based on the from address
+    // OVK (Outgoing Viewing Key) will be set based on the from address type
     uint256 ovk;
 
-
+    // =================================================================
+    // STEP 5: Handle transparent address sending and change generation
+    // =================================================================
+    
     // Set change address if we are using transparent funds
     // TODO: Should we just use fromtaddr_ as the change address?
-    if (isfromtaddr_) {
+    if (isFromTransparentAddress_) {
 
         // Sending from a t-address, which we don't have an ovk for. Instead,
         // generate a common one from the HD seed. This ensures the data is
@@ -582,23 +724,25 @@ bool AsyncRPCOperation_sendmany::main_impl()
         assert(builder_.SendChangeTo(changeAddr));
     }
 
+    // =================================================================
+    // STEP 6: Handle Sapling shielded address spending
+    // =================================================================
 
-
-
-
-    if (isfromsaplingaddr_) {
+    if (isFromSaplingAddress_) {
         LOCK2(cs_main, pwalletMain->cs_wallet);
 
         // Get various necessary keys
         SaplingExtendedSpendingKey extsk;
-        extsk = *(std::get_if<libzcash::SaplingExtendedSpendingKey>(&spendingkey_));
+        auto extskPtr = std::get_if<libzcash::SaplingExtendedSpendingKey>(&spendingkey_);
+        if (!extskPtr) {
+            throw JSONRPCError(RPC_WALLET_ERROR, strprintf("%s: Invalid Sapling spending key type. Stopping.\n", getId()));
+        }
+        extsk = *extskPtr;
         ovk = extsk.expsk.full_viewing_key().ovk;
 
-        // Select Sapling notes
-        // std::vector<SaplingOutPoint> ops;
-        // std::vector<SaplingNote> notes;
+        // Select and process Sapling notes for spending
         CAmount sum = 0;
-        for (auto entry : z_sapling_inputs_) {
+        for (auto entry : saplingInputs_) {
 
             libzcash::MerklePath saplingMerklePath;
             if (!pwalletMain->SaplingWalletGetMerklePathOfNote(entry.op.hash, entry.op.n, saplingMerklePath)) {
@@ -615,7 +759,7 @@ bool AsyncRPCOperation_sendmany::main_impl()
             }
 
             sum += entry.note.value();
-            if (sum >= targetAmount) {
+            if (sum >= totalTargetAmount) {
                 break;
             }
         }
@@ -623,16 +767,22 @@ bool AsyncRPCOperation_sendmany::main_impl()
         if (!builder_.ConvertRawSaplingSpend(extsk)) {
             throw JSONRPCError(RPC_WALLET_ERROR, strprintf("%s: Converting Raw Sapling Spends failed.\n", getId()));
         }
-
     }
 
+    // =================================================================
+    // STEP 7: Handle Orchard shielded address spending
+    // =================================================================
 
-    if (isfromorchardaddr_) {
+    if (isFromOrchardAddress_) {
         LOCK2(cs_main, pwalletMain->cs_wallet);
 
-        // Get various necessary keys
+        // Get various necessary keys for Orchard spending
         OrchardExtendedSpendingKeyPirate extsk;
-        extsk = *(std::get_if<libzcash::OrchardExtendedSpendingKeyPirate>(&spendingkey_));
+        auto extskPtr = std::get_if<libzcash::OrchardExtendedSpendingKeyPirate>(&spendingkey_);
+        if (!extskPtr) {
+            throw JSONRPCError(RPC_WALLET_ERROR, strprintf("%s: Invalid Orchard spending key type. Stopping.\n", getId()));
+        }
+        extsk = *extskPtr;
 
         auto fvkOpt = extsk.GetXFVK();
         if (fvkOpt == std::nullopt) {
@@ -643,7 +793,7 @@ bool AsyncRPCOperation_sendmany::main_impl()
 
         auto fvk = fvkOpt.value().fvk;
         auto ovkOpt = fvk.GetOVK();
-        if (fvkOpt == std::nullopt) {
+        if (ovkOpt == std::nullopt) {
           throw JSONRPCError(
               RPC_WALLET_ERROR,
                strprintf("%s: OVK not found for Orchard spending key. Stopping.\n", getId()));
@@ -651,10 +801,10 @@ bool AsyncRPCOperation_sendmany::main_impl()
 
         ovk = ovkOpt.value().ovk;
 
-
+        // Process Orchard notes for spending
         CAmount sum = 0;
         uint256 anchor;
-        for (auto entry : z_orchard_inputs_) {
+        for (auto entry : orchardInputs_) {
 
             libzcash::MerklePath orchardMerklePath;
             if (!pwalletMain->OrchardWalletGetMerklePathOfNote(entry.op.hash, entry.op.n, orchardMerklePath)) {
@@ -666,7 +816,7 @@ bool AsyncRPCOperation_sendmany::main_impl()
                 throw JSONRPCError(RPC_WALLET_ERROR, strprintf("%s: Getting Orchard Anchor failed. Stopping.\n", getId()));
             }
 
-            //Set orchard anchor for transaction
+            // Set orchard anchor for transaction (use first valid anchor)
             if (anchor.IsNull()) {
                 anchor = pathAnchor;
             }
@@ -676,12 +826,12 @@ bool AsyncRPCOperation_sendmany::main_impl()
             }
 
             sum += entry.note.value();
-            if (sum >= targetAmount) {
+            if (sum >= totalTargetAmount) {
                 break;
             }
         }
 
-        //Initalize Orchard builder
+        // Initialize Orchard builder with spending capabilities
         builder_.InitializeOrchard(true, true, anchor);
 
         if (!builder_.ConvertRawOrchardSpend(extsk)) {
@@ -689,243 +839,331 @@ bool AsyncRPCOperation_sendmany::main_impl()
         }
 
     } else {
+        // Initialize Orchard builder without spending (outputs only)
         builder_.InitializeOrchard(false, true, uint256());
     }
 
-    assert(!ovk.IsNull());
+    // Ensure we have a valid OVK at this point
+    if (ovk.IsNull()) {
+        throw JSONRPCError(RPC_WALLET_ERROR, strprintf("%s: OVK was not properly initialized for this address type.\n", getId()));
+    }
 
-    // Add Sapling outputs
-    for (auto r : sapling_outputs_) {
-        auto address = std::get<0>(r);
-        auto value = std::get<1>(r);
-        auto hexMemo = std::get<2>(r);
+    // =================================================================
+    // STEP 8: Add outputs to the transaction
+    // =================================================================
 
-        auto addr = DecodePaymentAddress(address);
-        assert(std::get_if<libzcash::SaplingPaymentAddress>(&addr) != nullptr);
-        auto to = *(std::get_if<libzcash::SaplingPaymentAddress>(&addr));
+    // Process Sapling outputs
+    for (const auto& saplingOutput : saplingOutputs_) {
+        std::string recipientAddress = std::get<0>(saplingOutput);
+        CAmount outputValue = std::get<1>(saplingOutput);
+        std::string hexMemo = std::get<2>(saplingOutput);
 
-        auto memo = get_memo_from_hex_string(hexMemo);
+        // Decode and validate the Sapling payment address
+        auto decodedAddress = DecodePaymentAddress(recipientAddress);
+        assert(std::get_if<libzcash::SaplingPaymentAddress>(&decodedAddress) != nullptr);
+        auto saplingPaymentAddress = *(std::get_if<libzcash::SaplingPaymentAddress>(&decodedAddress));
 
-        if (!builder_.AddSaplingOutputRaw(to, value, memo)) {
+        // Convert hex memo to byte array
+        auto memoArray = get_memo_from_hex_string(hexMemo);
+
+        // Add the raw Sapling output to the transaction builder
+        if (!builder_.AddSaplingOutputRaw(saplingPaymentAddress, outputValue, memoArray)) {
             throw JSONRPCError(RPC_WALLET_ERROR, strprintf("%s: Adding Raw Sapling Output failed. Stopping.\n", getId()));
         }
     }
 
-    //Add Outputs to sapling builder with OVK
+    // Convert raw Sapling outputs with OVK for encryption
     if (!builder_.ConvertRawSaplingOutput(ovk)) {
-        throw JSONRPCError(RPC_WALLET_ERROR, strprintf("%s: Converting Raw Orchard Outputs failed.\n", getId()));
+        throw JSONRPCError(RPC_WALLET_ERROR, strprintf("%s: Converting Raw Sapling Outputs failed.\n", getId()));
     }
 
-    // Add Orchard outputs
-    for (auto r : orchard_outputs_) {
-        auto address = std::get<0>(r);
-        auto value = std::get<1>(r);
-        auto hexMemo = std::get<2>(r);
+    // Process Orchard outputs
+    for (const auto& orchardOutput : orchardOutputs_) {
+        std::string recipientAddress = std::get<0>(orchardOutput);
+        CAmount outputValue = std::get<1>(orchardOutput);
+        std::string hexMemo = std::get<2>(orchardOutput);
 
-        auto addr = DecodePaymentAddress(address);
-        assert(std::get_if<libzcash::OrchardPaymentAddressPirate>(&addr) != nullptr);
-        auto to = *(std::get_if<libzcash::OrchardPaymentAddressPirate>(&addr));
+        // Decode and validate the Orchard payment address
+        auto decodedAddress = DecodePaymentAddress(recipientAddress);
+        assert(std::get_if<libzcash::OrchardPaymentAddressPirate>(&decodedAddress) != nullptr);
+        auto orchardPaymentAddress = *(std::get_if<libzcash::OrchardPaymentAddressPirate>(&decodedAddress));
 
-        auto memo = get_memo_from_hex_string(hexMemo);
+        // Convert hex memo to byte array
+        auto memoArray = get_memo_from_hex_string(hexMemo);
 
-        if (!builder_.AddOrchardOutputRaw(to, value, memo)) {
+        // Add the raw Orchard output to the transaction builder
+        if (!builder_.AddOrchardOutputRaw(orchardPaymentAddress, outputValue, memoArray)) {
             throw JSONRPCError(RPC_WALLET_ERROR, strprintf("%s: Adding Raw Orchard Output failed. Stopping.\n", getId()));
         }
     }
 
-    //Add Outputs to orchard builder with OVK
+    // Convert raw Orchard outputs with OVK for encryption
     if (!builder_.ConvertRawOrchardOutput(ovk)) {
         throw JSONRPCError(RPC_WALLET_ERROR, strprintf("%s: Converting Raw Orchard Outputs failed.\n", getId()));
     }
 
-    // Build the transaction
+    // =================================================================
+    // STEP 9: Build and send the transaction
+    // =================================================================
+    
+    // Build the final transaction from all inputs and outputs
     tx_ = builder_.Build().GetTxOrThrow();
 
-    // Send the transaction
-    // TODO: Use CWallet::CommitTransaction instead of sendrawtransaction
-    auto signedtxn = EncodeHexTx(tx_);
+    // Encode transaction for transmission
+    auto signedTransactionHex = EncodeHexTx(tx_);
+    
     if (!testmode) {
-        UniValue params = UniValue(UniValue::VARR);
-        params.push_back(signedtxn);
-        UniValue sendResultValue = sendrawtransaction(params, false, CPubKey());
-        if (sendResultValue.isNull()) {
+        // Production mode: broadcast transaction to the network
+        UniValue rpcParams = UniValue(UniValue::VARR);
+        rpcParams.push_back(signedTransactionHex);
+        
+        UniValue broadcastResult = sendrawtransaction(rpcParams, false, CPubKey());
+        if (broadcastResult.isNull()) {
             throw JSONRPCError(RPC_WALLET_ERROR, "sendrawtransaction did not return an error or a txid.");
         }
 
-        auto txid = sendResultValue.get_str();
+        std::string transactionId = broadcastResult.get_str();
 
-        UniValue o(UniValue::VOBJ);
-        o.push_back(Pair("txid", txid));
-        set_result(o);
+        // Set successful result with transaction ID
+        UniValue result(UniValue::VOBJ);
+        result.push_back(Pair("txid", transactionId));
+        set_result(result);
     } else {
-        // Test mode does not send the transaction to the network.
-        UniValue o(UniValue::VOBJ);
-        o.push_back(Pair("test", 1));
-        o.push_back(Pair("txid", tx_.GetHash().ToString()));
-        o.push_back(Pair("hex", signedtxn));
-        set_result(o);
+        // Test mode: return transaction details without broadcasting  
+        UniValue result(UniValue::VOBJ);
+        result.push_back(Pair("test", 1));
+        result.push_back(Pair("txid", tx_.GetHash().ToString()));
+        result.push_back(Pair("hex", signedTransactionHex));
+        set_result(result);
     }
 
     return true;
-}
-
-bool AsyncRPCOperation_sendmany::find_utxos(bool fAcceptCoinbase = false)
-{
-    std::set<CTxDestination> destinations;
-    destinations.insert(fromtaddr_);
-
-    vector<COutput> vecOutputs;
-
-    LOCK2(cs_main, pwalletMain->cs_wallet);
-    pwalletMain->AvailableCoins(vecOutputs, false, NULL, true, fAcceptCoinbase);
-
-    BOOST_FOREACH (const COutput& out, vecOutputs) {
-        CTxDestination dest;
-
-        if (!out.fSpendable) {
-            continue;
-        }
-
-        if (mindepth_ > 1) {
-            int nHeight = tx_height(out.tx->GetHash());
-            int dpowconfs = komodo_dpowconfs(nHeight, out.nDepth);
-            if (dpowconfs < mindepth_) {
-                continue;
-            }
-        } else {
-            if (out.nDepth < mindepth_) {
-                continue;
-            }
-        }
-
-        const CScript& scriptPubKey = out.tx->vout[out.i].scriptPubKey;
-
-        if (destinations.size()) {
-            if (!ExtractDestination(scriptPubKey, dest)) {
-                continue;
-            }
-
-            if (!destinations.count(dest)) {
-                continue;
-            }
-        }
-
-        // By default we ignore coinbase outputs
-        bool isCoinbase = out.tx->IsCoinBase();
-        if (isCoinbase && fAcceptCoinbase == false) {
-            continue;
-        }
-
-        if (!ExtractDestination(scriptPubKey, dest, true))
-            continue;
-
-        CAmount nValue = out.tx->vout[out.i].nValue;
-
-        SendManyInputUTXO utxo(out.tx->GetHash(), out.i, nValue, isCoinbase, dest);
-        t_inputs_.push_back(utxo);
-    }
-
-    // sort in ascending order, so smaller utxos appear first
-    std::sort(t_inputs_.begin(), t_inputs_.end(), [](SendManyInputUTXO i, SendManyInputUTXO j) -> bool {
-        return (std::get<2>(i) < std::get<2>(j));
-    });
-
-    return t_inputs_.size() > 0;
-}
-
-
-bool AsyncRPCOperation_sendmany::find_unspent_notes()
-{
-    std::vector<SaplingNoteEntry> saplingEntries;
-    std::vector<OrchardNoteEntry> orchardEntries;
-    {
-        LOCK2(cs_main, pwalletMain->cs_wallet);
-        if (bOfflineSpendingKey == true) {
-            // Offline transaction, Does not require the spending key in this wallet
-            pwalletMain->GetFilteredNotes(saplingEntries, orchardEntries, fromaddress_, mindepth_, true, false);
-        } else {
-            // Local transaction: Require the spending key
-            pwalletMain->GetFilteredNotes(saplingEntries, orchardEntries, fromaddress_, mindepth_, true, true);
-        }
-    }
-
-    for (auto entry : saplingEntries) {
-        z_sapling_inputs_.push_back(entry);
-        std::string data(entry.memo.begin(), entry.memo.end());
-        LogPrint("zrpcunsafe", "%s: found unspent Sapling note (txid=%s, vShieldedSpend=%d, amount=%s, memo=%s)\n",
-                 getId(),
-                 entry.op.hash.ToString().substr(0, 10),
-                 entry.op.n,
-                 FormatMoney(entry.note.value()),
-                 HexStr(data).substr(0, 10));
-    }
-
-    for (auto entry : orchardEntries) {
-        z_orchard_inputs_.push_back(entry);
-        std::string data(entry.memo.begin(), entry.memo.end());
-        LogPrint("zrpcunsafe", "%s: found unspent Orchard note (txid=%s, vShieldedSpend=%d, amount=%s, memo=%s)\n",
-                 getId(),
-                 entry.op.hash.ToString().substr(0, 10),
-                 entry.op.n,
-                 FormatMoney(entry.note.value()),
-                 HexStr(data).substr(0, 10));
-    }
-
-    if (z_sapling_inputs_.empty() && z_orchard_inputs_.empty()) {
-        return false;
-    }
-
-    // sort in descending order, so big notes appear first
-    std::sort(z_sapling_inputs_.begin(), z_sapling_inputs_.end(),
-              [](SaplingNoteEntry i, SaplingNoteEntry j) -> bool {
-                  return i.note.value() > j.note.value();
-              });
-
-    std::sort(z_orchard_inputs_.begin(), z_orchard_inputs_.end(),
-              [](OrchardNoteEntry i, OrchardNoteEntry j) -> bool {
-                  return i.note.value() > j.note.value();
-              });
-
-    return true;
-}
-
-std::array<unsigned char, ZC_MEMO_SIZE> AsyncRPCOperation_sendmany::get_memo_from_hex_string(std::string s)
-{
-    // initialize to default memo (no_memo), see section 5.5 of the protocol spec
-    std::array<unsigned char, ZC_MEMO_SIZE> memo = {{0xF6}};
-
-    std::vector<unsigned char> rawMemo = ParseHex(s.c_str());
-
-    // If ParseHex comes across a non-hex char, it will stop but still return results so far.
-    size_t slen = s.length();
-    if (slen % 2 != 0 || (slen > 0 && rawMemo.size() != slen / 2)) {
-        throw JSONRPCError(RPC_INVALID_PARAMETER, "Memo must be in hexadecimal format");
-    }
-
-    if (rawMemo.size() > ZC_MEMO_SIZE) {
-        throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Memo size of %d is too big, maximum allowed is %d", rawMemo.size(), ZC_MEMO_SIZE));
-    }
-
-    // copy vector into boost array
-    int lenMemo = rawMemo.size();
-    for (int i = 0; i < ZC_MEMO_SIZE && i < lenMemo; i++) {
-        memo[i] = rawMemo[i];
-    }
-    return memo;
 }
 
 /**
- * Override getStatus() to append the operation's input parameters to the default status object.
+ * @brief Find available UTXOs for transparent address spending
+ * 
+ * Searches the wallet for unspent transparent outputs that can be used as inputs
+ * for the transaction. Applies minimum depth and destination filtering.
+ * 
+ * @param acceptCoinbaseOutputs Whether to include coinbase outputs in the search
+ * @return true if suitable UTXOs were found, false otherwise
+ */
+bool AsyncRPCOperation_sendmany::find_utxos(bool acceptCoinbaseOutputs)
+{
+    // Set up destination filter for the from address
+    std::set<CTxDestination> allowedDestinations;
+    allowedDestinations.insert(fromtaddr_);
+
+    std::vector<COutput> availableOutputs;
+
+    // Retrieve all available coins from the wallet
+    {
+        LOCK2(cs_main, pwalletMain->cs_wallet);
+        pwalletMain->AvailableCoins(availableOutputs, false, NULL, true, acceptCoinbaseOutputs);
+    }
+
+    // Process each available output
+    for (const COutput& output : availableOutputs) {
+        CTxDestination outputDestination;
+
+        // Skip unspendable outputs
+        if (!output.fSpendable) {
+            continue;
+        }
+
+        // Apply minimum depth requirements with dPoW consideration
+        if (mindepth_ > 1) {
+            int blockHeight = tx_height(output.tx->GetHash());
+            int dPoWConfirmations = komodo_dpowconfs(blockHeight, output.nDepth);
+            if (dPoWConfirmations < mindepth_) {
+                continue;
+            }
+        } else {
+            if (output.nDepth < mindepth_) {
+                continue;
+            }
+        }
+
+        const CScript& outputScript = output.tx->vout[output.i].scriptPubKey;
+
+        // Apply destination filtering if we have specific destinations
+        if (!allowedDestinations.empty()) {
+            if (!ExtractDestination(outputScript, outputDestination)) {
+                continue;
+            }
+
+            if (allowedDestinations.find(outputDestination) == allowedDestinations.end()) {
+                continue;
+            }
+        }
+
+        // Check if this is a coinbase output and apply acceptance policy
+        bool isCoinbaseOutput = output.tx->IsCoinBase();
+        if (isCoinbaseOutput && !acceptCoinbaseOutputs) {
+            continue;
+        }
+
+        // Extract the destination for the UTXO record
+        if (!ExtractDestination(outputScript, outputDestination, true)) {
+            continue;
+        }
+
+        CAmount outputValue = output.tx->vout[output.i].nValue;
+
+        // Create UTXO record and add to inputs list
+        SendManyInputUTXO utxoRecord(output.tx->GetHash(), output.i, outputValue, isCoinbaseOutput, outputDestination);
+        transparentInputs_.push_back(utxoRecord);
+    }
+
+    // Sort UTXOs in ascending order by value (smaller UTXOs first)
+    // This helps with optimal UTXO selection and change minimization
+    std::sort(transparentInputs_.begin(), transparentInputs_.end(), 
+        [](const SendManyInputUTXO& utxo1, const SendManyInputUTXO& utxo2) -> bool {
+            return std::get<2>(utxo1) < std::get<2>(utxo2);
+        });
+
+    return !transparentInputs_.empty();
+}
+
+
+/**
+ * @brief Find unspent shielded notes for spending
+ * 
+ * Searches the wallet for unspent Sapling and Orchard notes that can be used
+ * as inputs for the transaction. Handles both online and offline spending modes.
+ * 
+ * @return true if suitable notes were found, false otherwise
+ */
+bool AsyncRPCOperation_sendmany::find_unspent_notes()
+{
+    std::vector<SaplingNoteEntry> saplingNoteEntries;
+    std::vector<OrchardNoteEntry> orchardNoteEntries;
+    
+    // Retrieve filtered notes based on spending mode
+    {
+        LOCK2(cs_main, pwalletMain->cs_wallet);
+        
+        if (hasOfflineSpendingKey) {
+            // Offline mode: retrieve notes without requiring spending key validation
+            pwalletMain->GetFilteredNotes(saplingNoteEntries, orchardNoteEntries, 
+                                        fromaddress_, mindepth_, true, false);
+        } else {
+            // Online mode: require spending key validation
+            pwalletMain->GetFilteredNotes(saplingNoteEntries, orchardNoteEntries, 
+                                        fromaddress_, mindepth_, true, true);
+        }
+    }
+
+    // Process Sapling note entries
+    for (const auto& noteEntry : saplingNoteEntries) {
+        saplingInputs_.push_back(noteEntry);
+        
+        // Log note discovery for debugging (truncated for readability)
+        std::string memoData(noteEntry.memo.begin(), noteEntry.memo.end());
+        LogPrint("zrpcunsafe", "%s: found unspent Sapling note (txid=%s, output=%d, amount=%s, memo=%s)\n",
+                 getId(),
+                 noteEntry.op.hash.ToString().substr(0, 10),
+                 noteEntry.op.n,
+                 FormatMoney(noteEntry.note.value()),
+                 HexStr(memoData).substr(0, 10));
+    }
+
+    // Process Orchard note entries
+    for (const auto& noteEntry : orchardNoteEntries) {
+        orchardInputs_.push_back(noteEntry);
+        
+        // Log note discovery for debugging (truncated for readability)
+        std::string memoData(noteEntry.memo.begin(), noteEntry.memo.end());
+        LogPrint("zrpcunsafe", "%s: found unspent Orchard note (txid=%s, output=%d, amount=%s, memo=%s)\n",
+                 getId(),
+                 noteEntry.op.hash.ToString().substr(0, 10),
+                 noteEntry.op.n,
+                 FormatMoney(noteEntry.note.value()),
+                 HexStr(memoData).substr(0, 10));
+    }
+
+    // Return false if no notes were found
+    if (saplingInputs_.empty() && orchardInputs_.empty()) {
+        return false;
+    }
+
+    // Sort notes in descending order by value (largest notes first)
+    // This optimizes note selection by preferring fewer, larger notes
+    std::sort(saplingInputs_.begin(), saplingInputs_.end(),
+              [](const SaplingNoteEntry& note1, const SaplingNoteEntry& note2) -> bool {
+                  return note1.note.value() > note2.note.value();
+              });
+
+    std::sort(orchardInputs_.begin(), orchardInputs_.end(),
+              [](const OrchardNoteEntry& note1, const OrchardNoteEntry& note2) -> bool {
+                  return note1.note.value() > note2.note.value();
+              });
+
+    return true;
+}
+
+/**
+ * @brief Convert hexadecimal string to memo byte array
+ * 
+ * Parses a hexadecimal string and converts it to a fixed-size memo array
+ * suitable for use in shielded transactions. Validates hex format and size.
+ * 
+ * @param hexString Hexadecimal string representation of the memo
+ * @return std::array<unsigned char, ZC_MEMO_SIZE> Fixed-size memo array
+ * @throws JSONRPCError if hex format is invalid or memo is too large
+ */
+std::array<unsigned char, ZC_MEMO_SIZE> AsyncRPCOperation_sendmany::get_memo_from_hex_string(std::string hexString)
+{
+    // Initialize memo to default "no_memo" value (0xF6), per protocol spec section 5.5
+    std::array<unsigned char, ZC_MEMO_SIZE> memoArray = {{0xF6}};
+
+    // Parse hexadecimal string to raw bytes
+    std::vector<unsigned char> rawMemoBytes = ParseHex(hexString.c_str());
+
+    // Validate hex string format
+    size_t hexStringLength = hexString.length();
+    if (hexStringLength % 2 != 0 || (hexStringLength > 0 && rawMemoBytes.size() != hexStringLength / 2)) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Memo must be in hexadecimal format");
+    }
+
+    // Validate memo size doesn't exceed maximum
+    if (rawMemoBytes.size() > ZC_MEMO_SIZE) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, 
+            strprintf("Memo size of %d is too big, maximum allowed is %d", 
+                     rawMemoBytes.size(), ZC_MEMO_SIZE));
+    }
+
+    // Copy parsed bytes into the fixed-size memo array
+    size_t bytesToCopy = std::min(static_cast<size_t>(ZC_MEMO_SIZE), rawMemoBytes.size());
+    for (size_t i = 0; i < bytesToCopy; i++) {
+        memoArray[i] = rawMemoBytes[i];
+    }
+    
+    return memoArray;
+}
+
+/**
+ * @brief Override getStatus() to include operation parameters in status
+ * 
+ * Extends the base status information with the specific parameters used
+ * for this z_sendmany operation, providing better debugging and monitoring.
+ * 
+ * @return UniValue Status object with method and parameters included
  */
 UniValue AsyncRPCOperation_sendmany::getStatus() const
 {
-    UniValue v = AsyncRPCOperation::getStatus();
+    UniValue baseStatus = AsyncRPCOperation::getStatus();
+    
+    // Return base status if no context info is available
     if (contextinfo_.isNull()) {
-        return v;
+        return baseStatus;
     }
 
-    UniValue obj = v.get_obj();
-    obj.push_back(Pair("method", "z_sendmany"));
-    obj.push_back(Pair("params", contextinfo_));
-    return obj;
+    // Add method name and parameters to the status object
+    UniValue enhancedStatus = baseStatus.get_obj();
+    enhancedStatus.push_back(Pair("method", "z_sendmany"));
+    enhancedStatus.push_back(Pair("params", contextinfo_));
+    
+    return enhancedStatus;
 }
