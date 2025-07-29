@@ -46,6 +46,7 @@
 #include "net.h"
 #include "pow.h"
 #include "primitives/transaction.h"
+#include "primitives/block.h"
 #include "random.h"
 #include "timedata.h"
 #include "ui_interface.h"
@@ -991,6 +992,24 @@ void IncrementExtraNonce(CBlock* pblock, CBlockIndex* pindexPrev, unsigned int& 
 
     pblock->vtx[0] = txCoinbase;
     pblock->hashMerkleRoot = pblock->BuildMerkleTree();
+
+    // For Orchard blocks, we also need to update hashBlockCommitments since
+    // changing the coinbase transaction changes the auth data root
+    if (NetworkUpgradeActive(nHeight, Params().GetConsensus(), Consensus::UPGRADE_ORCHARD)) {
+        // Get the chain history root from the current view
+        LOCK(cs_main);
+        CCoinsViewCache view(pcoinsTip);
+        uint32_t prevConsensusBranchId = CurrentEpochBranchId(pindexPrev->nHeight, Params().GetConsensus());
+        uint256 hashChainHistoryRoot = view.GetHistoryRoot(prevConsensusBranchId);
+        
+        // Recalculate the auth data root with the modified coinbase transaction
+        uint256 hashAuthDataRoot = pblock->BuildAuthDataMerkleTree();
+        
+        // Recalculate hashBlockCommitments
+        pblock->hashBlockCommitments = DeriveBlockCommitmentsHash(
+            hashChainHistoryRoot,
+            hashAuthDataRoot);
+    }
 }
 
 #ifdef ENABLE_WALLET
