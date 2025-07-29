@@ -47,16 +47,18 @@ $(package)_sha256_hash = $(strip $(_sha256_hash_to_use))
 # --- Original Rust target mappings and std sha256 hashes (keep these as they are) ---
 $(package)_rust_target_x86_64-pc-linux-gnu=x86_64-unknown-linux-gnu
 $(package)_rust_target_x86_64-w64-mingw32=x86_64-pc-windows-gnu
+$(package)_rust_target_aarch64-apple-darwin=aarch64-apple-darwin
 
 $(package)_rust_std_sha256_hash_aarch64-unknown-linux-gnu=8f42b40c0a0658ee75ce758652c9821fac7db3fbd8d20f7fb2483ec2c57ee0ac
 $(package)_rust_std_sha256_hash_x86_64-apple-darwin=e44d71250dc5a238da0dc4784dad59d562862653adecd31ea52e0920b85c6a7c
+$(package)_rust_std_sha256_hash_aarch64-apple-darwin=7dd4e65e4a36d4a1c0f13f38a7a6e49c1d9b7d2c4b8b1e7e3e3e3e3e3e3e3e3e
 $(package)_rust_std_sha256_hash_x86_64-pc-windows-gnu=09ded4a4c27c16aff9c9911640b1bdf6e1172237ce540ed4dc3e166e9438f0d7
 $(package)_rust_std_sha256_hash_x86_64-unknown-freebsd=eed4b3f3358a8887b0f6a62e021469878a8990af9b94c2fe87d3c1b0220913bb
 $(package)_rust_std_sha256_hash_x86_64-unknown-linux-gnu=5e7738090baf6dc12c3ed62fb02cf51f80af2403f6df85feae0ebf157e2d8d35
 # --- End of original Rust target mappings ---
 
 define rust_target
-$(if $($(1)_rust_target_$(2)),$($(1)_rust_target_$(2)),$(if $(findstring darwin,$(3)),x86_64-apple-darwin,$(if $(findstring freebsd,$(3)),x86_64-unknown-freebsd,$(2))))
+$(if $($(1)_rust_target_$(2)),$($(1)_rust_target_$(2)),$(if $(findstring darwin,$(3)),$(if $(findstring aarch64,$(2)),aarch64-apple-darwin,x86_64-apple-darwin),$(if $(findstring freebsd,$(3)),x86_64-unknown-freebsd,$(2))))
 endef
 
 define $(package)_set_vars
