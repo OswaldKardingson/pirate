@@ -1,4 +1,5 @@
 // Copyright (c) 2017 The Zcash developers
+// Copyright (c) 2022-2025 Pirate developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -16,6 +17,18 @@
  * Removal or modification of this copyright notice is prohibited.            *
  *                                                                            *
  ******************************************************************************/
+
+/**
+ * @file asyncrpcoperation_mergetoaddress.cpp
+ * @brief Implementation of asynchronous merge-to-address operation
+ * 
+ * Implements z_mergetoaddress RPC operation for consolidating multiple
+ * UTXOs and shielded notes into a single output address.
+ * 
+ * Purpose: Consolidate fragmented funds from multiple sources
+ * Inputs: Transparent UTXOs, Sapling notes, Orchard notes
+ * Outputs: Single consolidated output at destination address
+ */
 
 #include "asyncrpcoperation_mergetoaddress.h"
 
@@ -50,26 +63,28 @@
 
 using namespace libzcash;
 
-// extern UniValue sendrawtransaction(const UniValue& params, bool fHelp, const CPubKey& mypk);
 
-int mta_find_output(UniValue obj, int n)
-{
-    UniValue outputMapValue = find_value(obj, "outputmap");
-    if (!outputMapValue.isArray()) {
-        throw JSONRPCError(RPC_WALLET_ERROR, "Missing outputmap for JoinSplit operation");
-    }
 
-    UniValue outputMap = outputMapValue.get_array();
-    assert(outputMap.size() == ZC_NUM_JS_OUTPUTS);
-    for (size_t i = 0; i < outputMap.size(); i++) {
-        if (outputMap[i].get_int() == n) {
-            return i;
-        }
-    }
+//==============================================================================
+// CONSTRUCTOR AND INITIALIZATION
+//==============================================================================
 
-    throw std::logic_error("n is not present in outputmap");
-}
-
+/**
+ * @brief Constructor for merge-to-address operation
+ * 
+ * Initializes merge operation with multi-protocol input support and resource locking.
+ * 
+ * @param consensusParams Network consensus parameters
+ * @param nHeight Current blockchain height
+ * @param contextualTx Base transaction context
+ * @param utxoInputs Transparent UTXO inputs to merge
+ * @param saplingNoteInputs Sapling note inputs to merge
+ * @param orchardNoteInputs Orchard note inputs to merge
+ * @param recipient Destination address and memo
+ * @param fee Transaction fee amount
+ * @param contextInfo Context information for logging
+ * @throws JSONRPCError for invalid parameters or addresses
+ */
 AsyncRPCOperation_mergetoaddress::AsyncRPCOperation_mergetoaddress(
     const Consensus::Params& consensusParams,
     const int nHeight,
@@ -79,10 +94,19 @@ AsyncRPCOperation_mergetoaddress::AsyncRPCOperation_mergetoaddress(
     std::vector<MergeToAddressInputOrchardNote> orchardNoteInputs,
     MergeToAddressRecipient recipient,
     CAmount fee,
-    UniValue contextInfo) : tx_(contextualTx), utxoInputs_(utxoInputs),
-                            saplingNoteInputs_(saplingNoteInputs), orchardNoteInputs_(orchardNoteInputs), recipient_(recipient), fee_(fee), contextinfo_(contextInfo),
+    UniValue contextInfo) : tx_(contextualTx), 
+                            utxoInputs_(utxoInputs),
+                            saplingNoteInputs_(saplingNoteInputs), 
+                            orchardNoteInputs_(orchardNoteInputs), 
+                            recipient_(recipient), 
+                            fee_(fee), 
+                            contextinfo_(contextInfo),
                             builder_(TransactionBuilder(consensusParams, nHeight, pwalletMain))
 {
+    // =================================================================
+    // PARAMETER VALIDATION
+    // =================================================================
+    
     if (fee < 0 || fee > MAX_MONEY) {
         throw JSONRPCError(RPC_INVALID_PARAMETER, "Fee is out of range");
     }
@@ -95,10 +119,19 @@ AsyncRPCOperation_mergetoaddress::AsyncRPCOperation_mergetoaddress(
         throw JSONRPCError(RPC_INVALID_PARAMETER, "Recipient parameter missing");
     }
 
+    // =================================================================
+    // RECIPIENT ADDRESS TYPE DETECTION AND VALIDATION
+    // =================================================================
+    
+    // Initialize address type flags
+    isToTaddr_ = false;
+    isToZaddr_ = false;
+    
+    // Try to decode as transparent address first
     toTaddr_ = DecodeDestination(std::get<0>(recipient));
     isToTaddr_ = IsValidDestination(toTaddr_);
-    isToZaddr_ = false;
 
+    // If not a transparent address, try shielded address
     if (!isToTaddr_) {
         auto address = DecodePaymentAddress(std::get<0>(recipient));
         if (IsValidPaymentAddress(address)) {
@@ -108,30 +141,60 @@ AsyncRPCOperation_mergetoaddress::AsyncRPCOperation_mergetoaddress(
             throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid recipient address");
         }
     }
+    
+    // Ensure exactly one address type is set (transparent XOR shielded)
+    assert(isToTaddr_ != isToZaddr_);
+    assert(isToTaddr_ || isToZaddr_);
 
-    // Log the context info i.e. the call parameters to z_mergetoaddress
+    // =================================================================
+    // LOGGING AND RESOURCE MANAGEMENT
+    // =================================================================
+    
+    // Log operation initialization with appropriate detail level
     if (LogAcceptCategory("zrpcunsafe")) {
         LogPrint("zrpcunsafe", "%s: z_mergetoaddress initialized (params=%s)\n", getId(), contextInfo.write());
     } else {
         LogPrint("zrpc", "%s: z_mergetoaddress initialized\n", getId());
     }
 
-    // Lock UTXOs
+    // Lock input resources to prevent concurrent operations from using them
     lock_utxos();
-    lock_notes();
+    lock_sapling_notes();
     lock_orchard_notes();
 }
 
+//==============================================================================
+// DESTRUCTOR AND RESOURCE CLEANUP
+//==============================================================================
+
+/**
+ * @brief Destructor with automatic resource cleanup
+ * 
+ * Resources are unlocked explicitly in main() for immediate availability
+ * rather than in destructor following RAII principles.
+ */
 AsyncRPCOperation_mergetoaddress::~AsyncRPCOperation_mergetoaddress()
 {
+    // No explicit cleanup required - resources unlocked in main()
 }
 
+//==============================================================================
+// MAIN EXECUTION FRAMEWORK
+//==============================================================================
+
+/**
+ * @brief Main execution entry point for merge-to-address operation
+ * 
+ * Handles complete operation lifecycle including state management,
+ * mining control, error handling, and resource cleanup.
+ */
 void AsyncRPCOperation_mergetoaddress::main()
 {
+    // Early exit if operation was cancelled
     if (isCancelled()) {
-        unlock_utxos(); // clean up
-        unlock_notes();
-        unlock_orchard_notes(); // clean up
+        unlock_utxos();
+        unlock_sapling_notes();
+        unlock_orchard_notes();
         return;
     }
 
@@ -140,6 +203,7 @@ void AsyncRPCOperation_mergetoaddress::main()
 
     bool success = false;
 
+    // Temporarily disable mining during transaction building
 #ifdef ENABLE_MINING
 #ifdef ENABLE_WALLET
     GenerateBitcoins(false, NULL, 0);
@@ -169,6 +233,7 @@ void AsyncRPCOperation_mergetoaddress::main()
         set_error_message("unknown error");
     }
 
+    // Re-enable mining if it was previously enabled
 #ifdef ENABLE_MINING
 #ifdef ENABLE_WALLET
     GenerateBitcoins(GetBoolArg("-gen", false), pwalletMain, GetArg("-genproclimit", 1));
@@ -179,80 +244,118 @@ void AsyncRPCOperation_mergetoaddress::main()
 
     stop_execution_clock();
 
+    // Update operation state based on success/failure
     if (success) {
         set_state(OperationStatus::SUCCESS);
     } else {
         set_state(OperationStatus::FAILED);
     }
 
-    std::string s = strprintf("%s: z_mergetoaddress finished (status=%s", getId(), getStateAsString());
+    // Log completion status with transaction ID or error details
+    std::string logMessage = strprintf("%s: z_mergetoaddress finished (status=%s", getId(), getStateAsString());
     if (success) {
-        s += strprintf(", txid=%s)\n", tx_.GetHash().ToString());
+        logMessage += strprintf(", txid=%s)\n", tx_.GetHash().ToString());
     } else {
-        s += strprintf(", error=%s)\n", getErrorMessage());
+        logMessage += strprintf(", error=%s)\n", getErrorMessage());
     }
-    LogPrintf("%s", s);
+    LogPrintf("%s", logMessage);
 
-    unlock_utxos(); // clean up
-    unlock_notes(); // clean up
-    unlock_orchard_notes(); // clean up
+    // Clean up locked resources
+    unlock_utxos();
+    unlock_sapling_notes();
+    unlock_orchard_notes();
 }
 
-// Notes:
-// 1. #1359 Currently there is no limit set on the number of joinsplits, so size of tx could be invalid.
-// 2. #1277 Spendable notes are not locked, so an operation running in parallel could also try to use them.
+// Known issues (TODO items):
+// 1. #1277 Spendable notes are not locked, so an operation running in parallel could also try to use them.
+
+/**
+ * @brief Core implementation of multi-protocol merge operation
+ * 
+ * Consolidates inputs from transparent, Sapling, and Orchard protocols
+ * into a single output destination with proper cryptographic handling.
+ * 
+ * @return true if transaction built and broadcast successfully
+ * @throws JSONRPCError for validation failures or transaction building errors
+ */
 bool AsyncRPCOperation_mergetoaddress::main_impl()
 {
+    // Ensure exactly one output type (transparent XOR shielded) 
     assert(isToTaddr_ != isToZaddr_);
 
+    // Determine if this is a pure transparent-only transaction (affects logging sensitivity)
     bool isPureTaddrOnlyTx = (saplingNoteInputs_.empty() && orchardNoteInputs_.empty() && isToTaddr_);
     CAmount minersFee = fee_;
 
+    // =================================================================
+    // STEP 1: Validate transaction input limits
+    // =================================================================
+    
     size_t numInputs = utxoInputs_.size();
 
-    // Check mempooltxinputlimit to avoid creating a transaction which the local mempool rejects
-    size_t limit = (size_t)GetArg("-mempooltxinputlimit", 0);
+    // Check mempooltxinputlimit to avoid creating a transaction the local mempool rejects
+    size_t inputLimit = (size_t)GetArg("-mempooltxinputlimit", 0);
     {
         LOCK(cs_main);
         if (NetworkUpgradeActive(chainActive.Height() + 1, Params().GetConsensus(), Consensus::UPGRADE_OVERWINTER)) {
-            limit = 0;
+            inputLimit = 0; // No limit after Overwinter upgrade
         }
     }
-    if (limit > 0 && numInputs > limit) {
+    if (inputLimit > 0 && numInputs > inputLimit) {
         throw JSONRPCError(RPC_WALLET_ERROR,
                            strprintf("Number of transparent inputs %d is greater than mempooltxinputlimit of %d",
-                                     numInputs, limit));
+                                     numInputs, inputLimit));
     }
 
-    CAmount t_inputs_total = 0;
-    for (MergeToAddressInputUTXO& t : utxoInputs_) {
-        t_inputs_total += std::get<1>(t);
+    // =================================================================
+    // STEP 2: Calculate input totals from all sources
+    // =================================================================
+    
+    // Calculate total value from transparent inputs
+    CAmount totalTransparentInputs = 0;
+    for (const MergeToAddressInputUTXO& utxo : utxoInputs_) {
+        totalTransparentInputs += std::get<1>(utxo);
     }
 
-    CAmount z_inputs_total = 0;
+    // Calculate total value from shielded inputs (Sapling + Orchard)
+    CAmount totalShieldedInputs = 0;
 
-    for (const MergeToAddressInputSaplingNote& t : saplingNoteInputs_) {
-        z_inputs_total += std::get<2>(t);
+    for (const MergeToAddressInputSaplingNote& saplingNote : saplingNoteInputs_) {
+        totalShieldedInputs += std::get<2>(saplingNote);
     }
 
-    for (const MergeToAddressInputOrchardNote& t : orchardNoteInputs_) {
-        z_inputs_total += std::get<2>(t);
+    for (const MergeToAddressInputOrchardNote& orchardNote : orchardNoteInputs_) {
+        totalShieldedInputs += std::get<2>(orchardNote);
     }
 
-    CAmount targetAmount = z_inputs_total + t_inputs_total;
+    // Calculate total input value and validate against fees
+    CAmount totalInputAmount = totalShieldedInputs + totalTransparentInputs;
 
-    if (targetAmount <= minersFee) {
+    // Validate that we have positive amounts
+    if (totalInputAmount <= 0) {
+        throw JSONRPCError(RPC_WALLET_ERROR, "Total input amount must be positive");
+    }
+    
+    if (minersFee < 0) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Miners fee cannot be negative");
+    }
+
+    if (totalInputAmount <= minersFee) {
         throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS,
                            strprintf("Insufficient funds, have %s and miners fee is %s",
-                                     FormatMoney(targetAmount), FormatMoney(minersFee)));
+                                     FormatMoney(totalInputAmount), FormatMoney(minersFee)));
     }
 
-    CAmount sendAmount = targetAmount - minersFee;
+    CAmount sendAmount = totalInputAmount - minersFee;
 
+    // =================================================================
+    // STEP 3: Log transaction composition for debugging
+    // =================================================================
+    
     LogPrint(isPureTaddrOnlyTx ? "zrpc" : "zrpcunsafe", "%s: spending %s to send %s with fee %s\n",
-             getId(), FormatMoney(targetAmount), FormatMoney(sendAmount), FormatMoney(minersFee));
-    LogPrint("zrpc", "%s: transparent input: %s\n", getId(), FormatMoney(t_inputs_total));
-    LogPrint("zrpcunsafe", "%s: private input: %s\n", getId(), FormatMoney(z_inputs_total));
+             getId(), FormatMoney(totalInputAmount), FormatMoney(sendAmount), FormatMoney(minersFee));
+    LogPrint("zrpc", "%s: transparent input: %s\n", getId(), FormatMoney(totalTransparentInputs));
+    LogPrint("zrpcunsafe", "%s: private input: %s\n", getId(), FormatMoney(totalShieldedInputs));
     if (isToTaddr_) {
         LogPrint("zrpc", "%s: transparent output: %s\n", getId(), FormatMoney(sendAmount));
     } else {
@@ -260,192 +363,276 @@ bool AsyncRPCOperation_mergetoaddress::main_impl()
     }
     LogPrint("zrpc", "%s: fee: %s\n", getId(), FormatMoney(minersFee));
 
-    // Grab the current consensus branch ID
+    // =================================================================
+    // STEP 4: Configure transaction builder and consensus parameters
+    // =================================================================
+    
+    // Grab the current consensus branch ID for the transaction
     {
         LOCK(cs_main);
         consensusBranchId_ = CurrentEpochBranchId(chainActive.Height() + 1, Params().GetConsensus());
     }
 
     /**
+     * Configure the transaction builder with the calculated miner's fee.
      * This is based on code from AsyncRPCOperation_sendmany::main_impl() and should be refactored.
      */
     builder_.SetFee(minersFee);
 
-
-    for (const MergeToAddressInputUTXO& t : utxoInputs_) {
-        COutPoint outPoint = std::get<0>(t);
-        CAmount amount = std::get<1>(t);
-        CScript scriptPubKey = std::get<2>(t);
+    // =================================================================
+    // STEP 5: Add transparent inputs (UTXOs) to transaction builder
+    // =================================================================
+    
+    for (const MergeToAddressInputUTXO& transparentInput : utxoInputs_) {
+        COutPoint outPoint = std::get<0>(transparentInput);
+        CAmount amount = std::get<1>(transparentInput);
+        CScript scriptPubKey = std::get<2>(transparentInput);
+        
         builder_.AddTransparentInput(outPoint, scriptPubKey, amount);
     }
 
-    std::optional<uint256> ovk;
-    // Select Sapling notes
-    std::vector<SaplingOutPoint> saplingOPs;
+    // =================================================================
+    // STEP 6: Process Sapling shielded inputs
+    // =================================================================
+    
+    std::optional<uint256> outgoingViewingKey;
+    
+    // Collect Sapling note information for batch processing
+    std::vector<SaplingOutPoint> saplingOutPoints;
     std::vector<SaplingNote> saplingNotes;
-    std::vector<SaplingExtendedSpendingKey> extsks;
-    std::set<SaplingExtendedSpendingKey> setExtsks;
+    std::vector<SaplingExtendedSpendingKey> saplingExtendedKeys;
+    std::set<SaplingExtendedSpendingKey> uniqueExtendedKeys;
+    
     for (const MergeToAddressInputSaplingNote& saplingNoteInput : saplingNoteInputs_) {
-        saplingOPs.push_back(std::get<0>(saplingNoteInput));
+        saplingOutPoints.push_back(std::get<0>(saplingNoteInput));
         saplingNotes.push_back(std::get<1>(saplingNoteInput));
-        auto extsk = std::get<3>(saplingNoteInput);
-        extsks.push_back(extsk);
-        setExtsks.insert(extsk);
-        if (!ovk) {
-            ovk = extsk.expsk.full_viewing_key().ovk;
+        auto extendedSpendingKey = std::get<3>(saplingNoteInput);
+        saplingExtendedKeys.push_back(extendedSpendingKey);
+        uniqueExtendedKeys.insert(extendedSpendingKey);
+        
+        // Set outgoing viewing key from first available extended spending key
+        if (!outgoingViewingKey) {
+            outgoingViewingKey = extendedSpendingKey.expsk.full_viewing_key().ovk;
         }
     }
 
-    //Iterate thru all the selected notes and add them to the transactions
+    // Add Sapling notes to the transaction builder
+    // Iterate through all the selected notes and add them to the transaction
     {
         LOCK2(cs_main, pwalletMain->cs_wallet);
-        for (std::set<SaplingExtendedSpendingKey>::iterator it = setExtsks.begin(); it != setExtsks.end(); it++) {
-            auto currentExtsk = *it;
+        
+        for (std::set<SaplingExtendedSpendingKey>::iterator keyIterator = uniqueExtendedKeys.begin(); 
+             keyIterator != uniqueExtendedKeys.end(); keyIterator++) {
+            
+            auto currentExtendedKey = *keyIterator;
 
-            for (int i = 0; i < extsks.size(); i++) {
-                if (currentExtsk == extsks[i]) {
+            // Process each note that uses this extended spending key
+            for (int noteIndex = 0; noteIndex < saplingExtendedKeys.size(); noteIndex++) {
+                if (currentExtendedKey == saplingExtendedKeys[noteIndex]) {
+                    
+                    // Get the Merkle path for this note
                     libzcash::MerklePath saplingMerklePath;
-                    if (!pwalletMain->SaplingWalletGetMerklePathOfNote(saplingOPs[i].hash, saplingOPs[i].n, saplingMerklePath)) {
-                        throw JSONRPCError(RPC_WALLET_ERROR, strprintf("%s: Merkle Path not found for Sapling note. Stopping.\n", getId()));
+                    if (!pwalletMain->SaplingWalletGetMerklePathOfNote(saplingOutPoints[noteIndex].hash, 
+                                                                       saplingOutPoints[noteIndex].n, 
+                                                                       saplingMerklePath)) {
+                        throw JSONRPCError(RPC_WALLET_ERROR, 
+                                           strprintf("%s: Merkle Path not found for Sapling note. Stopping.\n", getId()));
                     }
 
+                    // Get the anchor for this note
                     uint256 anchor;
-                    if (!pwalletMain->SaplingWalletGetPathRootWithCMU(saplingMerklePath, saplingNotes[i].cmu().value(), anchor)) {
-                        throw JSONRPCError(RPC_WALLET_ERROR, strprintf("%s: Getting Anchor failed. Stopping.\n", getId()));
+                    if (!pwalletMain->SaplingWalletGetPathRootWithCMU(saplingMerklePath, 
+                                                                      saplingNotes[noteIndex].cmu().value(), 
+                                                                      anchor)) {
+                        throw JSONRPCError(RPC_WALLET_ERROR, 
+                                           strprintf("%s: Getting Anchor failed. Stopping.\n", getId()));
                     }
 
-                    libzcash::SaplingPaymentAddress recipient(saplingNotes[i].d, saplingNotes[i].pk_d);
-                    if (!builder_.AddSaplingSpendRaw(saplingOPs[i], recipient, saplingNotes[i].value(), saplingNotes[i].rcm(), saplingMerklePath, anchor)) {
-                        throw JSONRPCError(RPC_WALLET_ERROR, strprintf("%s: Adding Raw Sapling Spend failed. Stopping.\n", getId()));
+                    // Create recipient address from note data
+                    libzcash::SaplingPaymentAddress recipient(saplingNotes[noteIndex].d, 
+                                                              saplingNotes[noteIndex].pk_d);
+                    
+                    // Add the raw Sapling spend to the builder
+                    if (!builder_.AddSaplingSpendRaw(saplingOutPoints[noteIndex], 
+                                                     recipient, 
+                                                     saplingNotes[noteIndex].value(), 
+                                                     saplingNotes[noteIndex].rcm(), 
+                                                     saplingMerklePath, 
+                                                     anchor)) {
+                        throw JSONRPCError(RPC_WALLET_ERROR, 
+                                           strprintf("%s: Adding Raw Sapling Spend failed. Stopping.\n", getId()));
                     }
                 }
-
-                if (!builder_.ConvertRawSaplingSpend(currentExtsk)) {
-                    throw JSONRPCError(RPC_WALLET_ERROR, strprintf("%s: Converting Raw Sapling Spends failed.\n", getId()));
-                }
+            }
+            
+            // Convert the raw Sapling spend using the extended spending key (once per key)
+            if (!builder_.ConvertRawSaplingSpend(currentExtendedKey)) {
+                throw JSONRPCError(RPC_WALLET_ERROR, 
+                                   strprintf("%s: Converting Raw Sapling Spends failed.\n", getId()));
             }
         }
     }
 
-    // Select Orchard notes
-    std::vector<OrchardOutPoint> orchardOPs;
+    // =================================================================
+    // STEP 7: Process Orchard shielded inputs
+    // =================================================================
+    
+    // Collect Orchard note information for batch processing
+    std::vector<OrchardOutPoint> orchardOutPoints;
     std::vector<OrchardNote> orchardNotes;
-    std::vector<OrchardExtendedSpendingKeyPirate> orchardExtsks;
-    std::set<OrchardExtendedSpendingKeyPirate> setOrchardExtsks;
+    std::vector<OrchardExtendedSpendingKeyPirate> orchardExtendedKeys;
+    std::set<OrchardExtendedSpendingKeyPirate> uniqueOrchardKeys;
+    
     for (const MergeToAddressInputOrchardNote& orchardNoteInput : orchardNoteInputs_) {
-        orchardOPs.push_back(std::get<0>(orchardNoteInput));
+        orchardOutPoints.push_back(std::get<0>(orchardNoteInput));
         orchardNotes.push_back(std::get<1>(orchardNoteInput));
-        auto extsk = std::get<3>(orchardNoteInput);
-        orchardExtsks.push_back(extsk);
-        setOrchardExtsks.insert(extsk);
-        if (!ovk) {
-            auto fvkOpt = extsk.GetXFVK();
-            if (fvkOpt == std::nullopt) {
-            throw JSONRPCError(
-                RPC_WALLET_ERROR,
-                strprintf("%s: FVK not found for Orchard spending key. Stopping.\n", getId()));
+        auto extendedSpendingKey = std::get<3>(orchardNoteInput);
+        orchardExtendedKeys.push_back(extendedSpendingKey);
+        uniqueOrchardKeys.insert(extendedSpendingKey);
+        
+        // Set outgoing viewing key from first available Orchard extended spending key
+        if (!outgoingViewingKey) {
+            auto fullViewingKeyOpt = extendedSpendingKey.GetXFVK();
+            if (fullViewingKeyOpt == std::nullopt) {
+                throw JSONRPCError(RPC_WALLET_ERROR,
+                                   strprintf("%s: FVK not found for Orchard spending key. Stopping.\n", getId()));
             }
 
-            auto fvk = fvkOpt.value().fvk;
-            auto ovkOpt = fvk.GetOVK();
-            if (fvkOpt == std::nullopt) {
-            throw JSONRPCError(
-                RPC_WALLET_ERROR,
-                strprintf("%s: OVK not found for Orchard spending key. Stopping.\n", getId()));
+            auto fullViewingKey = fullViewingKeyOpt.value().fvk;
+            auto outgoingViewingKeyOpt = fullViewingKey.GetOVK();
+            if (outgoingViewingKeyOpt == std::nullopt) {
+                throw JSONRPCError(RPC_WALLET_ERROR,
+                                   strprintf("%s: OVK not found for Orchard spending key. Stopping.\n", getId()));
             }
 
-            ovk = ovkOpt.value().ovk;
+            outgoingViewingKey = outgoingViewingKeyOpt.value().ovk;
         }
     }
     
-    //Iterate thru all the selected notes and add them to the transactions
+    // Add Orchard notes to the transaction builder
+    // Iterate through all the selected notes and add them to the transaction
     {
         LOCK2(cs_main, pwalletMain->cs_wallet);
 
         bool orchardInitialized = false;
-        uint256 anchor;
+        uint256 orchardAnchor;
 
-        for (std::set<OrchardExtendedSpendingKeyPirate>::iterator it = setOrchardExtsks.begin(); it != setOrchardExtsks.end(); it++) {
-            auto currentExtsk = *it;
-
-            for (int i = 0; i < orchardExtsks.size(); i++) {
-                if (currentExtsk == orchardExtsks[i]) {
-                    libzcash::MerklePath orchardMerklePath;
-                    if (!pwalletMain->OrchardWalletGetMerklePathOfNote(orchardOPs[i].hash, orchardOPs[i].n, orchardMerklePath)) {
-                        throw JSONRPCError(RPC_WALLET_ERROR, strprintf("%s: Merkle Path not found for Orchard note. Stopping.\n", getId()));
-                    }
-
-                    uint256 pathAnchor;
-                    if (!pwalletMain->OrchardWalletGetPathRootWithCMU(orchardMerklePath, orchardNotes[i].cmx(), pathAnchor)) {
-                        throw JSONRPCError(RPC_WALLET_ERROR, strprintf("%s: Getting Anchor failed. Stopping.\n", getId()));
-                    }
-
-                    //Set orchard anchor for transaction
-                    if (anchor.IsNull()) {
-                        anchor = pathAnchor;
-                    }
-
-                    if (!builder_.AddOrchardSpendRaw(orchardOPs[i], orchardNotes[i].address, orchardNotes[i].value(), orchardNotes[i].rho(), orchardNotes[i].rseed(), orchardMerklePath, anchor)) {
-                        throw JSONRPCError(RPC_WALLET_ERROR, strprintf("%s: Adding Raw Orchard Spend failed. Stopping.\n", getId()));
-                    }
-                }
+        for (std::set<OrchardExtendedSpendingKeyPirate>::iterator keyIterator = uniqueOrchardKeys.begin(); 
+             keyIterator != uniqueOrchardKeys.end(); keyIterator++) {
             
-                if (!orchardInitialized) {
-                    // Initialize Orchard builder only once
-                    builder_.InitializeOrchard(true, true, anchor);
-                    orchardInitialized = true;
-                }
-                
-                if (!builder_.ConvertRawOrchardSpend(currentExtsk)) {
-                    throw JSONRPCError(RPC_WALLET_ERROR, strprintf("%s: Converting Raw Orchard Spends failed.\n", getId()));
+            auto currentExtendedKey = *keyIterator;
+
+            // Process each note that uses this extended spending key
+            for (int noteIndex = 0; noteIndex < orchardExtendedKeys.size(); noteIndex++) {
+                if (currentExtendedKey == orchardExtendedKeys[noteIndex]) {
+                    
+                    // Get the Merkle path for this Orchard note
+                    libzcash::MerklePath orchardMerklePath;
+                    if (!pwalletMain->OrchardWalletGetMerklePathOfNote(orchardOutPoints[noteIndex].hash, 
+                                                                       orchardOutPoints[noteIndex].n, 
+                                                                       orchardMerklePath)) {
+                        throw JSONRPCError(RPC_WALLET_ERROR, 
+                                           strprintf("%s: Merkle Path not found for Orchard note. Stopping.\n", getId()));
+                    }
+
+                    // Get the anchor for this Orchard note
+                    uint256 pathAnchor;
+                    if (!pwalletMain->OrchardWalletGetPathRootWithCMU(orchardMerklePath, 
+                                                                      orchardNotes[noteIndex].cmx(), 
+                                                                      pathAnchor)) {
+                        throw JSONRPCError(RPC_WALLET_ERROR, 
+                                           strprintf("%s: Getting Anchor failed. Stopping.\n", getId()));
+                    }
+
+                    // Set orchard anchor for transaction (use first anchor found)
+                    if (orchardAnchor.IsNull()) {
+                        orchardAnchor = pathAnchor;
+                    }
+
+                    // Initialize Orchard builder only once when we have the first anchor
+                    if (!orchardInitialized) {
+                        builder_.InitializeOrchard(true, true, orchardAnchor);
+                        orchardInitialized = true;
+                    }
+
+                    // Add the raw Orchard spend to the builder
+                    if (!builder_.AddOrchardSpendRaw(orchardOutPoints[noteIndex], 
+                                                     orchardNotes[noteIndex].address, 
+                                                     orchardNotes[noteIndex].value(), 
+                                                     orchardNotes[noteIndex].rho(), 
+                                                     orchardNotes[noteIndex].rseed(), 
+                                                     orchardMerklePath, 
+                                                     orchardAnchor)) {
+                        throw JSONRPCError(RPC_WALLET_ERROR, 
+                                           strprintf("%s: Adding Raw Orchard Spend failed. Stopping.\n", getId()));
+                    }
                 }
             }
+            
+            // Convert the raw Orchard spend using the extended spending key (once per key)
+            if (!builder_.ConvertRawOrchardSpend(currentExtendedKey)) {
+                throw JSONRPCError(RPC_WALLET_ERROR, 
+                                   strprintf("%s: Converting Raw Orchard Spends failed.\n", getId()));
+            }
         }
+        
+        // Initialize Orchard builder if no notes were selected
         if (!orchardInitialized) {
-            // Initialize Orchard builder if no notes were selected
             builder_.InitializeOrchard(false, true, uint256());
         }
-
     }
 
+    // =================================================================
+    // STEP 8: Add output to transaction (transparent or shielded)
+    // =================================================================
 
     if (isToTaddr_) {
+        // Add transparent output
         if (!builder_.AddTransparentOutput(toTaddr_, sendAmount)) {
-            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid output address, not a valid taddr.");
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, 
+                               "Invalid output address, not a valid taddr.");
         }
     } else {
-        std::string zaddr = std::get<0>(recipient_);
-        std::string strMemo = std::get<1>(recipient_);
+        // Add shielded output with memo
+        std::string destinationAddress = std::get<0>(recipient_);
+        std::string memoString = std::get<1>(recipient_);
 
-        // Note: transaction builder expectes memo in
-        //       ASCII encoding, not as a hex string.
-        std::array<unsigned char, ZC_MEMO_SIZE> caMemo = {0x00};
-        if (IsHex(strMemo)) {
-            if (strMemo.length() > (ZC_MEMO_SIZE * 2)) {
-                throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Invalid parameter, size of hex encoded memo is larger than maximum allowed %d", (ZC_MEMO_SIZE * 2)));
+        // Note: transaction builder expects memo in ASCII encoding, not as a hex string.
+        std::array<unsigned char, ZC_MEMO_SIZE> memoArray = {0x00};
+        
+        if (IsHex(memoString)) {
+            if (memoString.length() > (ZC_MEMO_SIZE * 2)) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, 
+                                   strprintf("Invalid parameter, size of hex encoded memo is larger than maximum allowed %d", 
+                                             (ZC_MEMO_SIZE * 2)));
             }
-            caMemo = get_memo_from_hex_string(strMemo);
+            memoArray = get_memo_from_hex_string(memoString);
         } else {
-            if (strMemo.length() > ZC_MEMO_SIZE) {
-                throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Invalid parameter, size of memo is larger than maximum allowed %d", ZC_MEMO_SIZE));
+            if (memoString.length() > ZC_MEMO_SIZE) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, 
+                                   strprintf("Invalid parameter, size of memo is larger than maximum allowed %d", 
+                                             ZC_MEMO_SIZE));
             }
 
-            int iLength = strMemo.length();
-            unsigned char cByte;
-            for (int iI = 0; iI < iLength; iI++) {
-                cByte = (unsigned char)strMemo[iI];
-                caMemo[iI] = cByte;
+            int memoLength = memoString.length();
+            unsigned char currentByte;
+            for (int charIndex = 0; charIndex < memoLength; charIndex++) {
+                currentByte = (unsigned char)memoString[charIndex];
+                memoArray[charIndex] = currentByte;
             }
         }
 
+        // Determine the payment address type (Sapling or Orchard)
         auto saplingPaymentAddress = std::get_if<libzcash::SaplingPaymentAddress>(&toPaymentAddress_);
         auto orchardPaymentAddress = std::get_if<libzcash::OrchardPaymentAddressPirate>(&toPaymentAddress_);
 
         if (saplingPaymentAddress == nullptr && orchardPaymentAddress == nullptr) {
-            // This should never happen as we have already determined that the payment is to sapling
-            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Could not get Sapling or Orchard payment address.");
+            // This should never happen as we have already determined that the payment is to a shielded address
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, 
+                               "Could not get Sapling or Orchard payment address.");
         }
 
+        // Generate outgoing viewing key for transparent-to-shielded transactions
         if (saplingNoteInputs_.size() == 0 && orchardNoteInputs_.size() == 0 && utxoInputs_.size() > 0) {
             // Sending from t-addresses, which we don't have ovks for. Instead,
             // generate a common one from the HD seed. This ensures the data is
@@ -453,162 +640,216 @@ bool AsyncRPCOperation_mergetoaddress::main_impl()
             // Sapling key hierarchy, which the user might not be using.
             HDSeed seed;
             if (!pwalletMain->GetHDSeed(seed)) {
-                throw JSONRPCError(
-                    RPC_WALLET_ERROR,
-                    "AsyncRPCOperation_mergetoaddress: HD seed not found");
+                throw JSONRPCError(RPC_WALLET_ERROR,
+                                   "AsyncRPCOperation_mergetoaddress: HD seed not found");
             }
-            ovk = ovkForShieldingFromTaddr(seed);
+            outgoingViewingKey = ovkForShieldingFromTaddr(seed);
         }
-        if (!ovk) {
-            throw JSONRPCError(RPC_WALLET_ERROR, "Sending to a Sapling or Orchard address requires an ovk.");
+        
+        // Validate that we have an outgoing viewing key for shielded outputs
+        if (!outgoingViewingKey) {
+            throw JSONRPCError(RPC_WALLET_ERROR, 
+                               "Sending to a Sapling or Orchard address requires an ovk.");
         }
 
+        // Add the appropriate shielded output based on address type
         if (saplingPaymentAddress != nullptr) {
-            builder_.AddSaplingOutputRaw(*saplingPaymentAddress, sendAmount, caMemo);
-            builder_.ConvertRawSaplingOutput(ovk.value());
+            builder_.AddSaplingOutputRaw(*saplingPaymentAddress, sendAmount, memoArray);
+            builder_.ConvertRawSaplingOutput(outgoingViewingKey.value());
         } else if (orchardPaymentAddress != nullptr) {
-            builder_.AddOrchardOutputRaw(*orchardPaymentAddress, sendAmount, caMemo);
-            builder_.ConvertRawOrchardOutput(ovk.value());
+            builder_.AddOrchardOutputRaw(*orchardPaymentAddress, sendAmount, memoArray);
+            builder_.ConvertRawOrchardOutput(outgoingViewingKey.value());
         } else {
-            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid output address, not a valid zaddr.");
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, 
+                               "Invalid output address, not a valid zaddr.");
         }
     }
 
+    // =================================================================
+    // STEP 9: Build and send the transaction
+    // =================================================================
 
-    // Build the transaction
+    // Build the transaction using the configured builder
     tx_ = builder_.Build().GetTxOrThrow();
 
-    // Send the transaction
+    // Send the transaction to the network (or test mode)
     // TODO: Use CWallet::CommitTransaction instead of sendrawtransaction
-    auto signedtxn = EncodeHexTx(tx_);
+    auto signedTransactionHex = EncodeHexTx(tx_);
+    
     if (!testmode) {
-        UniValue params = UniValue(UniValue::VARR);
-        params.push_back(signedtxn);
-        UniValue sendResultValue = sendrawtransaction(params, false, CPubKey());
-        if (sendResultValue.isNull()) {
-            throw JSONRPCError(RPC_WALLET_ERROR, "sendrawtransaction did not return an error or a txid.");
+        // Production mode: send transaction to network
+        UniValue rpcParams = UniValue(UniValue::VARR);
+        rpcParams.push_back(signedTransactionHex);
+        UniValue sendResult = sendrawtransaction(rpcParams, false, CPubKey());
+        
+        if (sendResult.isNull()) {
+            throw JSONRPCError(RPC_WALLET_ERROR, 
+                               "sendrawtransaction did not return an error or a txid.");
         }
 
-        auto txid = sendResultValue.get_str();
+        auto transactionId = sendResult.get_str();
 
-        UniValue o(UniValue::VOBJ);
-        o.push_back(Pair("txid", txid));
-        set_result(o);
+        UniValue resultObject(UniValue::VOBJ);
+        resultObject.push_back(Pair("txid", transactionId));
+        set_result(resultObject);
     } else {
-        // Test mode does not send the transaction to the network.
-        UniValue o(UniValue::VOBJ);
-        o.push_back(Pair("test", 1));
-        o.push_back(Pair("txid", tx_.GetHash().ToString()));
-        o.push_back(Pair("hex", signedtxn));
-        set_result(o);
+        // Test mode: do not send transaction to network, return transaction details
+        UniValue resultObject(UniValue::VOBJ);
+        resultObject.push_back(Pair("test", 1));
+        resultObject.push_back(Pair("txid", tx_.GetHash().ToString()));
+        resultObject.push_back(Pair("hex", signedTransactionHex));
+        set_result(resultObject);
     }
 
     return true;
 }
 
 
-std::array<unsigned char, ZC_MEMO_SIZE> AsyncRPCOperation_mergetoaddress::get_memo_from_hex_string(std::string s)
+//==============================================================================
+// UTILITY FUNCTIONS FOR MEMO AND STATUS HANDLING
+//==============================================================================
+
+/**
+ * @brief Convert hexadecimal string to fixed-size memo array
+ * 
+ * Converts hex string representation to memo array with validation
+ * and zero-padding for shielded transaction protocols.
+ * 
+ * @param hexString Hexadecimal string representation of memo
+ * @return Fixed-size memo array (ZC_MEMO_SIZE bytes)
+ * @throws JSONRPCError for invalid hex format or oversized input
+ */
+std::array<unsigned char, ZC_MEMO_SIZE> AsyncRPCOperation_mergetoaddress::get_memo_from_hex_string(std::string hexString)
 {
-    std::array<unsigned char, ZC_MEMO_SIZE> memo = {{0x00}};
+    std::array<unsigned char, ZC_MEMO_SIZE> memoArray = {{0x00}};
 
-    std::vector<unsigned char> rawMemo = ParseHex(s.c_str());
+    std::vector<unsigned char> rawMemoData = ParseHex(hexString.c_str());
 
+    // Validate hex string format
     // If ParseHex comes across a non-hex char, it will stop but still return results so far.
-    size_t slen = s.length();
-    if (slen % 2 != 0 || (slen > 0 && rawMemo.size() != slen / 2)) {
-        throw JSONRPCError(RPC_INVALID_PARAMETER, "Memo must be in hexadecimal format");
+    size_t stringLength = hexString.length();
+    if (stringLength % 2 != 0 || (stringLength > 0 && rawMemoData.size() != stringLength / 2)) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, 
+                           "Memo must be in hexadecimal format");
     }
 
-    if (rawMemo.size() > ZC_MEMO_SIZE) {
-        throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Memo size of %d is too big, maximum allowed is %d", rawMemo.size(), ZC_MEMO_SIZE));
+    // Validate memo size
+    if (rawMemoData.size() > ZC_MEMO_SIZE) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, 
+                           strprintf("Memo size of %d is too big, maximum allowed is %d", 
+                                     rawMemoData.size(), ZC_MEMO_SIZE));
     }
 
-    // copy vector into boost array
-    int lenMemo = rawMemo.size();
-    for (int i = 0; i < ZC_MEMO_SIZE && i < lenMemo; i++) {
-        memo[i] = rawMemo[i];
+    // Copy vector data into memo array
+    int memoLength = rawMemoData.size();
+    for (int byteIndex = 0; byteIndex < ZC_MEMO_SIZE && byteIndex < memoLength; byteIndex++) {
+        memoArray[byteIndex] = rawMemoData[byteIndex];
     }
-    return memo;
+    return memoArray;
 }
 
 /**
- * Override getStatus() to append the operation's input parameters to the default status object.
+ * @brief Get current operation status with merge-specific information
+ * 
+ * @return UniValue object containing operation status, method name, and parameters if available
  */
 UniValue AsyncRPCOperation_mergetoaddress::getStatus() const
 {
-    UniValue v = AsyncRPCOperation::getStatus();
+    UniValue baseStatus = AsyncRPCOperation::getStatus();
     if (contextinfo_.isNull()) {
-        return v;
+        return baseStatus;
     }
 
-    UniValue obj = v.get_obj();
-    obj.push_back(Pair("method", "z_mergetoaddress"));
-    obj.push_back(Pair("params", contextinfo_));
-    return obj;
+    UniValue statusObject = baseStatus.get_obj();
+    statusObject.push_back(Pair("method", "z_mergetoaddress"));
+    statusObject.push_back(Pair("params", contextinfo_));
+    return statusObject;
 }
 
+//==============================================================================
+// RESOURCE MANAGEMENT - INPUT LOCKING AND UNLOCKING
+//==============================================================================
+
 /**
- * Lock input utxos
+ * @brief Lock transparent UTXOs to prevent double-spending during merge operation
+ * 
+ * Prevents concurrent operations from using the same UTXOs by locking them
+ * in the wallet until the merge operation completes.
  */
 void AsyncRPCOperation_mergetoaddress::lock_utxos()
 {
     LOCK2(cs_main, pwalletMain->cs_wallet);
-    for (auto utxo : utxoInputs_) {
-        pwalletMain->LockCoin(std::get<0>(utxo));
+    for (auto transparentInput : utxoInputs_) {
+        pwalletMain->LockCoin(std::get<0>(transparentInput));
     }
 }
 
 /**
- * Unlock input utxos
+ * @brief Unlock transparent UTXOs to restore availability for other operations
+ * 
+ * Releases locks on previously locked UTXOs, making them available for other
+ * wallet operations. Should be called after operation completion.
  */
 void AsyncRPCOperation_mergetoaddress::unlock_utxos()
 {
     LOCK2(cs_main, pwalletMain->cs_wallet);
-    for (auto utxo : utxoInputs_) {
-        pwalletMain->UnlockCoin(std::get<0>(utxo));
+    for (auto transparentInput : utxoInputs_) {
+        pwalletMain->UnlockCoin(std::get<0>(transparentInput));
     }
 }
 
-
 /**
- * Lock sapling input notes
+ * @brief Lock Sapling notes to prevent double-spending during merge operation
+ * 
+ * Prevents concurrent operations from using the same Sapling notes by
+ * locking them in the wallet until the merge operation completes.
  */
-void AsyncRPCOperation_mergetoaddress::lock_notes()
+void AsyncRPCOperation_mergetoaddress::lock_sapling_notes()
 {
     LOCK2(cs_main, pwalletMain->cs_wallet);
-    for (auto note : saplingNoteInputs_) {
-        pwalletMain->LockNote(std::get<0>(note));
+    for (auto saplingNote : saplingNoteInputs_) {
+        pwalletMain->LockNote(std::get<0>(saplingNote));
     }
 }
 
 /**
- * Unlock sapling input notes
+ * @brief Unlock Sapling notes to restore availability for other operations
+ * 
+ * Releases locks on previously locked Sapling notes, making them available
+ * for other wallet operations. Should be called after operation completion.
  */
-void AsyncRPCOperation_mergetoaddress::unlock_notes()
+void AsyncRPCOperation_mergetoaddress::unlock_sapling_notes()
 {
     LOCK2(cs_main, pwalletMain->cs_wallet);
-    for (auto note : saplingNoteInputs_) {
-        pwalletMain->UnlockNote(std::get<0>(note));
+    for (auto saplingNote : saplingNoteInputs_) {
+        pwalletMain->UnlockNote(std::get<0>(saplingNote));
     }
 }
 
 /**
- * Lock orchard input notes
+ * @brief Lock Orchard notes to prevent double-spending during merge operation
+ * 
+ * Prevents concurrent operations from using the same Orchard notes by
+ * locking them in the wallet until the merge operation completes.
  */
 void AsyncRPCOperation_mergetoaddress::lock_orchard_notes()
 {
     LOCK2(cs_main, pwalletMain->cs_wallet);
-    for (auto note : orchardNoteInputs_) {
-        pwalletMain->LockNote(std::get<0>(note));
+    for (auto orchardNote : orchardNoteInputs_) {
+        pwalletMain->LockNote(std::get<0>(orchardNote));
     }
 }
-/** 
- * Unlock orchard input notes
+
+/**
+ * @brief Unlock Orchard notes to restore availability for other operations
+ * 
+ * Releases locks on previously locked Orchard notes, making them available
+ * for other wallet operations. Should be called after operation completion.
  */
 void AsyncRPCOperation_mergetoaddress::unlock_orchard_notes()
 {
     LOCK2(cs_main, pwalletMain->cs_wallet);
-    for (auto note : orchardNoteInputs_) {
-        pwalletMain->UnlockNote(std::get<0>(note));
+    for (auto orchardNote : orchardNoteInputs_) {
+        pwalletMain->UnlockNote(std::get<0>(orchardNote));
     }
 }

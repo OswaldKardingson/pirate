@@ -1,5 +1,6 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
 // Copyright (c) 2009-2014 The Bitcoin Core developers
+// Copyright (c) 2022-2025 Pirate developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -56,6 +57,7 @@
 #include "crypter.h"
 #include "coins.h"
 #include "wallet/asyncrpcoperation_saplingconsolidation.h"
+#include "wallet/asyncrpcoperation_orchardconsolidation.h"
 #include "wallet/asyncrpcoperation_sweeptoaddress.h"
 #include "zcash/address/zip32.h"
 #include "cc/CCinclude.h"
@@ -2842,6 +2844,7 @@ void CWallet::ChainTip(const CBlockIndex *pindex,
             pblock->GetBlockTime() > GetTime() - 8640) //Last 144 blocks 2.4 * 60 * 60
         {
             RunSaplingConsolidation(pindex->nHeight);
+            RunOrchardConsolidation(pindex->nHeight);
             RunSaplingSweep(pindex->nHeight);
             while(DeleteWalletTransactions(pindex, false)) {}
         } else {
@@ -2883,26 +2886,29 @@ void CWallet::ChainTip(const CBlockIndex *pindex,
 }
 
 /**
- * @brief Run Sapling note sweeping operation at the specified block height
+ * @brief Run sweep operations at the specified block height
  * @param blockHeight The current block height
  * 
- * Automatically sweeps Sapling notes to consolidate and clean up the wallet.
+ * Automatically sweeps notes to consolidate and clean up the wallet across all protocols.
  * Only runs if:
- * - Sapling upgrade is active
- * - Sweeping is enabled (fSaplingSweepEnabled)
+ * - Sapling upgrade is active (for Sapling notes)
+ * - Orchard upgrade is active (for Orchard notes) 
+ * - Sweeping is enabled (fSweepEnabled)
  * - It's time for next sweep (nextSweep <= blockHeight)
  * - No consolidation is running or scheduled soon
  * - No other sweep operation is currently running
  * 
  * Creates an AsyncRPCOperation_sweeptoaddress operation to handle the
- * sweeping process asynchronously.
+ * sweeping process asynchronously for all supported protocols.
  */
 void CWallet::RunSaplingSweep(int blockHeight) {
     if (!NetworkUpgradeActive(blockHeight, Params().GetConsensus(), Consensus::UPGRADE_SAPLING)) {
         return;
     }
     AssertLockHeld(cs_wallet);
-    if (!fSaplingSweepEnabled) {
+    
+    // Use unified sweep flag with fallback to legacy flag for compatibility
+    if (!fSweepEnabled) {
         return;
     }
 
@@ -2911,12 +2917,15 @@ void CWallet::RunSaplingSweep(int blockHeight) {
     }
 
     //Don't Run if consolidation will run soon.
-    if (fSaplingConsolidationEnabled && nextConsolidation - 15 <= blockHeight) {
+    if (fSaplingConsolidationEnabled && nextSaplingConsolidation - 15 <= blockHeight) {
+        return;
+    }
+    if (fOrchardConsolidationEnabled && nextOrchardConsolidation - 15 <= blockHeight) {
         return;
     }
 
     //Don't Run While consolidation is running.
-    if (fConsolidationRunning) {
+    if (fSaplingConsolidationRunning || fOrchardConsolidationRunning) {
         return;
     }
 
@@ -2950,7 +2959,7 @@ void CWallet::RunSaplingSweep(int blockHeight) {
  * and reduce transaction complexity. Only runs if:
  * - Sapling upgrade is active
  * - Consolidation is enabled (fSaplingConsolidationEnabled)
- * - It's time for next consolidation (nextConsolidation <= blockHeight)
+ * - It's time for next consolidation (nextSaplingConsolidation <= blockHeight)
  * - No sweep operation is currently running
  * 
  * Creates an AsyncRPCOperation_saplingconsolidation operation to handle the
@@ -2965,7 +2974,7 @@ void CWallet::RunSaplingConsolidation(int blockHeight) {
         return;
     }
 
-    if (nextConsolidation > blockHeight) {
+    if (nextSaplingConsolidation > blockHeight) {
         return;
     }
 
@@ -2974,8 +2983,8 @@ void CWallet::RunSaplingConsolidation(int blockHeight) {
         return;
     }
 
-    fConsolidationRunning = true;
-
+    fSaplingConsolidationRunning = true;
+    
     std::shared_ptr<AsyncRPCQueue> q = getAsyncRPCQueue();
     std::shared_ptr<AsyncRPCOperation> lastOperation = q->getOperationForId(saplingConsolidationOperationId);
     if (lastOperation != nullptr) {
@@ -2984,6 +2993,51 @@ void CWallet::RunSaplingConsolidation(int blockHeight) {
     pendingSaplingConsolidationTxs.clear();
     std::shared_ptr<AsyncRPCOperation> operation(new AsyncRPCOperation_saplingconsolidation(blockHeight + 5));
     saplingConsolidationOperationId = operation->getId();
+    q->addOperation(operation);
+
+}
+
+/**
+ * @brief Run Orchard note consolidation at the specified block height
+ * @param blockHeight The current block height to process consolidation for
+ * 
+ * Initiates Orchard note consolidation if conditions are met:
+ * - Orchard protocol is active (post-NU5 activation)
+ * - Consolidation is enabled (fOrchardConsolidationEnabled)
+ * - It's time for next consolidation (nextOrchardConsolidation <= blockHeight)
+ * - No sweep operations are currently running
+ * 
+ * Creates an AsyncRPCOperation_orchardconsolidation operation to handle the
+ * consolidation process asynchronously.
+ */
+void CWallet::RunOrchardConsolidation(int blockHeight) {
+    if (!NetworkUpgradeActive(blockHeight, Params().GetConsensus(), Consensus::UPGRADE_ORCHARD)) {
+        return;
+    }
+    AssertLockHeld(cs_wallet);
+    if (!fOrchardConsolidationEnabled) {
+        return;
+    }
+
+    if (nextOrchardConsolidation > blockHeight) {
+        return;
+    }
+
+    //Don't Run While sweep is running.
+    if (fSweepRunning) {
+        return;
+    }
+
+    fOrchardConsolidationRunning = true;
+    
+    std::shared_ptr<AsyncRPCQueue> q = getAsyncRPCQueue();
+    std::shared_ptr<AsyncRPCOperation> lastOperation = q->getOperationForId(orchardConsolidationOperationId);
+    if (lastOperation != nullptr) {
+        lastOperation->cancel();
+    }
+    pendingOrchardConsolidationTxs.clear();
+    std::shared_ptr<AsyncRPCOperation> operation(new AsyncRPCOperation_orchardconsolidation(blockHeight + 5));
+    orchardConsolidationOperationId = operation->getId();
     q->addOperation(operation);
 
 }
@@ -8968,6 +9022,50 @@ bool CWallet::DeleteWalletTransactions(const CBlockIndex* pindex, bool fRescan) 
               continue;
             }
 
+
+
+
+            //Check for unspent inputs or spend less than N Blocks ago. (Orchard)
+            for (auto & pair : pwtx->mapOrchardNoteData) {
+              OrchardNoteData nd = pair.second;
+              if (!nd.nullifier || pwalletMain->GetOrchardSpendDepth(*nd.nullifier) <= fDeleteTransactionsAfterNBlocks) {
+                LogPrint("deletetx","DeleteTx - Unspent orchard input tx %s\n", pwtx->GetHash().ToString());
+                //Don't keep zero value notes
+                if (nd.value > 0) {
+                    deleteTx = false;
+                    continue;
+                }
+              }
+            }
+
+            if (!deleteTx) {
+              txSaveCount++;
+              continue;
+            }
+
+            //Check for outputs that no longer have parents in the wallet. Exclude parents that are in the same transaction. (Orchard)
+            for (const auto& action: pwtx->GetOrchardActions()) {
+              uint256 orchardNullifier = uint256::FromRawBytes(action.nullifier());
+              if (pwalletMain->IsOrchardNullifierFromMe(orchardNullifier)) {
+                const uint256& parentHash = pwalletMain->mapOrchardNullifiersToNotes[orchardNullifier].hash;
+                const CWalletTx* parent = pwalletMain->GetWalletTx(parentHash);
+                if (parent != NULL && parentHash != wtxid) {
+                  LogPrint("deletetx","DeleteTx - Parent of orchard tx %s found\n", pwtx->GetHash().ToString());
+                  deleteTx = false;
+                  continue;
+                }
+              }
+            }
+
+            if (!deleteTx) {
+              txSaveCount++;
+              continue;
+            }
+
+
+
+
+
             //Check for unspent inputs or spend less than N Blocks ago. (Sprout)
             for (auto & pair : pwtx->mapSproutNoteData) {
               SproutNoteData nd = pair.second;
@@ -12934,7 +13032,6 @@ void CWallet::GetFilteredNotes(
             }
 
             // Add qualifying Orchard note to results
-            LogPrintf("Adding Found Orchard Note with Outpoint\n");
             orchardEntries.push_back(OrchardNoteEntry {op, pa, note, memo, wtx.GetDepthInMainChain()});
         }
     }

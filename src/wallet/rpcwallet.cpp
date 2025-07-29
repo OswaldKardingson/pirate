@@ -6228,6 +6228,58 @@ UniValue enableconsolidation(const UniValue& params, bool fHelp, const CPubKey& 
       return result;
 }
 
+UniValue sweepstatus(const UniValue& params, bool fHelp, const CPubKey& mypk)
+{
+    if (!EnsureWalletIsAvailable(fHelp))
+        return NullUniValue;
+
+    if (fHelp || params.size() > 0)
+        throw runtime_error(
+            "sweepstatus\n"
+            "\nReturns the current status and configuration of the sweep-to-address function.\n"
+            "\nResult:\n"
+            "{\n"
+            "  \"sweepEnabled\" : true|false,           (boolean) Whether sweep functionality is enabled\n"
+            "  \"sweepAddress\" : \"configured|not configured\", (string) Whether a sweep address has been configured\n"
+            "  \"sweepTxFee\" : x.xxxx,                 (numeric) The configured transaction fee for sweep operations\n"
+            "  \"availableUTXOs\" : n,                  (numeric) Number of UTXOs available for sweeping\n"
+            "  \"availableValue\" : x.xxxx,             (numeric) Total value of UTXOs available for sweeping\n"
+            "  \"lastSweepTime\" : \"timestamp|never\", (string) When the last sweep occurred\n"
+            "  \"nextSweepCheck\" : \"manual trigger only\", (string) Indicates sweep is manual trigger only\n"
+            "}\n"
+            "\nExamples:\n"
+            + HelpExampleCli("sweepstatus", "")
+            + HelpExampleRpc("sweepstatus", "")
+        );
+
+    LOCK2(cs_main, pwalletMain->cs_wallet);
+    EnsureWalletIsUnlockedForReporting();
+
+    UniValue result(UniValue::VOBJ);
+    
+    // Main sweep status
+    result.push_back(Pair("sweepEnabled", pwalletMain->fSweepEnabled));
+    
+    if (pwalletMain->fSweepEnabled) {
+            if (pwalletMain->fSweepRunning) {
+            result.push_back(Pair("nextSweep", pwalletMain->sweepInterval + chainActive.Tip()->nHeight));
+            } else {
+            if (pwalletMain->nextSweep == 0) {
+                result.push_back(Pair("nextSweep",  chainActive.Tip()->nHeight + 1));
+            } else {
+                result.push_back(Pair("nextSweep", pwalletMain->nextSweep));
+            }
+        }
+        // Sweep operation status - these would need additional tracking implementation
+        result.push_back(Pair("sweepInterval", pwalletMain->sweepInterval));
+        result.push_back(Pair("targetQty", pwalletMain->targetSweepQty));
+    } else {
+        result.push_back(Pair("status", "Sweep functionality is disabled"));
+    }
+
+    return result;
+}
+
 UniValue consolidationstatus(const UniValue& params, bool fHelp, const CPubKey& mypk)
 {
 
@@ -6248,19 +6300,40 @@ UniValue consolidationstatus(const UniValue& params, bool fHelp, const CPubKey& 
       EnsureWalletIsUnlockedForReporting();
 
       UniValue result(UniValue::VOBJ);
-      result.push_back(Pair("consolidationEnabled", pwalletMain->fSaplingConsolidationEnabled));
-      result.push_back(Pair("isRunning", pwalletMain->fConsolidationRunning));
-      if (pwalletMain->fConsolidationRunning) {
-          result.push_back(Pair("nextConsolidation", pwalletMain->initializeConsolidationInterval + chainActive.Tip()->nHeight));
+      
+      // Sapling consolidation status
+      UniValue saplingStatus(UniValue::VOBJ);
+      saplingStatus.push_back(Pair("consolidationEnabled", pwalletMain->fSaplingConsolidationEnabled));
+      saplingStatus.push_back(Pair("isRunning", pwalletMain->fSaplingConsolidationRunning));
+      if (pwalletMain->fSaplingConsolidationRunning) {
+          saplingStatus.push_back(Pair("nextConsolidation", pwalletMain->saplingConsolidationInterval + chainActive.Tip()->nHeight));
       } else {
-          if (pwalletMain->nextConsolidation == 0) {
-              result.push_back(Pair("nextConsolidation",  chainActive.Tip()->nHeight + 1));
+          if (pwalletMain->nextSaplingConsolidation == 0) {
+              saplingStatus.push_back(Pair("nextConsolidation",  chainActive.Tip()->nHeight + 1));
           } else {
-              result.push_back(Pair("nextConsolidation", pwalletMain->nextConsolidation));
+              saplingStatus.push_back(Pair("nextConsolidation", pwalletMain->nextSaplingConsolidation));
           }
       }
-      result.push_back(Pair("consolidationInterval", pwalletMain->initializeConsolidationInterval));
-      result.push_back(Pair("targetQty", pwalletMain->targetConsolidationQty));
+      saplingStatus.push_back(Pair("consolidationInterval", pwalletMain->saplingConsolidationInterval));
+      saplingStatus.push_back(Pair("targetQty", pwalletMain->targetSaplingConsolidationQty));
+      result.push_back(Pair("sapling", saplingStatus));
+      
+      // Orchard consolidation status
+      UniValue orchardStatus(UniValue::VOBJ);
+      orchardStatus.push_back(Pair("consolidationEnabled", pwalletMain->fOrchardConsolidationEnabled));
+      orchardStatus.push_back(Pair("isRunning", pwalletMain->fOrchardConsolidationRunning));
+      if (pwalletMain->fOrchardConsolidationRunning) {
+          orchardStatus.push_back(Pair("nextConsolidation", pwalletMain->orchardConsolidationInterval + chainActive.Tip()->nHeight));
+      } else {
+          if (pwalletMain->nextOrchardConsolidation == 0) {
+              orchardStatus.push_back(Pair("nextConsolidation",  chainActive.Tip()->nHeight + 1));
+          } else {
+              orchardStatus.push_back(Pair("nextConsolidation", pwalletMain->nextOrchardConsolidation));
+          }
+      }
+      orchardStatus.push_back(Pair("consolidationInterval", pwalletMain->orchardConsolidationInterval));
+      orchardStatus.push_back(Pair("targetQty", pwalletMain->targetOrchardConsolidationQty));
+      result.push_back(Pair("orchard", orchardStatus));
 
       return result;
 }
@@ -9339,7 +9412,9 @@ static const CRPCCommand commands[] =
     { "disclosure",         "z_validatepaymentdisclosure", &z_validatepaymentdisclosure, true },
 
     // { "consolidation",         "enableconsolidation",      &enableconsolidation,       true },
-    { "consolidation",         "consolidationstatus",      &consolidationstatus,       true }
+    { "consolidation",         "consolidationstatus",      &consolidationstatus,       true },
+
+    { "sweep",               "sweepstatus",      &sweepstatus,       true }
 
 };
 

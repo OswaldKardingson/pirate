@@ -1084,6 +1084,9 @@ private:
     std::vector<CTransaction> pendingSaplingConsolidationTxs;
     AsyncRPCOperationId saplingConsolidationOperationId;
 
+    std::vector<CTransaction> pendingOrchardConsolidationTxs;
+    AsyncRPCOperationId orchardConsolidationOperationId;
+
     void AddToTransparentSpends(const COutPoint& outpoint, const uint256& wtxid);
     void AddToSproutSpends(const uint256& nullifier, const uint256& wtxid);
     void AddToSaplingSpends(const uint256& nullifier, const uint256& wtxid);
@@ -1101,24 +1104,25 @@ public:
     int walletHeight = 0;
 
     bool needsRescan = false;
+    
+    // Sapling consolidation settings
     bool fSaplingConsolidationEnabled = false;
-    bool fConsolidationRunning = false;
-    int initializeConsolidationInterval = (Params().GetConsensus().nPowTargetSpacing/60) * 60 * 24 * 7; //Intialize 1 per week
-    int nextConsolidation = 0;
-    int targetConsolidationQty = 100;
+    bool fSaplingConsolidationRunning = false;
+    int saplingConsolidationInterval = (Params().GetConsensus().nPowTargetSpacing/60) * 60 * 24 * 7; // Initialize 1 per week
+    int nextSaplingConsolidation = 0;
+    int targetSaplingConsolidationQty = 100;
+    
+    // Orchard consolidation settings
+    bool fOrchardConsolidationEnabled = false;
+    bool fOrchardConsolidationRunning = false;
+    int orchardConsolidationInterval = (Params().GetConsensus().nPowTargetSpacing/60) * 60 * 24 * 7; // Initialize 1 per week
+    int nextOrchardConsolidation = 0;
+    int targetOrchardConsolidationQty = 100;
 
-    string strCleanUpStatus = "";
-    bool fCleanupRoundComplete = false;
-    std::vector<uint256> vCleanUpTxids;
-    int cleanUpConfirmed = 0;
-    int cleanUpConflicted = 0;
-    int cleanUpUnconfirmed = 0;
-    int cleanupMaxExpirationHieght = 0;
-    int cleanupCurrentRoundUnspent = 0;
-
-    bool fSaplingSweepEnabled = false;
+    // Protocol-agnostic sweep configuration
+    bool fSweepEnabled = false;          // Unified sweep flag supporting all protocols
     bool fSweepRunning = false;
-    int sweepInterval = (Params().GetConsensus().nPowTargetSpacing/60) * 15; //Intialize every 15 minutes
+    int sweepInterval = (Params().GetConsensus().nPowTargetSpacing/60) * 15; //Initialize every 15 minutes
     int nextSweep = 0;
     int targetSweepQty = 0;
 
@@ -2123,6 +2127,7 @@ public:
     void ChainTip(const CBlockIndex *pindex, const CBlock *pblock, bool added);
     void RunSaplingSweep(int blockHeight);
     void RunSaplingConsolidation(int blockHeight);
+    void RunOrchardConsolidation(int blockHeight);
     bool CommitAutomatedTx(const CTransaction& tx);
     /** Saves witness caches and best block locator to disk. */
     void SetBestChain(const CBlockLocator& loc, const int& height);
