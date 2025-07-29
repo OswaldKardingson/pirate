@@ -1432,6 +1432,7 @@ UniValue getblockchaininfo(const UniValue& params, bool fHelp, const CPubKey& my
     valuePools.push_back(ValuePoolDesc(std::string("transparent"), tip->nChainTransparentValue, std::nullopt));
     valuePools.push_back(ValuePoolDesc(std::string("sprout"), tip->nChainSproutValue, std::nullopt));
     valuePools.push_back(ValuePoolDesc(std::string("sapling"), tip->nChainSaplingValue, std::nullopt));
+    valuePools.push_back(ValuePoolDesc(std::string("orchard"), tip->nChainOrchardValue, std::nullopt));
     valuePools.push_back(ValuePoolDesc(std::string("burned"), tip->nChainTotalBurned, std::nullopt));
     obj.push_back(Pair("valuePools",            valuePools));
 

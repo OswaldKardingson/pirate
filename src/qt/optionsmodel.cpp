@@ -115,8 +115,8 @@ void OptionsModel::Init(bool resetSettings)
 
     if (!settings.contains("fSaplingConsolidationEnabled"))
         settings.setValue("fSaplingConsolidationEnabled", true);
-    if (!SoftSetBoolArg("-consolidation", settings.value("fSaplingConsolidationEnabled").toBool()))
-        addOverriddenOption("-consolidation");
+    if (!SoftSetBoolArg("-saplingconsolidation", settings.value("fSaplingConsolidationEnabled").toBool()))
+        addOverriddenOption("-saplingconsolidation");
 
     if (!settings.contains("fEnableReindex"))
         settings.setValue("fEnableReindex", false);

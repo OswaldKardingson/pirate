@@ -701,7 +701,7 @@ const fs::path &GetDataDir(bool fNetSpecific)
     }
 
     if (mapArgs.count("-datadir")) {
-        path = fs::system_complete(mapArgs["-datadir"]);
+        path = fs::weakly_canonical(fs::system_complete(mapArgs["-datadir"]));
         if (!fs::is_directory(path)) {
             path = "";
             return path;

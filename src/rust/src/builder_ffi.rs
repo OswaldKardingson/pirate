@@ -287,26 +287,52 @@ pub extern "C" fn orchard_unauthorized_bundle_free(
 #[no_mangle]
 pub extern "C" fn orchard_unauthorized_bundle_prove_and_sign(
     bundle: *mut Bundle<InProgress<Unproven, Unauthorized>, Amount>,
-    skbytes: *const [u8; 32],
+    skbytes: *const u8,
+    keycount: size_t,
     sighash: *const [u8; 32],
 ) -> *mut Bundle<Authorized, Amount> {
     let bundle = unsafe { Box::from_raw(bundle) };
-    let skbytes = unsafe { skbytes.as_ref() }.expect("spending key pointer may not be null.");
     let sighash = unsafe { sighash.as_ref() }.expect("sighash pointer may not be null.");
     let pk = unsafe { ORCHARD_PK.as_ref() }
         .expect("Parameters not loaded: ORCHARD_PK should have been initialized");
 
-    //Convert SpendingKey bytes vector to SpendAuthorizingKey vector
-    let mut signing_keys: Vec<SpendAuthorizingKey> = Vec::new();
 
-    let sk = SpendingKey::from_bytes(*skbytes);
-    if sk.is_some().into() {
-        println!("Keys found: {:x?}", sk.unwrap());
-        signing_keys.push(SpendAuthorizingKey::from(&sk.unwrap()));
-    } else {
-        println!("Unable to parse spending key!");
+    //let skbytes = unsafe { skbytes.as_ref() }
+    //    .expect("spending key pointer may not be null.");
+
+    let skbytes = unsafe {
+        slice::from_raw_parts(skbytes, keycount * 32)
+    };
+
+    //Convert &[u8] slice to vector of [u8; 32] 
+    let spendingkeysraw: Vec<[u8; 32]> = skbytes
+        .chunks_exact(32)
+        .map(|chunk| {
+            let mut array = [0u8; 32];
+            array.copy_from_slice(chunk);
+            array
+        })
+        .collect();
+
+    // Convert the slice of bytes into a vector of SpendingKey
+    let mut spendingkeys: Vec<Option<SpendingKey>> = Vec::new();
+
+    for rawkey in spendingkeysraw {
+        // Convert each [u8; 32] to SpendingKey
+        let spendingkey = SpendingKey::from_bytes(rawkey);
+        spendingkeys.push(spendingkey.into());
     }
 
+    // Convert SpendingKey bytes vector to SpendAuthorizingKey vector
+    let mut signing_keys: Vec<SpendAuthorizingKey> = Vec::new();
+
+    for sk in spendingkeys {
+        if let Some(sk) = sk {
+            signing_keys.push(SpendAuthorizingKey::from(&sk));
+        } else {
+            println!("Unable to parse spending key!");
+        }
+    }
 
     let mut rng = OsRng;
     let res = bundle

@@ -196,6 +196,16 @@ struct CRecipient
 typedef std::map<std::string, std::string> mapValue_t;
 
 
+/**
+ * @brief Read transaction order position from key-value map
+ * 
+ * Reads the order position value from a transaction's metadata map.
+ * Order positions are used to maintain consistent ordering of transactions
+ * in the wallet across different application runs.
+ * 
+ * @param nOrderPos Reference to store the read order position (-1 if not found)
+ * @param mapValue Key-value map containing transaction metadata
+ */
 static void ReadOrderPos(int64_t& nOrderPos, mapValue_t& mapValue)
 {
     if (!mapValue.count("n"))
@@ -206,7 +216,15 @@ static void ReadOrderPos(int64_t& nOrderPos, mapValue_t& mapValue)
     nOrderPos = atoi64(mapValue["n"].c_str());
 }
 
-
+/**
+ * @brief Write transaction order position to key-value map
+ * 
+ * Stores the order position value in a transaction's metadata map for persistence.
+ * Only writes non-null order positions (not -1).
+ * 
+ * @param nOrderPos Order position to write
+ * @param mapValue Key-value map to store transaction metadata
+ */
 static void WriteOrderPos(const int64_t& nOrderPos, mapValue_t& mapValue)
 {
     if (nOrderPos == -1)
@@ -214,14 +232,25 @@ static void WriteOrderPos(const int64_t& nOrderPos, mapValue_t& mapValue)
     mapValue["n"] = i64tostr(nOrderPos);
 }
 
+/**
+ * @brief Output entry containing destination, amount, and output index
+ * 
+ * Represents an output from a transaction with its destination address,
+ * amount, and position within the transaction.
+ */
 struct COutputEntry
 {
-    CTxDestination destination;
-    CAmount amount;
-    int vout;
+    CTxDestination destination; //!< Destination address for the output
+    CAmount amount;            //!< Amount of the output in satoshis
+    int vout;                  //!< Output index within the transaction
 };
 
-/** A note outpoint */
+/**
+ * @brief A Zcash Sprout note outpoint
+ * 
+ * Identifies a specific Sprout note within a transaction by combining
+ * the transaction hash, JoinSplit index, and output index within that JoinSplit.
+ */
 class JSOutPoint
 {
 public:
@@ -232,7 +261,17 @@ public:
     // Index into JSDescription fields of length ZC_NUM_JS_OUTPUTS
     uint8_t n;
 
+    /**
+     * @brief Default constructor - creates null outpoint
+     */
     JSOutPoint() { SetNull(); }
+    
+    /**
+     * @brief Constructor with hash, JoinSplit index, and output index
+     * @param h Transaction hash
+     * @param js JoinSplit index 
+     * @param n Output index within the JoinSplit
+     */
     JSOutPoint(uint256 h, uint64_t js, uint8_t n) : hash {h}, js {js}, n {n} { }
 
     ADD_SERIALIZE_METHODS;
@@ -244,30 +283,66 @@ public:
         READWRITE(n);
     }
 
+    /**
+     * @brief Set outpoint to null state
+     */
     void SetNull() { hash.SetNull(); }
+    
+    /**
+     * @brief Check if outpoint is null
+     * @return True if hash is null
+     */
     bool IsNull() const { return hash.IsNull(); }
 
+    /**
+     * @brief Less-than comparison operator for ordering
+     * @param a First outpoint
+     * @param b Second outpoint
+     * @return True if a < b using hash, then js, then n for ordering
+     */
     friend bool operator<(const JSOutPoint& a, const JSOutPoint& b) {
         return (a.hash < b.hash ||
                 (a.hash == b.hash && a.js < b.js) ||
                 (a.hash == b.hash && a.js == b.js && a.n < b.n));
     }
 
+    /**
+     * @brief Equality comparison operator
+     * @param a First outpoint
+     * @param b Second outpoint
+     * @return True if all components are equal
+     */
     friend bool operator==(const JSOutPoint& a, const JSOutPoint& b) {
         return (a.hash == b.hash && a.js == b.js && a.n == b.n);
     }
 
+    /**
+     * @brief Inequality comparison operator
+     * @param a First outpoint
+     * @param b Second outpoint
+     * @return True if any components are different
+     */
     friend bool operator!=(const JSOutPoint& a, const JSOutPoint& b) {
         return !(a == b);
     }
 
+    /**
+     * @brief Get string representation of the outpoint
+     * @return String containing hash, JoinSplit index, and output index
+     */
     std::string ToString() const;
 };
 
+/**
+ * @brief Data associated with a Sprout note in the wallet
+ * 
+ * Contains all information needed to track and spend a Sprout note,
+ * including the payment address, cached nullifier, and witness data.
+ */
 class SproutNoteData
 {
 public:
-    libzcash::SproutPaymentAddress address;
+    libzcash::SproutPaymentAddress address; //!< Payment address that can spend this note
 
     /**
      * Cached note nullifier. May not be set if the wallet was not unlocked when
@@ -301,11 +376,25 @@ public:
     int witnessHeight;
 
     //In Memory Only
-    bool witnessRootValidated;
+    bool witnessRootValidated; //!< Whether witness root has been validated (memory only)
 
+    /**
+     * @brief Default constructor
+     */
     SproutNoteData() : address(), nullifier(), witnessHeight {-1}, witnessRootValidated {false} { }
+    
+    /**
+     * @brief Constructor with payment address
+     * @param a Payment address for the note
+     */
     SproutNoteData(libzcash::SproutPaymentAddress a) :
             address {a}, nullifier(), witnessHeight {-1}, witnessRootValidated {false} { }
+    
+    /**
+     * @brief Constructor with payment address and nullifier
+     * @param a Payment address for the note
+     * @param n Nullifier for the note
+     */
     SproutNoteData(libzcash::SproutPaymentAddress a, uint256 n) :
             address {a}, nullifier {n}, witnessHeight {-1}, witnessRootValidated {false} { }
 
@@ -319,24 +408,48 @@ public:
         READWRITE(witnessHeight);
     }
 
+    /**
+     * @brief Less-than comparison operator for ordering
+     * @param a First SproutNoteData
+     * @param b Second SproutNoteData
+     * @return True if a < b using address and nullifier for ordering
+     */
     friend bool operator<(const SproutNoteData& a, const SproutNoteData& b) {
         return (a.address < b.address ||
                 (a.address == b.address && a.nullifier < b.nullifier));
     }
 
+    /**
+     * @brief Equality comparison operator
+     * @param a First SproutNoteData
+     * @param b Second SproutNoteData
+     * @return True if address and nullifier are equal
+     */
     friend bool operator==(const SproutNoteData& a, const SproutNoteData& b) {
         return (a.address == b.address && a.nullifier == b.nullifier);
     }
 
+    /**
+     * @brief Inequality comparison operator
+     * @param a First SproutNoteData
+     * @param b Second SproutNoteData
+     * @return True if address or nullifier are different
+     */
     friend bool operator!=(const SproutNoteData& a, const SproutNoteData& b) {
         return !(a == b);
     }
 };
 
+/**
+ * @brief Encrypted Sapling note information
+ * 
+ * Contains the encrypted ciphertext, ephemeral key, and commitment
+ * for a Sapling note before decryption.
+ */
 struct SaplingEncryptedNote {
-    libzcash::SaplingEncCiphertext encCiphertext;
-    uint256 ephemeralKey;
-    uint256 cmu;
+    libzcash::SaplingEncCiphertext encCiphertext; //!< Encrypted note ciphertext
+    uint256 ephemeralKey;                         //!< Ephemeral key used for encryption
+    uint256 cmu;                                  //!< Note commitment
 };
 
 class SaplingNoteData
@@ -971,6 +1084,9 @@ private:
     std::vector<CTransaction> pendingSaplingConsolidationTxs;
     AsyncRPCOperationId saplingConsolidationOperationId;
 
+    std::vector<CTransaction> pendingOrchardConsolidationTxs;
+    AsyncRPCOperationId orchardConsolidationOperationId;
+
     void AddToTransparentSpends(const COutPoint& outpoint, const uint256& wtxid);
     void AddToSproutSpends(const uint256& nullifier, const uint256& wtxid);
     void AddToSaplingSpends(const uint256& nullifier, const uint256& wtxid);
@@ -988,24 +1104,25 @@ public:
     int walletHeight = 0;
 
     bool needsRescan = false;
+    
+    // Sapling consolidation settings
     bool fSaplingConsolidationEnabled = false;
-    bool fConsolidationRunning = false;
-    int initializeConsolidationInterval = (Params().GetConsensus().nPowTargetSpacing/60) * 60 * 24 * 7; //Intialize 1 per week
-    int nextConsolidation = 0;
-    int targetConsolidationQty = 100;
+    bool fSaplingConsolidationRunning = false;
+    int saplingConsolidationInterval = (Params().GetConsensus().nPowTargetSpacing/60) * 60 * 24 * 7; // Initialize 1 per week
+    int nextSaplingConsolidation = 0;
+    int targetSaplingConsolidationQty = 100;
+    
+    // Orchard consolidation settings
+    bool fOrchardConsolidationEnabled = false;
+    bool fOrchardConsolidationRunning = false;
+    int orchardConsolidationInterval = (Params().GetConsensus().nPowTargetSpacing/60) * 60 * 24 * 7; // Initialize 1 per week
+    int nextOrchardConsolidation = 0;
+    int targetOrchardConsolidationQty = 100;
 
-    string strCleanUpStatus = "";
-    bool fCleanupRoundComplete = false;
-    std::vector<uint256> vCleanUpTxids;
-    int cleanUpConfirmed = 0;
-    int cleanUpConflicted = 0;
-    int cleanUpUnconfirmed = 0;
-    int cleanupMaxExpirationHieght = 0;
-    int cleanupCurrentRoundUnspent = 0;
-
-    bool fSaplingSweepEnabled = false;
+    // Protocol-agnostic sweep configuration
+    bool fSweepEnabled = false;          // Unified sweep flag supporting all protocols
     bool fSweepRunning = false;
-    int sweepInterval = (Params().GetConsensus().nPowTargetSpacing/60) * 15; //Intialize every 15 minutes
+    int sweepInterval = (Params().GetConsensus().nPowTargetSpacing/60) * 15; //Initialize every 15 minutes
     int nextSweep = 0;
     int targetSweepQty = 0;
 
@@ -1160,6 +1277,19 @@ protected:
                     paymentAddressCount++;
                 }
 
+                for (std::pair<const libzcash::OrchardPaymentAddressPirate, libzcash::OrchardIncomingViewingKeyPirate>& ivkItem : mapUnsavedOrchardIncomingViewingKeys) {
+                    auto addr = ivkItem.first;
+                    auto ivk = ivkItem.second;
+
+                    // Write all archived orchard outpoint
+                    if (!walletdb.WriteOrchardPaymentAddress(ivk, addr)) {
+                        LogPrintf("SetBestChain(): Failed to write unsaved Orchard Payment address, aborting atomic write\n");
+                        walletdb.TxnAbort();
+                        return;
+                    }
+                    paymentAddressCount++;
+                }
+
                 if (!walletdb.WriteBestBlock(loc)) {
                     LogPrintf("SetBestChain(): Failed to write best block, aborting atomic write\n");
                     walletdb.TxnAbort();
@@ -1307,6 +1437,29 @@ protected:
                         paymentAddressCount++;
                     }
 
+                    for (std::pair<const libzcash::OrchardPaymentAddressPirate, libzcash::OrchardIncomingViewingKeyPirate>& ivkItem : mapUnsavedOrchardIncomingViewingKeys) {
+                        auto addr = ivkItem.first;
+                        auto ivk = ivkItem.second;
+
+                        std::vector<unsigned char> vchCryptedSecret;
+                        uint256 chash = HashWithFP(addr);
+                        CKeyingMaterial vchSecret = SerializeForEncryptionInput(addr, ivk);
+
+                        if (!EncryptSerializedWalletObjects(vchSecret, chash, vchCryptedSecret)) {
+                            LogPrintf("SetBestChain(): Failed to encrypt unsaved Orchard Payment address, aborting atomic write\n");
+                            walletdb.TxnAbort();
+                            return;
+                        }
+
+                        // Write all unsaved Orchard Payment Addresses
+                        if (!walletdb.WriteCryptedOrchardPaymentAddress(addr, chash, vchCryptedSecret)) {
+                            LogPrintf("SetBestChain(): Failed to write unsaved Orchard Payment address, aborting atomic write\n");
+                            walletdb.TxnAbort();
+                            return;
+                        }
+                        paymentAddressCount++;
+                    }
+
                     if (!walletdb.WriteBestBlock(loc)) {
                         LogPrintf("SetBestChain(): Failed to write best block, aborting atomic write\n");
                         walletdb.TxnAbort();
@@ -1350,6 +1503,7 @@ protected:
 
         //Clear Unsaved Sapling Addresses after successful TxnCommit
         mapUnsavedSaplingIncomingViewingKeys.clear();
+        mapUnsavedOrchardIncomingViewingKeys.clear();
         fRunSetBestChain = false;
         walletHeight = height; //Set Wallet height to chain height.
 
@@ -1545,13 +1699,13 @@ public:
     bool SelectCoinsMinConf(const CAmount& nTargetValue, int nConfMine, int nConfTheirs, std::vector<COutput> vCoins, std::set<std::pair<const CWalletTx*,unsigned int> >& setCoinsRet, CAmount& nValueRet) const;
 
     bool IsSpent(const uint256& hash, unsigned int n) const;
-    unsigned int GetSpendDepth(const uint256& hash, unsigned int n) const;
+    int GetSpendDepth(const uint256& hash, unsigned int n) const;
     bool IsSproutSpent(const uint256& nullifier) const;
-    unsigned int GetSproutSpendDepth(const uint256& nullifier) const;
+    int GetSproutSpendDepth(const uint256& nullifier) const;
     bool IsSaplingSpent(const uint256& nullifier) const;
-    unsigned int GetSaplingSpendDepth(const uint256& nullifier) const;
+    int GetSaplingSpendDepth(const uint256& nullifier) const;
     bool IsOrchardSpent(const uint256& nullifier) const;
-    unsigned int GetOrchardSpendDepth(const uint256& nullifier) const;
+    int GetOrchardSpendDepth(const uint256& nullifier) const;
 
     bool IsLockedCoin(uint256 hash, unsigned int n) const;
     void LockCoin(COutPoint& output);
@@ -1937,11 +2091,11 @@ public:
 
     bool SaplingWalletGetMerklePathOfNote(const uint256 txid, int outidx, libzcash::MerklePath &merklePath);
     bool SaplingWalletGetPathRootWithCMU(libzcash::MerklePath &merklePath, uint256 cmu, uint256 &anchor);
-    void SaplingWalletReset();
+    bool SaplingWalletReset();
 
     bool OrchardWalletGetMerklePathOfNote(const uint256 txid, int outidx, libzcash::MerklePath &merklePath);
     bool OrchardWalletGetPathRootWithCMU(libzcash::MerklePath &merklePath, uint256 cmu, uint256 &anchor);
-    void OrchardWalletReset();
+    bool OrchardWalletReset();
 
     void GetSproutNoteWitnesses(
          std::vector<JSOutPoint> notes,
@@ -1973,6 +2127,7 @@ public:
     void ChainTip(const CBlockIndex *pindex, const CBlock *pblock, bool added);
     void RunSaplingSweep(int blockHeight);
     void RunSaplingConsolidation(int blockHeight);
+    void RunOrchardConsolidation(int blockHeight);
     bool CommitAutomatedTx(const CTransaction& tx);
     /** Saves witness caches and best block locator to disk. */
     void SetBestChain(const CBlockLocator& loc, const int& height);
