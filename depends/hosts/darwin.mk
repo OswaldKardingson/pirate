@@ -33,7 +33,18 @@ LD64_VERSION=711
 # target triple here; this is safe because the produced binaries are intended
 # for distribution to Intel macOS users.
 
-darwin_cross_target = x86_64-apple-darwin
+# Detect the actual architecture we're building for and set appropriate Rust target
+ifeq ($(host),x86_64-apple-darwin)
+    darwin_cross_target = x86_64-apple-darwin
+    RUST_TARGET = x86_64-apple-darwin
+else ifeq ($(host),aarch64-apple-darwin)
+    darwin_cross_target = aarch64-apple-darwin
+    RUST_TARGET = aarch64-apple-darwin
+else
+    # Default fallback for compatibility
+    darwin_cross_target = x86_64-apple-darwin
+    RUST_TARGET = x86_64-apple-darwin
+endif
 
 darwin_CC=clang -target $(darwin_cross_target) -mmacosx-version-min=$(OSX_MIN_VERSION) --sysroot $(OSX_SDK) -mlinker-version=$(LD64_VERSION) -B$(build_prefix)/bin
 darwin_CXX=clang++ -target $(darwin_cross_target) -mmacosx-version-min=$(OSX_MIN_VERSION) --sysroot $(OSX_SDK) -stdlib=libc++ -mlinker-version=$(LD64_VERSION) -B$(build_prefix)/bin -nostdinc++ -isystem $(OSX_SDK)/usr/include/c++/v1
