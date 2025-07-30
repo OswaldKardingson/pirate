@@ -196,7 +196,7 @@ int32_t myIsutxo_spent(uint256 &spenttxid,uint256 txid,int32_t vout)
         return((int32_t)spentInfo.inputIndex);
         // out.push_back(Pair("spentHeight", spentInfo.blockHeight));
     }
-    memset(&spenttxid,0,sizeof(spenttxid));
+    spenttxid.SetNull();
     return(-1);
 }
 
@@ -755,7 +755,7 @@ UniValue createrawtransaction(const UniValue& params, bool fHelp, const CPubKey&
         int64_t nLockTime = params[2].get_int64();
         if (nLockTime < 0 || nLockTime > std::numeric_limits<uint32_t>::max())
             throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, locktime out of range");
-        rawTx.nLockTime = nLockTime;
+        rawTx.nLockTime = static_cast<uint32_t>(nLockTime);
     }
 
     if (params.size() > 3 && !params[3].isNull()) {
@@ -943,7 +943,7 @@ UniValue decoderawtransaction(const UniValue& params, bool fHelp, const CPubKey&
     string strHexTx = params[0].get_str();
     string strHexTb = params[0].get_str();
     if (!IsHex(strHexTx))
-        return false;
+        throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "Invalid hex string");
 
     CTransaction tx;
     TransactionBuilder tb;
@@ -1576,7 +1576,7 @@ UniValue z_buildrawtransaction(const UniValue& params, bool fHelp, const CPubKey
   }
 
   if (tb.vSaplingSpends.size() == 0 && tb.vOrchardSpends.size() == 0 ) {
-      throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "Transaction builder doe not contains Sapling Spends or Orchard Spends, coins must be spent from Sapling Orchard.");
+      throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "Transaction builder does not contain Sapling Spends or Orchard Spends, coins must be spent from Sapling or Orchard.");
   }
 
   //Outgoing viewing key to be set by either the Sapling spending key or the Orchard spending key
