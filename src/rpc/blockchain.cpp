@@ -300,25 +300,33 @@ UniValue blockToDeltasJSON(const CBlock& block, const CBlockIndex* blockindex)
 
 UniValue blockToJSON(const CBlock& block, const CBlockIndex* blockindex, bool txDetails = false)
 {
+    AssertLockHeld(cs_main);
+    bool orchardActive = NetworkUpgradeActive(blockindex->nHeight, Params().GetConsensus(), Consensus::UPGRADE_ORCHARD);
+
     UniValue result(UniValue::VOBJ);
+    result.pushKV("hash", block.GetHash().GetHex());
+    int confirmations = -1;
     uint256 notarized_hash,notarized_desttxid; int32_t prevMoMheight,notarized_height;
     notarized_height = komodo_notarized_height(&prevMoMheight,&notarized_hash,&notarized_desttxid);
     result.push_back(Pair("last_notarized_height", notarized_height));
-    result.push_back(Pair("hash", block.GetHash().GetHex()));
-    int confirmations = -1;
     // Only report confirmations if the block is on the main chain
     if (chainActive.Contains(blockindex))
         confirmations = chainActive.Height() - blockindex->nHeight + 1;
-    result.push_back(Pair("confirmations", komodo_dpowconfs(blockindex->nHeight,confirmations)));
-    result.push_back(Pair("rawconfirmations", confirmations));
-    result.push_back(Pair("size", (int)::GetSerializeSize(block, SER_NETWORK, PROTOCOL_VERSION)));
-    result.push_back(Pair("height", blockindex->nHeight));
-    result.push_back(Pair("version", block.nVersion));
-    result.push_back(Pair("merkleroot", block.hashMerkleRoot.GetHex()));
-    result.push_back(Pair("segid", (int)komodo_segid(0,blockindex->nHeight)));
-    result.push_back(Pair("hashblockcommitments", block.hashBlockCommitments.GetHex()));
+    result.pushKV("confirmations", confirmations);
+    result.pushKV("size", (int)::GetSerializeSize(block, SER_NETWORK, PROTOCOL_VERSION));
+    result.pushKV("height", blockindex->nHeight);
+    result.pushKV("version", block.nVersion);
+    result.pushKV("merkleroot", block.hashMerkleRoot.GetHex());
+    result.pushKV("blockcommitments", blockindex->hashBlockCommitments.GetHex());
+    result.pushKV("authdataroot", blockindex->hashAuthDataRoot.GetHex());
+    result.pushKV("finalsaplingroot", blockindex->hashFinalSaplingRoot.GetHex());
+    if (orchardActive) {
+        auto finalOrchardRootBytes = blockindex->hashFinalOrchardRoot;
+        result.pushKV("finalorchardroot", HexStr(finalOrchardRootBytes.begin(), finalOrchardRootBytes.end()));
+    }
+    result.pushKV("chainhistoryroot", blockindex->hashChainHistoryRoot.GetHex());
     UniValue txs(UniValue::VARR);
-    BOOST_FOREACH(const CTransaction&tx, block.vtx)
+    for (const CTransaction&tx : block.vtx)
     {
         if(txDetails)
         {
@@ -329,27 +337,47 @@ UniValue blockToJSON(const CBlock& block, const CBlockIndex* blockindex, bool tx
         else
             txs.push_back(tx.GetHash().GetHex());
     }
-    result.push_back(Pair("tx", txs));
-    result.push_back(Pair("time", block.GetBlockTime()));
-    result.push_back(Pair("nonce", block.nNonce.GetHex()));
-    result.push_back(Pair("solution", HexStr(block.nSolution)));
-    result.push_back(Pair("bits", strprintf("%08x", block.nBits)));
-    result.push_back(Pair("difficulty", GetDifficulty(blockindex)));
-    result.push_back(Pair("chainwork", blockindex->nChainWork.GetHex()));
-    result.push_back(Pair("anchor", blockindex->hashFinalSproutRoot.GetHex()));
+    result.pushKV("tx", txs);
+    result.pushKV("time", block.GetBlockTime());
+    result.pushKV("nonce", block.nNonce.GetHex());
+    result.pushKV("solution", HexStr(block.nSolution));
+    result.pushKV("bits", strprintf("%08x", block.nBits));
+    result.pushKV("difficulty", GetDifficulty(blockindex));
+    result.pushKV("chainwork", blockindex->nChainWork.GetHex());
+    result.pushKV("anchor", blockindex->hashFinalSproutRoot.GetHex());
     result.pushKV("chainSupply", ValuePoolDesc(std::nullopt, blockindex->nChainTotalSupply, blockindex->nChainSupplyDelta));
     UniValue valuePools(UniValue::VARR);
-    valuePools.push_back(ValuePoolDesc(std::string("transparent"), blockindex->nChainTransparentValue, blockindex->nTransparentValue));
-    valuePools.push_back(ValuePoolDesc(std::string("sprout"), blockindex->nChainSproutValue, blockindex->nSproutValue));
-    valuePools.push_back(ValuePoolDesc(std::string("sapling"), blockindex->nChainSaplingValue, blockindex->nSaplingValue));
-    valuePools.push_back(ValuePoolDesc(std::string("burned"), blockindex->nChainTotalBurned, blockindex->nBurnedAmountDelta));
-    result.push_back(Pair("valuePools", valuePools));
+    valuePools.push_back(ValuePoolDesc("transparent", blockindex->nChainTransparentValue, blockindex->nTransparentValue));
+    valuePools.push_back(ValuePoolDesc("sprout", blockindex->nChainSproutValue, blockindex->nSproutValue));
+    valuePools.push_back(ValuePoolDesc("sapling", blockindex->nChainSaplingValue, blockindex->nSaplingValue));
+    valuePools.push_back(ValuePoolDesc("orchard", blockindex->nChainOrchardValue, blockindex->nOrchardValue));
+    result.pushKV("valuePools", valuePools);
+
+    {
+        UniValue trees(UniValue::VOBJ);
+
+        SaplingMerkleFrontier saplingTree;
+        if (pcoinsTip != nullptr && pcoinsTip->GetSaplingFrontierAnchorAt(blockindex->hashFinalSaplingRoot, saplingTree)) {
+            UniValue sapling(UniValue::VOBJ);
+            sapling.pushKV("size", (uint64_t)saplingTree.size());
+            trees.pushKV("saplingfrontier", sapling);
+        }
+
+        OrchardMerkleFrontier orchardTree;
+        if (pcoinsTip != nullptr && pcoinsTip->GetOrchardFrontierAnchorAt(blockindex->hashFinalOrchardRoot, orchardTree)) {
+            UniValue orchard(UniValue::VOBJ);
+            orchard.pushKV("size", (uint64_t)orchardTree.size());
+            trees.pushKV("orchardfrontier", orchard);
+        }
+
+        result.pushKV("trees", trees);
+    }
 
     if (blockindex->pprev)
-        result.push_back(Pair("previousblockhash", blockindex->pprev->GetBlockHash().GetHex()));
+        result.pushKV("previousblockhash", blockindex->pprev->GetBlockHash().GetHex());
     CBlockIndex *pnext = chainActive.Next(blockindex);
     if (pnext)
-        result.push_back(Pair("nextblockhash", pnext->GetBlockHash().GetHex()));
+        result.pushKV("nextblockhash", pnext->GetBlockHash().GetHex());
     return result;
 }
 
@@ -1684,7 +1712,7 @@ UniValue z_gettreestate(const UniValue& params, bool fHelp, const CPubKey& mypk)
         SaplingMerkleFrontier tree;
         if (pcoinsTip->GetSaplingFrontierAnchorAt(pindex->hashFinalSaplingRoot, tree)) {
             CDataStream s(SER_NETWORK, PROTOCOL_VERSION);
-            s << tree;
+            s << SaplingMerkleFrontierLegacySer(tree);
             sapling_commitments.pushKV("finalState", HexStr(s.begin(), s.end()));
         } else {
             // Set skipHash to the most recent block that has a finalState.
@@ -1714,7 +1742,7 @@ UniValue z_gettreestate(const UniValue& params, bool fHelp, const CPubKey& mypk)
         OrchardMerkleFrontier tree;
         if (pcoinsTip->GetOrchardFrontierAnchorAt(pindex->hashFinalOrchardRoot, tree)) {
             CDataStream s(SER_NETWORK, PROTOCOL_VERSION);
-            s << tree;
+            s << OrchardMerkleFrontierLegacySer(tree);
             orchard_commitments.pushKV("finalState", HexStr(s.begin(), s.end()));
         } else {
             // Set skipHash to the most recent block that has a finalState.
@@ -1722,7 +1750,7 @@ UniValue z_gettreestate(const UniValue& params, bool fHelp, const CPubKey& mypk)
             auto orchardActive = [&](const CBlockIndex* pindex_cur) -> bool {
                 return pindex_cur && pindex_cur->nHeight >= orchard_activation_height;
             };
-            while (orchardActive(pindex_skip) && !pcoinsTip->GetOrchardFrontierAnchorAt(pindex_skip->hashFinalSaplingRoot, tree)) {
+            while (orchardActive(pindex_skip) && !pcoinsTip->GetOrchardFrontierAnchorAt(pindex_skip->hashFinalOrchardRoot, tree)) {
                 pindex_skip = pindex_skip->pprev;
             }
             if (orchardActive(pindex_skip)) {
