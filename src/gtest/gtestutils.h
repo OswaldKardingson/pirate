@@ -1,8 +1,13 @@
 #pragma once
 
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
+
 #include "main.h"
 #include "wallet/wallet.h"
 #include "consensus/validation.h"
+
+class TestWallet;
 
 #define VCH(a,b) std::vector<unsigned char>(a, a + b)
 
@@ -15,6 +20,8 @@ static char ccjsonerr[1000] = "\0";
 extern std::string notaryPubkey;
 extern std::string notarySecret;
 extern CKey notaryKey;
+
+extern TestWallet* pTestWallet;
 
 /***
  * @brief Look inside a transaction
@@ -130,80 +137,166 @@ private:
     void CleanGlobals();
 };
 
-/***
- * An easy-to-use wallet for testing Komodo
- */
-class TestWallet : public CWallet
-{
+
+
+class MockWalletDB {
 public:
-    TestWallet(const std::string& name);
-    TestWallet(const CKey& in, const std::string& name);
-    ~TestWallet();
-    /***
-     * @returns the public key
-     */
-    CPubKey GetPubKey() const;
-    /***
-     * @returns the private key
-     */
-    CKey GetPrivKey() const;
-    /***
-     * Sign a typical transaction
-     * @param hash the hash to sign
-     * @param hashType SIGHASH_ALL or something similar
-     * @returns the bytes to add to ScriptSig
-     */
-    std::vector<unsigned char> Sign(uint256 hash, unsigned char hashType);
-    /***
-     * Sign a cryptocondition
-     * @param cc the cryptocondition
-     * @param hash the hash to sign
-     * @returns the bytes to add to ScriptSig
-     */
-    std::vector<unsigned char> Sign(CC* cc, uint256 hash);
-    /*****
-     * @brief create a transaction with 1 recipient (signed)
-     * @param to who to send funds to
-     * @param amount
-     * @param fee
-     * @returns the transaction
-     */
-    TransactionInProcess CreateSpendTransaction(std::shared_ptr<TestWallet> to, CAmount amount,
-            CAmount fee = 0, bool commit = true);
-    /*************
-     * @brief Create a transaction, do not place in mempool
-     * @note throws std::logic_error if there was a problem
-     * @param to who to send to
-     * @param amount the amount to send
-     * @param fee the fee
-     * @param txToSpend the specific transaction to spend (ok if not transmitted yet)
-     * @returns the transaction
-    */
-    TransactionInProcess CreateSpendTransaction(std::shared_ptr<TestWallet> to,
-            CAmount amount, CAmount fee, CCoinControl& coinControl);
-    /****
-     * @brief create a transaction spending a vout that is not yet in the wallet
-     * @param vecSend the recipients
-     * @param wtxNew the resultant tx
-     * @param reserveKey the key used
-     * @param strFailReason the reason for any failure
-     * @param outputControl the tx to spend
-     * @returns true on success
-     */
-    bool CreateTransaction(const std::vector<CRecipient>& vecSend, CWalletTx& wtxNew,
-            CReserveKey& reservekey, std::string& strFailReason, CAmount nMinFeeOverride, CCoinControl* coinControl);
-    using CWallet::CommitTransaction;
-    bool CommitTransaction(CWalletTx& wtxNew, CReserveKey& reservekey, CValidationState& state);
-    /***
-     * Transfer to another user (sends to mempool)
-     * @param to who to transfer to
-     * @param amount the amount
-     * @returns the results
-     */
-    CTransaction Transfer(std::shared_ptr<TestWallet> to, CAmount amount, CAmount fee = 0);
-private:
-    CKey key;
+    MOCK_METHOD0(TxnBegin, bool());
+    MOCK_METHOD0(TxnCommit, bool());
+    MOCK_METHOD0(TxnAbort, bool());
+
+    MOCK_METHOD1(WriteBestBlock, bool(const CBlockLocator& loc));
+
+    MOCK_METHOD3(WriteTx, bool(uint256 hash, const CWalletTx& wtx, bool txnProtected));
+    MOCK_METHOD3(WriteArcTx, bool(uint256 hash, ArchiveTxPoint arcTxPoint, bool txnProtected));
+    MOCK_METHOD3(WriteArcSaplingOp, bool(uint256 nullifier, SaplingOutPoint op, bool txnProtected));
+    MOCK_METHOD3(WriteArcOrchardOp, bool(uint256 nullifier, OrchardOutPoint op, bool txnProtected));
+    MOCK_METHOD2(WriteSaplingPaymentAddress, bool(const libzcash::SaplingIncomingViewingKey &ivk, const libzcash::SaplingPaymentAddress &addr));
+    MOCK_METHOD2(WriteOrchardPaymentAddress, bool(const libzcash::OrchardIncomingViewingKeyPirate &ivk,const libzcash::OrchardPaymentAddressPirate &addr));
+
+    MOCK_METHOD4(WriteCryptedTx, bool(uint256 txid,uint256 hash,const std::vector<unsigned char>& vchCryptedSecret,bool txnProtected));
+    MOCK_METHOD4(WriteCryptedArcTx, bool(uint256 txid, uint256 chash, const std::vector<unsigned char>& vchCryptedSecret, bool txnProtected));
+    MOCK_METHOD4(WriteCryptedArcSaplingOp, bool(uint256 nullifier, uint256 chash, const std::vector<unsigned char>& vchCryptedSecret, bool txnProtected));
+    MOCK_METHOD4(WriteCryptedArcOrchardOp, bool(uint256 nullifier, uint256 chash, const std::vector<unsigned char>& vchCryptedSecret, bool txnProtected));
+    MOCK_METHOD3(WriteCryptedSaplingPaymentAddress, bool(libzcash::SaplingPaymentAddress &addr,const uint256 chash,const std::vector<unsigned char> &vchCryptedSecret));
+    MOCK_METHOD3(WriteCryptedOrchardPaymentAddress, bool(libzcash::OrchardPaymentAddressPirate &addr,const uint256 chash,const std::vector<unsigned char> &vchCryptedSecre));
+    
+    MOCK_METHOD1(WriteSaplingWitnesses, bool(const SaplingWallet& wallet));
+    MOCK_METHOD1(WriteOrchardWitnesses, bool(const OrchardWallet& wallet));
+
 };
+
+class TestWallet : public CWallet {
+public:
+    TestWallet() : CWallet() { }
+
+    TestWallet(const std::string& name)
+        : CWallet( name + ".dat")
+    {
+        LOCK(cs_wallet);
+        bool firstRunRet;
+        DBErrors err = LoadWallet(firstRunRet);
+        RegisterValidationInterface(this);
+    }
+
+    ~TestWallet() {}
+
+    bool EncryptSerializedWalletObjects(
+        const CKeyingMaterial &vchSecret,
+        const uint256 chash,
+        std::vector<unsigned char> &vchCryptedSecret){
+
+        return CCryptoKeyStore::EncryptSerializedSecret(vchSecret, chash, vchCryptedSecret);
+    }
+
+    bool EncryptSerializedWalletObjects(
+        CKeyingMaterial &vMasterKeyIn,
+        const CKeyingMaterial &vchSecret,
+        const uint256 chash,
+        std::vector<unsigned char> &vchCryptedSecret) {
+
+        return CCryptoKeyStore::EncryptSerializedSecret(vMasterKeyIn, vchSecret, chash, vchCryptedSecret);
+    }
+
+    bool DecryptSerializedWalletObjects(
+        const std::vector<unsigned char>& vchCryptedSecret,
+        const uint256 chash,
+        CKeyingMaterial &vchSecret) {
+
+        return CCryptoKeyStore::DecryptSerializedSecret(vchCryptedSecret, chash, vchSecret);
+    }
+
+    bool Unlock(const CKeyingMaterial& vMasterKeyIn) {
+        return CCryptoKeyStore::Unlock(vMasterKeyIn);
+    }
+
+    void SetBestChain(MockWalletDB& walletdb, const CBlockLocator& loc, const int& height) {
+        CWallet::SetBestChainINTERNAL(walletdb, loc, height);
+    }
+
+    void MarkAffectedTransactionsDirty(const CTransaction& tx) {
+        CWallet::MarkAffectedTransactionsDirty(tx);
+    }
+};
+
+// /***
+//  * An easy-to-use wallet for testing Komodo
+//  */
+// class TestWallet : public CWallet
+// {
+// public:
+//     TestWallet(const std::string& name);
+//     TestWallet(const CKey& in, const std::string& name);
+//     ~TestWallet();
+//     /***
+//      * @returns the public key
+//      */
+//     CPubKey GetPubKey() const;
+//     /***
+//      * @returns the private key
+//      */
+//     CKey GetPrivKey() const;
+//     /***
+//      * Sign a typical transaction
+//      * @param hash the hash to sign
+//      * @param hashType SIGHASH_ALL or something similar
+//      * @returns the bytes to add to ScriptSig
+//      */
+//     std::vector<unsigned char> Sign(uint256 hash, unsigned char hashType);
+//     /***
+//      * Sign a cryptocondition
+//      * @param cc the cryptocondition
+//      * @param hash the hash to sign
+//      * @returns the bytes to add to ScriptSig
+//      */
+//     std::vector<unsigned char> Sign(CC* cc, uint256 hash);
+//     /*****
+//      * @brief create a transaction with 1 recipient (signed)
+//      * @param to who to send funds to
+//      * @param amount
+//      * @param fee
+//      * @returns the transaction
+//      */
+//     TransactionInProcess CreateSpendTransaction(std::shared_ptr<TestWallet> to, CAmount amount,
+//             CAmount fee = 0, bool commit = true);
+//     /*************
+//      * @brief Create a transaction, do not place in mempool
+//      * @note throws std::logic_error if there was a problem
+//      * @param to who to send to
+//      * @param amount the amount to send
+//      * @param fee the fee
+//      * @param txToSpend the specific transaction to spend (ok if not transmitted yet)
+//      * @returns the transaction
+//     */
+//     TransactionInProcess CreateSpendTransaction(std::shared_ptr<TestWallet> to,
+//             CAmount amount, CAmount fee, CCoinControl& coinControl);
+//     /****
+//      * @brief create a transaction spending a vout that is not yet in the wallet
+//      * @param vecSend the recipients
+//      * @param wtxNew the resultant tx
+//      * @param reserveKey the key used
+//      * @param strFailReason the reason for any failure
+//      * @param outputControl the tx to spend
+//      * @returns true on success
+//      */
+//     bool CreateTransaction(const std::vector<CRecipient>& vecSend, CWalletTx& wtxNew,
+//             CReserveKey& reservekey, std::string& strFailReason, CAmount nMinFeeOverride, CCoinControl* coinControl);
+//     using CWallet::CommitTransaction;
+//     bool CommitTransaction(CWalletTx& wtxNew, CReserveKey& reservekey, CValidationState& state);
+//     /***
+//      * Transfer to another user (sends to mempool)
+//      * @param to who to transfer to
+//      * @param amount the amount
+//      * @returns the results
+//      */
+//     CTransaction Transfer(std::shared_ptr<TestWallet> to, CAmount amount, CAmount fee = 0);
+// private:
+//     CKey key;
+// };
+
+
+
+
 
 // Fake an empty view
 class GTestCoinsViewDB : public CCoinsView {

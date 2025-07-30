@@ -100,6 +100,7 @@ void orchard_unauthorized_bundle_free(OrchardUnauthorizedBundlePtr* bundle);
 OrchardBundlePtr* orchard_unauthorized_bundle_prove_and_sign(
     OrchardUnauthorizedBundlePtr* bundle,
     const unsigned char* skbytes,
+    size_t keycount,
     const unsigned char* sighash);
 
 #ifdef __cplusplus

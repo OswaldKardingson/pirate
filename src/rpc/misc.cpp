@@ -235,11 +235,6 @@ UniValue getinfo(const UniValue& params, bool fHelp, const CPubKey& mypk)
             "  \"paytxfee\": x.xxxx,                          (numeric) the transaction fee set in " + CURRENCY_UNIT + "/kB\n"
             "  \"relayfee\": x.xxxx,                          (numeric) minimum relay fee for non-free transactions in " + CURRENCY_UNIT + "/kB\n"
             "  \"errors\": \"...\"                            (string) any error messages\n"
-            "  \"cleanup_mode\": \"...\"                      (string) active|inactive\n"
-            "  \"cleanup_status\": \"...\"                    (string) status of the cleanup routine\n"
-            "  \"cleanup_confirmed_txs\": \"...\"             (numeric) qty of confirmed cleanup transactions for the current round\n"
-            "  \"cleanup_unconfirmed_txs\": \"...\"           (numeric) qty of unconfirmed cleanup transactions for the current round\n"
-            "  \"cleanup_conflicted_txs\": \"...\"            (numeric) qty of conflicted cleanup transactions for the current round\n"
             "}\n"
             "\nExamples:\n"
             + HelpExampleCli("getinfo", "")
@@ -333,16 +328,6 @@ UniValue getinfo(const UniValue& params, bool fHelp, const CPubKey& mypk)
     obj.push_back(Pair("testnet",       Params().TestnetToBeDeprecatedFieldRPC()));
     obj.push_back(Pair("relayfee",      ValueFromAmount(::minRelayTxFee.GetFeePerK())));
     obj.push_back(Pair("errors",        GetWarnings("statusbar")));
-
-    obj.push_back(Pair("cleanup_mode", fCleanUpMode? "Active" : "Inactive"));
-    obj.push_back(Pair("cleanup_status",pwalletMain->strCleanUpStatus));
-    obj.push_back(Pair("cleanup_unspent_notes",pwalletMain->cleanupCurrentRoundUnspent));
-    obj.push_back(Pair("cleanup_unspent_target",pwalletMain->targetConsolidationQty));
-    obj.push_back(Pair("cleanup_confirmed_txs",pwalletMain->cleanUpConfirmed));
-    obj.push_back(Pair("cleanup_unconfirmed_txs",pwalletMain->cleanUpUnconfirmed));
-    obj.push_back(Pair("cleanup_conflicted_txs",pwalletMain->cleanUpConflicted));
-    obj.push_back(Pair("cleanup_expiration_height",pwalletMain->cleanupMaxExpirationHieght));
-
 
      if ( NOTARY_PUBKEY33[0] != 0 ) {
         char pubkeystr[65]; int32_t notaryid; std::string notaryname;

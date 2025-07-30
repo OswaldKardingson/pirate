@@ -142,7 +142,7 @@ public:
     /// object in any way will cause an exception. This emulates Rust's compile-time
     /// move semantics at runtime.
     std::optional<OrchardBundle> ProveAndSign(
-        libzcash::OrchardSpendingKeyPirate keys,
+        std::vector<libzcash::OrchardSpendingKeyPirate> keys,
         uint256 sighash);
 };
 
@@ -325,6 +325,9 @@ private:
     CAmount valueBalanceSapling = 0;
     rust::Box<sapling::Builder> saplingBuilder;
     CAmount valueBalanceOrchard = 0;
+
+    uint256 saplingAnchor = uint256S("0000000000000000000000000000000000000000000000000000000000000000");
+    uint256 orchardAnchor = uint256S("0000000000000000000000000000000000000000000000000000000000000000");
 
     std::optional<std::pair<uint256, libzcash::SaplingPaymentAddress>> firstSaplingSpendAddr;
     std::optional<std::pair<uint256, libzcash::SaplingPaymentAddress>> saplingChangeAddr;
