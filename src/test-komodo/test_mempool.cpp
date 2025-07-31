@@ -330,8 +330,7 @@ TEST(Mempool, SproutNegativeVersionTxWhenOverwinterActive) {
         mtx.nVersion = -3;
         EXPECT_EQ(mtx.nVersion, static_cast<int32_t>(0xfffffffd));
         // Create a new transaction with the invalid version for testing
-        CTransaction tx1_invalid;
-        tx1_invalid = CTransaction(mtx, true); // Use evil developer flag to skip UpdateHash
+        CTransaction tx1_invalid = EvilTx(mtx); // Use evil developer flag to skip UpdateHash
         EXPECT_EQ(tx1_invalid.nVersion, -3);
 
         CValidationState state1;
@@ -358,3 +357,10 @@ TEST(Mempool, SproutNegativeVersionTxWhenOverwinterActive) {
     // Revert to default
     UpdateNetworkUpgradeParameters(Consensus::UPGRADE_OVERWINTER, Consensus::NetworkUpgrade::NO_ACTIVATION_HEIGHT);
 }
+
+// Helper class to access protected CTransaction constructor for testing
+class EvilTx : public CTransaction {
+public:
+    explicit EvilTx(const CMutableTransaction& m)
+        : CTransaction(m, /*evilDeveloperFlag=*/true) {}
+};
