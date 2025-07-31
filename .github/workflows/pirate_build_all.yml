@@ -155,8 +155,10 @@ jobs:
         fi
         echo "--------------------------------------------------------------------"
 
-    - name: Install Rust (stable)
+    - name: Install Rust (stable with aarch64-apple-darwin target)
       uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: aarch64-apple-darwin
 
     - name: Make build script executable
       run: chmod +x zcutil/build-mac.sh
@@ -289,11 +291,25 @@ jobs:
       run: |
         export CARGO_HOME=$(cygpath -u "$USERPROFILE")/.cargo
         export PATH="$CARGO_HOME/bin:$PATH"
+        echo "CARGO_HOME: $CARGO_HOME"
+        echo "PATH: $PATH"
         which cargo
         cargo --version
         # Ensure cargo will be available for the depends system
         mkdir -p depends/x86_64-w64-mingw64/native/bin
-        ln -sf "$CARGO_HOME/bin/cargo.exe" depends/x86_64-w64-mingw64/native/bin/cargo
+        # Test if the cargo executable exists and is accessible
+        if [ -f "$CARGO_HOME/bin/cargo.exe" ]; then
+          echo "Found cargo.exe at $CARGO_HOME/bin/cargo.exe"
+          ln -sf "$CARGO_HOME/bin/cargo.exe" depends/x86_64-w64-mingw64/native/bin/cargo
+        elif [ -f "$CARGO_HOME/bin/cargo" ]; then
+          echo "Found cargo at $CARGO_HOME/bin/cargo"
+          ln -sf "$CARGO_HOME/bin/cargo" depends/x86_64-w64-mingw64/native/bin/cargo
+        else
+          echo "ERROR: Cannot find cargo binary in $CARGO_HOME/bin/"
+          ls -la "$CARGO_HOME/bin/" || echo "Directory does not exist"
+        fi
+        # Verify the symlink was created
+        ls -la depends/x86_64-w64-mingw64/native/bin/
 
     - name: Make build script executable and Fetch Zcash Params (Windows)
       shell: msys2 {0}
@@ -474,6 +490,25 @@ jobs:
       with:
         targets: aarch64-unknown-linux-gnu
 
+    - name: Verify and ensure AArch64 target is available
+      run: |
+        # Verify target is installed
+        echo "=== Rust toolchain info ==="
+        rustup show
+        echo "=== Installed targets ==="
+        rustup target list --installed
+        echo "=== Checking for AArch64 target ==="
+        if rustup target list --installed | grep -q aarch64-unknown-linux-gnu; then
+          echo "AArch64 target found"
+        else
+          echo "AArch64 target not found, installing..."
+          rustup target add aarch64-unknown-linux-gnu
+          rustup target list --installed | grep aarch64-unknown-linux-gnu
+        fi
+        echo "=== Final verification ==="
+        rustc --print target-list | grep aarch64-unknown-linux-gnu
+        echo "AArch64 target setup complete"
+
     - name: Make build script executable
       run: chmod +x zcutil/build-arm.sh
 
@@ -501,6 +536,9 @@ jobs:
       env:
         CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
         CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_AR: aarch64-linux-gnu-ar
+        CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
+        CXX_aarch64_unknown_linux_gnu: aarch64-linux-gnu-g++
+        AR_aarch64_unknown_linux_gnu: aarch64-linux-gnu-ar
         RUSTFLAGS: --cfg=rust_secp_no_symbol_renaming -L native=/home/runner/work/pirate/pirate/src/secp256k1/.libs
       run: |
         # Ensure cargo is available for the depends system
@@ -510,6 +548,12 @@ jobs:
           exit 1
         fi
         echo "Found cargo at: $CARGO_BIN_PATH"
+        # Verify the target is installed
+        rustup target list --installed | grep aarch64-unknown-linux-gnu || {
+          echo "ERROR: aarch64-unknown-linux-gnu target not found"
+          rustup target list --installed
+          exit 1
+        }
         # Ensure cargo is available when depends system needs it by creating symlinks
         mkdir -p depends/aarch64-linux-gnu/native/bin
         ln -sf "$CARGO_BIN_PATH" depends/aarch64-linux-gnu/native/bin/cargo
@@ -535,6 +579,7 @@ jobs:
     name: Build and Test Treasure Chest (Linux x86_64)
     runs-on: ubuntu-latest
     needs: build-and-test-linux-x86_64
+    if: success()
 
     steps:
     - uses: actions/checkout@v3
@@ -620,6 +665,7 @@ jobs:
     name: Build and Test Treasure Chest (macOS)
     runs-on: macos-latest 
     needs: build-and-test-macos
+    if: success()
 
     steps:
     - uses: actions/checkout@v3
@@ -629,8 +675,10 @@ jobs:
         brew install autoconf automake libtool pkg-config boost zeromq libsodium coreutils python3 curl qt@5 zip
         echo "/usr/local/opt/qt@5/bin" >> $GITHUB_PATH
 
-    - name: Install Rust (stable)
+    - name: Install Rust (stable with aarch64-apple-darwin target)
       uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: aarch64-apple-darwin
 
     - name: Make QT build script executable
       run: chmod +x zcutil/build-qt-mac.sh
@@ -711,6 +759,7 @@ jobs:
     name: Build and Test Treasure Chest (Windows)
     runs-on: windows-latest 
     needs: build-and-test-windows
+    if: success()
 
     steps:
     - uses: actions/checkout@v3
@@ -736,11 +785,25 @@ jobs:
         ln -sf "$(cygpath -u "$USERPROFILE")/.cargo" "$HOME/.cargo"
         export CARGO_HOME=$(cygpath -u "$USERPROFILE")/.cargo
         export PATH="$CARGO_HOME/bin:$PATH"
+        echo "CARGO_HOME: $CARGO_HOME"
+        echo "PATH: $PATH"
         which cargo
         cargo --version
         # Ensure cargo will be available for the depends system
         mkdir -p depends/x86_64-w64-mingw64/native/bin
-        ln -sf "$CARGO_HOME/bin/cargo.exe" depends/x86_64-w64-mingw64/native/bin/cargo
+        # Test if the cargo executable exists and is accessible
+        if [ -f "$CARGO_HOME/bin/cargo.exe" ]; then
+          echo "Found cargo.exe at $CARGO_HOME/bin/cargo.exe"
+          ln -sf "$CARGO_HOME/bin/cargo.exe" depends/x86_64-w64-mingw64/native/bin/cargo
+        elif [ -f "$CARGO_HOME/bin/cargo" ]; then
+          echo "Found cargo at $CARGO_HOME/bin/cargo"
+          ln -sf "$CARGO_HOME/bin/cargo" depends/x86_64-w64-mingw64/native/bin/cargo
+        else
+          echo "ERROR: Cannot find cargo binary in $CARGO_HOME/bin/"
+          ls -la "$CARGO_HOME/bin/" || echo "Directory does not exist"
+        fi
+        # Verify the symlink was created
+        ls -la depends/x86_64-w64-mingw64/native/bin/
 
     - name: Make QT build script executable and Fetch Zcash Params (Windows)
       shell: msys2 {0}
@@ -816,6 +879,7 @@ jobs:
     name: Build Treasure Chest (Linux AArch64 Cross-Compile)
     runs-on: ubuntu-latest 
     needs: build-daemon-linux-aarch64
+    if: success()
 
     steps:
     - uses: actions/checkout@v3
@@ -860,6 +924,9 @@ jobs:
       env:
         CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
         CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_AR: aarch64-linux-gnu-ar
+        CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
+        CXX_aarch64_unknown_linux_gnu: aarch64-linux-gnu-g++
+        AR_aarch64_unknown_linux_gnu: aarch64-linux-gnu-ar
       run: |
         # Ensure cargo is available for the depends system
         CARGO_BIN_PATH="$(command -v cargo)"
@@ -868,6 +935,12 @@ jobs:
           exit 1
         fi
         echo "Found cargo at: $CARGO_BIN_PATH"
+        # Verify the target is installed
+        rustup target list --installed | grep aarch64-unknown-linux-gnu || {
+          echo "ERROR: aarch64-unknown-linux-gnu target not found"
+          rustup target list --installed
+          exit 1
+        }
         # Ensure cargo is available when depends system needs it by creating symlinks
         mkdir -p depends/aarch64-linux-gnu/native/bin
         ln -sf "$CARGO_BIN_PATH" depends/aarch64-linux-gnu/native/bin/cargo
@@ -902,8 +975,10 @@ jobs:
         find . -type f -name 'Makefile' -exec dos2unix {} \;
         find . -type f -name '*.sh' -exec dos2unix {} \;
 
-    - name: Install Rust (stable)
+    - name: Install Rust (stable with x86_64-apple-darwin target)
       uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: x86_64-apple-darwin
 
     - name: Make build script executable
       run: chmod +x zcutil/build-mac.sh
@@ -945,22 +1020,38 @@ jobs:
     name: Combine macOS Universal Daemon
     runs-on: macos-14
     needs: [build-and-test-macos, build-and-test-macos-intel]
+    if: always()
     steps:
+    - name: Check if both builds succeeded
+      id: check_builds
+      run: |
+        if [[ "${{ needs.build-and-test-macos.result }}" == "success" && "${{ needs.build-and-test-macos-intel.result }}" == "success" ]]; then
+          echo "both_success=true" >> $GITHUB_OUTPUT
+        else
+          echo "both_success=false" >> $GITHUB_OUTPUT
+          echo "ARM64 build result: ${{ needs.build-and-test-macos.result }}"
+          echo "Intel build result: ${{ needs.build-and-test-macos-intel.result }}"
+        fi
+
     - uses: actions/download-artifact@v4
+      if: steps.check_builds.outputs.both_success == 'true'
       with:
         name: pirate-macos-daemon
         path: arm64
     - uses: actions/download-artifact@v4
+      if: steps.check_builds.outputs.both_success == 'true'
       with:
         name: pirate-macos-intel-daemon
         path: x86_64
 
     - name: Unzip artifacts
+      if: steps.check_builds.outputs.both_success == 'true'
       run: |
         unzip -q arm64/*.zip -d arm64/bin
         unzip -q x86_64/*.zip -d x86_64/bin
 
     - name: Create universal binaries with lipo
+      if: steps.check_builds.outputs.both_success == 'true'
       run: |
         mkdir -p universal
         for f in pirated pirate-cli pirate-tx wallet-utility; do
@@ -969,19 +1060,28 @@ jobs:
         done
 
     - name: Zip universal binaries
+      if: steps.check_builds.outputs.both_success == 'true'
       run: |
         zip --junk-paths pirate-macos-universal.zip universal/pirated universal/pirate-cli universal/pirate-tx universal/wallet-utility
 
     - name: Upload Universal Artifact
+      if: steps.check_builds.outputs.both_success == 'true'
       uses: actions/upload-artifact@v4
       with:
         name: pirate-macos-universal-daemon
         path: pirate-macos-universal.zip
 
+    - name: Fail job if prerequisite builds failed
+      if: steps.check_builds.outputs.both_success == 'false'
+      run: |
+        echo "Cannot create universal binary because one or both prerequisite builds failed"
+        exit 1
+
   build-and-test-qt-macos-intel:
     name: Build and Test Treasure Chest (macOS Intel)
     runs-on: macos-12 
     needs: build-and-test-macos-intel
+    if: success()
 
     steps:
     - uses: actions/checkout@v3
@@ -991,8 +1091,10 @@ jobs:
         brew install autoconf automake libtool pkg-config boost zeromq libsodium coreutils python3 curl qt@5 zip
         echo "/usr/local/opt/qt@5/bin" >> $GITHUB_PATH
 
-    - name: Install Rust (stable)
+    - name: Install Rust (stable with x86_64-apple-darwin target)
       uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: x86_64-apple-darwin
 
     - name: Make QT build script executable
       run: chmod +x zcutil/build-qt-mac.sh
