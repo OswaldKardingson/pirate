@@ -10,6 +10,13 @@
 #include "policy/fees.h"
 #include "util.h"
 
+// Helper class to access protected CTransaction constructor for testing
+class EvilTx : public CTransaction {
+public:
+    explicit EvilTx(const CMutableTransaction& m)
+        : CTransaction(m, /*evilDeveloperFlag=*/true) {}
+};
+
 void CreateJoinSplitSignature(CMutableTransaction& mtx, uint32_t consensusBranchId) {
     // Generate an ephemeral keypair.
     uint256 joinSplitPubKey;
@@ -357,10 +364,3 @@ TEST(Mempool, SproutNegativeVersionTxWhenOverwinterActive) {
     // Revert to default
     UpdateNetworkUpgradeParameters(Consensus::UPGRADE_OVERWINTER, Consensus::NetworkUpgrade::NO_ACTIVATION_HEIGHT);
 }
-
-// Helper class to access protected CTransaction constructor for testing
-class EvilTx : public CTransaction {
-public:
-    explicit EvilTx(const CMutableTransaction& m)
-        : CTransaction(m, /*evilDeveloperFlag=*/true) {}
-};
