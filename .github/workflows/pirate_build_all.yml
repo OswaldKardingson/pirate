@@ -291,6 +291,9 @@ jobs:
         export PATH="$CARGO_HOME/bin:$PATH"
         which cargo
         cargo --version
+        # Ensure cargo will be available for the depends system
+        mkdir -p depends/x86_64-w64-mingw64/native/bin
+        ln -sf "$CARGO_HOME/bin/cargo.exe" depends/x86_64-w64-mingw64/native/bin/cargo
 
     - name: Make build script executable and Fetch Zcash Params (Windows)
       shell: msys2 {0}
@@ -500,12 +503,15 @@ jobs:
         CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_AR: aarch64-linux-gnu-ar
         RUSTFLAGS: --cfg=rust_secp_no_symbol_renaming -L native=/home/runner/work/pirate/pirate/src/secp256k1/.libs
       run: |
-        mkdir -p depends/aarch64-linux-gnu/native/bin
+        # Ensure cargo is available for the depends system
         CARGO_BIN_PATH="$(command -v cargo)"
         if [ -z "$CARGO_BIN_PATH" ]; then
           echo "ERROR: Cargo binary not found in PATH" >&2
           exit 1
         fi
+        echo "Found cargo at: $CARGO_BIN_PATH"
+        # Ensure cargo is available when depends system needs it by creating symlinks
+        mkdir -p depends/aarch64-linux-gnu/native/bin
         ln -sf "$CARGO_BIN_PATH" depends/aarch64-linux-gnu/native/bin/cargo
         ./zcutil/build-arm.sh -j$(nproc)
         
@@ -723,6 +729,19 @@ jobs:
     - name: Install Rust (stable)
       uses: dtolnay/rust-toolchain@stable
 
+    - name: Mount Windows Cargo into MSYS2 (QT)
+      shell: msys2 {0}
+      run: |
+        mkdir -p "$HOME"
+        ln -sf "$(cygpath -u "$USERPROFILE")/.cargo" "$HOME/.cargo"
+        export CARGO_HOME=$(cygpath -u "$USERPROFILE")/.cargo
+        export PATH="$CARGO_HOME/bin:$PATH"
+        which cargo
+        cargo --version
+        # Ensure cargo will be available for the depends system
+        mkdir -p depends/x86_64-w64-mingw64/native/bin
+        ln -sf "$CARGO_HOME/bin/cargo.exe" depends/x86_64-w64-mingw64/native/bin/cargo
+
     - name: Make QT build script executable and Fetch Zcash Params (Windows)
       shell: msys2 {0}
       run: |
@@ -838,7 +857,20 @@ jobs:
         cat .cargo/config
 
     - name: Build Treasure Chest (AArch64 Cross-Compile)
+      env:
+        CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_AR: aarch64-linux-gnu-ar
       run: |
+        # Ensure cargo is available for the depends system
+        CARGO_BIN_PATH="$(command -v cargo)"
+        if [ -z "$CARGO_BIN_PATH" ]; then
+          echo "ERROR: Cargo binary not found in PATH" >&2
+          exit 1
+        fi
+        echo "Found cargo at: $CARGO_BIN_PATH"
+        # Ensure cargo is available when depends system needs it by creating symlinks
+        mkdir -p depends/aarch64-linux-gnu/native/bin
+        ln -sf "$CARGO_BIN_PATH" depends/aarch64-linux-gnu/native/bin/cargo
         ./zcutil/build-qt-arm.sh -j$(nproc)
         
     - name: Strip and Zip Binaries (AArch64 QT)
