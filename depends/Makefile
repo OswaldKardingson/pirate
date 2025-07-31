@@ -107,7 +107,30 @@ $(host_prefix)/.stamp_$(final_build_id): $(native_packages) $(packages)
 	then echo Extracting pre-vendored crates from $(CRATE_ARCHIVE)...; \
 		tar xf $(CRATE_ARCHIVE) -C $(@D); \
 	else echo Vendoring crates...; \
-		$(@D)/native/bin/cargo vendor --manifest-path $(BASEDIR)/../Cargo.toml $(@D)/$(CRATE_REGISTRY); \
+		CARGO_BIN="$(@D)/native/bin/$(CARGO_EXEC)"; \
+		if [ ! -x "$$CARGO_BIN" ]; then \
+			CARGO_BIN="$(@D)/bin/$(CARGO_EXEC)"; \
+		fi; \
+		if ! type "$$CARGO_BIN" >/dev/null 2>&1; then \
+			if [ -n "$${USERPROFILE}" ] && cygpath -u "$${USERPROFILE}" >/dev/null 2>&1 ; then \
+				_uprofile=$$(cygpath -u "$${USERPROFILE}"); \
+				if [ -f "$$_uprofile/.cargo/env" ]; then \
+					. "$$_uprofile/.cargo/env"; \
+				fi; \
+				CARGO_BIN="$$_uprofile/.cargo/bin/$(CARGO_EXEC)"; \
+			fi; \
+		fi; \
+		if ! type "$$CARGO_BIN" >/dev/null 2>&1; then \
+			CARGO_BIN="cargo"; \
+		fi; \
+		if [ "$$CARGO_BIN" = "cargo" ]; then \
+			_found=$$(find "$(@D)" -type f -name 'cargo*' 2>/dev/null | head -n 1); \
+			if [ -n "$$_found" ]; then \
+				CARGO_BIN="$$_found"; \
+			fi; \
+		fi; \
+		echo "Using cargo at: $$CARGO_BIN"; \
+		"$$CARGO_BIN" vendor --manifest-path $(BASEDIR)/../Cargo.toml $(@D)/$(CRATE_REGISTRY); \
 	fi
 	$(AT)touch $@
 
