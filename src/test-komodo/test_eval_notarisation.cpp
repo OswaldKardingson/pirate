@@ -92,6 +92,7 @@ namespace TestEvalNotarisation {
 
     void CleanupEval() {
         komodo_notaries_uninit(); // clear genesis notaries 'Pubkeys'
+        EVAL_TEST = nullptr; // reset global test pointer to prevent dangling pointer
     }
 
     // https://kmd.explorer.supernet.org/tx/5b8055d37cff745a404d1ae45e21ffdba62da7b28ed6533c67468d7379b20bae
