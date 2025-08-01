@@ -657,7 +657,7 @@ OrchardPaymentAddressPirate CWallet::GenerateNewOrchardDiversifiedAddress()
               found = true;
               //Save last used diversifier by ivk
               if (!AddLastOrchardDiversifierUsed(ivk, diversifier)) {
-                  throw std::runtime_error("CWallet::GenerateNewSaplingDiversifiedAddress(): AddLastSaplingDiversifierUsed failed");
+                  throw std::runtime_error("CWallet::GenerateNewOrchardDiversifiedAddress(): AddLastOrchardDiversifierUsed failed");
               }
 
           }
@@ -1279,13 +1279,13 @@ bool CWallet::AddOrchardZKey(
             return true;
         }
 
-        //Encrypt Sapling Extended Speding Key
+        //Encrypt Orchard Extended Spending Key
         std::vector<unsigned char> vchCryptedSpendingKey;
         uint256 chash = extfvk.fvk.GetFingerprint();
         CKeyingMaterial vchSpendingKey = SerializeForEncryptionInput(extsk);
 
         if (!EncryptSerializedWalletObjects(vchSpendingKey, chash, vchCryptedSpendingKey)) {
-            LogPrintf("Encrypting Sapling Orchard Key failed!!!\n");
+            LogPrintf("Encrypting Orchard Spending Key failed!!!\n");
             return false;
         }
 
@@ -1594,7 +1594,7 @@ bool CWallet::AddKeyPubKey(const CKey& secret, const CPubKey &pubkey)
 
         //Write to Disk
         if (!CWalletDB(strWalletFile).WriteCryptedKey(pubkey, vchCryptedSpendingKeySave, chash, vchCryptedMetaData)) {
-            LogPrintf("Writing encrypted Transparent Sapling Spending Key failed!!!\n");
+            LogPrintf("Writing encrypted Transparent Spending Key failed!!!\n");
             return false;
         }
     }
@@ -2553,7 +2553,7 @@ bool CWallet::AddWatchOnly(const CScript &dest)
 
         std::vector<unsigned char> vchCryptedSecret;
         if (!EncryptSerializedWalletObjects(vchSecret, chash, vchCryptedSecret)) {
-            LogPrintf("Encrypting Watchs failed!!!\n");
+            LogPrintf("Encrypting watch-only address failed!!!\n");
             return false;
         }
 
@@ -6048,7 +6048,7 @@ void CWallet::UpdateSaplingNullifierNoteMapWithTx(CWalletTx* wtx) {
         //Write Changes to Disk on next wallet flush
         op.writeToDisk = true;
 
-        if (nd.getPostion() == std::nullopt) {
+        if (nd.getPosition() == std::nullopt) {
             // If there are no witnesses, erase the nullifier and associated mapping.
             if (item.second.nullifier) {
                 mapSaplingNullifiersToNotes.erase(item.second.nullifier.value());
@@ -6056,7 +6056,7 @@ void CWallet::UpdateSaplingNullifierNoteMapWithTx(CWalletTx* wtx) {
             item.second.nullifier = std::nullopt;
         }
         else {
-            uint64_t position = nd.getPostion().value();
+            uint64_t position = nd.getPosition().value();
             // Skip if we only have incoming viewing key
             if (mapSaplingFullViewingKeys.count(nd.ivk) != 0) {
                 SaplingExtendedFullViewingKey extfvk = mapSaplingFullViewingKeys.at(nd.ivk);
@@ -6130,7 +6130,7 @@ void CWallet::UpdateOrchardNullifierNoteMapWithTx(CWalletTx* wtx) {
        //Write Changes to Disk on next wallet flush
        op.writeToDisk = true;
 
-       if (nd.getPostion() == std::nullopt) {
+       if (nd.getPosition() == std::nullopt) {
            // If there are no witnesses, erase the nullifier and associated mapping.
            if (item.second.nullifier) {
                mapOrchardNullifiersToNotes.erase(item.second.nullifier.value());
@@ -6138,7 +6138,7 @@ void CWallet::UpdateOrchardNullifierNoteMapWithTx(CWalletTx* wtx) {
            item.second.nullifier = std::nullopt;
        }
        else {
-           uint64_t position = nd.getPostion().value();
+           uint64_t position = nd.getPosition().value();
            // Skip if we only have incoming viewing key
            if (mapOrchardFullViewingKeys.count(nd.ivk) != 0) {
                OrchardExtendedFullViewingKeyPirate extfvk = mapOrchardFullViewingKeys.at(nd.ivk);
@@ -11755,7 +11755,7 @@ bool CWallet::NewKeyPool()
             walletdb.ErasePool(nIndex);
         setKeyPool.clear();
 
-        int64_t nKeys = max(GetArg("-keypool", 1), (int64_t)0);
+        int64_t nKeys = max(GetArg("-keypool", 100), (int64_t)0);
         for (int i = 0; i < nKeys; i++)
         {
             int64_t nIndex = i+1;
@@ -11804,7 +11804,7 @@ bool CWallet::TopUpKeyPool(unsigned int kpSize)
         if (kpSize > 0)
             nTargetSize = kpSize;
         else
-            nTargetSize = max(GetArg("-keypool", 1), (int64_t) 0);
+            nTargetSize = max(GetArg("-keypool", 100), (int64_t) 0);
 
         while (setKeyPool.size() < (nTargetSize + 1))
         {

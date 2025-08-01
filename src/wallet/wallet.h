@@ -110,13 +110,13 @@ extern unsigned int WITNESS_CACHE_SIZE;
 //! Size of HD seed in bytes
 static const size_t HD_WALLET_SEED_LENGTH = 32;
 
-//Default Transaction Rentention N-BLOCKS
+//Default Transaction Retention N-BLOCKS
 static const int DEFAULT_TX_DELETE_INTERVAL = 10000;
 
-//Default Transaction Rentention N-BLOCKS
+//Default Transaction Retention N-BLOCKS
 static const unsigned int DEFAULT_TX_RETENTION_BLOCKS = 10000;
 
-//Default Retenion Last N-Transactions
+//Default Retention Last N-Transactions
 static const unsigned int DEFAULT_TX_RETENTION_LASTTX = 200;
 
 //Amount of transactions to delete per run while syncing
@@ -462,13 +462,13 @@ public:
      * See the comment in that class for a full description.
      */
     SaplingNoteData() : nullifier(), value {0} {
-        setPosition(0);
+        setPosition(UINT64_MAX); // Use UINT64_MAX as sentinel for unset position
     }
     SaplingNoteData(libzcash::SaplingIncomingViewingKey ivk) : ivk {ivk}, nullifier(), value {0} {
-        setPosition(0);
+        setPosition(UINT64_MAX); // Use UINT64_MAX as sentinel for unset position
     }
     SaplingNoteData(libzcash::SaplingIncomingViewingKey ivk, uint256 n) : ivk {ivk}, nullifier(n), value {0} {
-        setPosition(0);
+        setPosition(UINT64_MAX); // Use UINT64_MAX as sentinel for unset position
     }
 
     libzcash::SaplingIncomingViewingKey ivk;
@@ -499,19 +499,16 @@ public:
         return !(a == b);
     }
 
-    std::optional<uint64_t> getPostion() {
-        if (position >= 0) {
+    std::optional<uint64_t> getPosition() {
+        if (position != UINT64_MAX) {
             return position;
         }
         return std::nullopt;
     }
 
-    bool setPosition(uint64_t postionIn) {
-        if (postionIn >= 0) {
-            position = postionIn;
-            return true;
-        }
-        return false;
+    bool setPosition(uint64_t positionIn) {
+        position = positionIn;
+        return true;
     }
 
 };
@@ -526,13 +523,13 @@ public:
      * See the comment in that class for a full description.
      */
     OrchardNoteData() : nullifier(), value {0} {
-        setPosition(0);
+        setPosition(UINT64_MAX); // Use UINT64_MAX as sentinel for unset position
     }
     OrchardNoteData(libzcash::OrchardIncomingViewingKeyPirate ivk) : ivk {ivk}, nullifier(), value {0} {
-        setPosition(0);
+        setPosition(UINT64_MAX); // Use UINT64_MAX as sentinel for unset position
     }
     OrchardNoteData(libzcash::OrchardIncomingViewingKeyPirate ivk, uint256 n) : ivk {ivk}, nullifier(n), value {0} {
-        setPosition(0);
+        setPosition(UINT64_MAX); // Use UINT64_MAX as sentinel for unset position
     }
 
     libzcash::OrchardIncomingViewingKeyPirate ivk;
@@ -563,19 +560,16 @@ public:
         return !(a == b);
     }
 
-    std::optional<uint64_t> getPostion() {
-        if (position >= 0) {
+    std::optional<uint64_t> getPosition() {
+        if (position != UINT64_MAX) {
             return position;
         }
         return std::nullopt;
     }
 
-    bool setPosition(uint64_t postionIn) {
-        if (postionIn >= 0) {
-            position = postionIn;
-            return true;
-        }
-        return false;
+    bool setPosition(uint64_t positionIn) {
+        position = positionIn;
+        return true;
     }
 
 };
