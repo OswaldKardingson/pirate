@@ -51,40 +51,47 @@ define vendor_crate_deps
     tar -xf $(native_rust_cached) -C $$($(1)_download_dir) && \
     tar --strip-components=1 -xf $$($(1)_source_dir)/$(2) -C $$($(1)_download_dir)/$(1) && \
 	cp $(3) $$($(1)_download_dir)/$(1)/Cargo.lock && \
-    DL_DIR="$($(1)_download_dir)"; \
-    if [ -n "$${USERPROFILE}" ] && \
-       cygpath -u "$${USERPROFILE}" >/dev/null 2>&1 ; then \
+    DL_DIR="$$($(1)_download_dir)"; \
+    _found_cargo=""; \
+    if command -v $(CARGO_EXEC) >/dev/null 2>&1; then \
+        _found_cargo=$(CARGO_EXEC); \
+    elif [ -n "$${USERPROFILE}" ] && \
+         cygpath -u "$${USERPROFILE}" >/dev/null 2>&1 ; then \
         _uprofile=$$(cygpath -u "$${USERPROFILE}"); \
         if [ -f "$$_uprofile/.cargo/env" ]; then \
             . "$$_uprofile/.cargo/env"; \
         fi; \
-        RUSTUP_CARGO="$$_uprofile/.cargo/bin/$(CARGO_EXEC)"; \
+        if [ -x "$$_uprofile/.cargo/bin/$(CARGO_EXEC)" ]; then \
+            _found_cargo="$$_uprofile/.cargo/bin/$(CARGO_EXEC)"; \
+        fi; \
+    elif [ -n "$${HOME}" ] && [ -x "$${HOME}/.cargo/bin/$(CARGO_EXEC)" ]; then \
+        _found_cargo="$${HOME}/.cargo/bin/$(CARGO_EXEC)"; \
     fi; \
-        CARGO_BIN="$($(1)_download_dir)/native/bin/$(CARGO_EXEC)"; \
-    if [ ! -x "$$$$CARGO_BIN" ]; then \
-        CARGO_BIN="$($(1)_download_dir)/bin/$(CARGO_EXEC)"; \
-    fi; \
-    if ! type "$$$$CARGO_BIN" >/dev/null 2>&1; then \
-        CARGO_BIN="$$RUSTUP_CARGO"; \
-        CARGO_BIN="$${RUSTUP_CARGO}"; \
-    fi; \
-    if ! type "$$$$CARGO_BIN" >/dev/null 2>&1; then \
-        CARGO_BIN="cargo"; \
-    fi; \
-    if [ "$$$$CARGO_BIN" = "cargo" ]; then \
-        _found=$$(find "$($(1)_download_dir)" -type f -name 'cargo*' | head -n 1); \
-        if [ -n "$$$$_found" ]; then \
-            CARGO_BIN="$$$$_found"; \
+    if [ -z "$$_found_cargo" ]; then \
+        CARGO_BIN="$$($(1)_download_dir)/native/bin/$(CARGO_EXEC)"; \
+        if [ ! -x "$$CARGO_BIN" ]; then \
+            CARGO_BIN="$$($(1)_download_dir)/bin/$(CARGO_EXEC)"; \
+        fi; \
+        if [ -x "$$CARGO_BIN" ]; then \
+            _found_cargo="$$CARGO_BIN"; \
+        else \
+            _found=$$(find "$$($(1)_download_dir)" -type f -name '$(CARGO_EXEC)*' | head -n 1); \
+            if [ -n "$$_found" ]; then \
+                _found_cargo="$$_found"; \
+            else \
+                echo "Error: $(CARGO_EXEC) not found in PATH or expected locations"; \
+                exit 1; \
+            fi; \
         fi; \
     fi; \
-    echo "Using cargo at: $$$$CARGO_BIN"; \
-    "$$$$CARGO_BIN" vendor \
-      --manifest-path "$($(1)_download_dir)/$(1)/$(4)" \
-      "$($(1)_download_dir)/$(CRATE_REGISTRY)" && \
-    cd $($(1)_download_dir) && \
-    find $(CRATE_REGISTRY) | sort | tar --no-recursion -czf $($(1)_download_dir)/$(5).temp -T - && \
-    mv $($(1)_download_dir)/$(5).temp $($(1)_source_dir)/$(5) && \
-    rm -rf $($(1)_download_dir) ))
+    echo "Using cargo at: $$_found_cargo"; \
+    "$$_found_cargo" vendor \
+      --manifest-path "$$($(1)_download_dir)/$(1)/$(4)" \
+      "$$($(1)_download_dir)/$(CRATE_REGISTRY)" && \
+    cd $$($(1)_download_dir) && \
+    find $(CRATE_REGISTRY) | sort | tar --no-recursion -czf $$($(1)_download_dir)/$(5).temp -T - && \
+    mv $$($(1)_download_dir)/$(5).temp $$($(1)_source_dir)/$(5) && \
+    rm -rf $$($(1)_download_dir) ))
 endef
 
 define generate_crate_checksum
