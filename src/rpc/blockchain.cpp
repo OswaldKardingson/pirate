@@ -321,8 +321,9 @@ UniValue blockToJSON(const CBlock& block, const CBlockIndex* blockindex, bool tx
     result.pushKV("authdataroot", blockindex->hashAuthDataRoot.GetHex());
     result.pushKV("finalsaplingroot", blockindex->hashFinalSaplingRoot.GetHex());
     if (orchardActive) {
-        auto finalOrchardRootBytes = blockindex->hashFinalOrchardRoot;
-        result.pushKV("finalorchardroot", HexStr(finalOrchardRootBytes.begin(), finalOrchardRootBytes.end()));
+        //auto finalOrchardRootBytes = blockindex->hashFinalOrchardRoot;
+        //result.pushKV("finalorchardroot", HexStr(finalOrchardRootBytes.begin(), finalOrchardRootBytes.end()));
+        result.pushKV("finalorchardroot", blockindex->hashFinalOrchardRoot.GetHex());
     }
     result.pushKV("chainhistoryroot", blockindex->hashChainHistoryRoot.GetHex());
     UniValue txs(UniValue::VARR);
@@ -360,14 +361,14 @@ UniValue blockToJSON(const CBlock& block, const CBlockIndex* blockindex, bool tx
         if (pcoinsTip != nullptr && pcoinsTip->GetSaplingFrontierAnchorAt(blockindex->hashFinalSaplingRoot, saplingTree)) {
             UniValue sapling(UniValue::VOBJ);
             sapling.pushKV("size", (uint64_t)saplingTree.size());
-            trees.pushKV("saplingfrontier", sapling);
+            trees.pushKV("sapling", sapling);
         }
 
         OrchardMerkleFrontier orchardTree;
         if (pcoinsTip != nullptr && pcoinsTip->GetOrchardFrontierAnchorAt(blockindex->hashFinalOrchardRoot, orchardTree)) {
             UniValue orchard(UniValue::VOBJ);
             orchard.pushKV("size", (uint64_t)orchardTree.size());
-            trees.pushKV("orchardfrontier", orchard);
+            trees.pushKV("orchard", orchard);
         }
 
         result.pushKV("trees", trees);
@@ -870,38 +871,53 @@ UniValue getblock(const UniValue& params, bool fHelp, const CPubKey& mypk)
             "\nResult (for verbosity = 1):\n"
             "{\n"
             "  \"hash\" : \"hash\",       (string) the block hash (same as provided hash)\n"
-            "  \"confirmations\" : n,   (numeric) The number of notarized DPoW confirmations, or -1 if the block is not on the main chain\n"
-            "  \"rawconfirmations\" : n,(numeric) The number of raw confirmations, or -1 if the block is not on the main chain\n"
+            "  \"last_notarized_height\" : n, (numeric) height of last notarized block\n"
+            "  \"confirmations\" : n,   (numeric) The number of confirmations, or -1 if the block is not on the main chain\n"
             "  \"size\" : n,            (numeric) The block size\n"
             "  \"height\" : n,          (numeric) The block height or index (same as provided height)\n"
             "  \"version\" : n,         (numeric) The block version\n"
             "  \"merkleroot\" : \"xxxx\", (string) The merkle root\n"
+            "  \"blockcommitments\" : \"xxxx\", (string) The block commitments hash\n"
+            "  \"authdataroot\" : \"xxxx\", (string) The auth data root hash\n"
             "  \"finalsaplingroot\" : \"xxxx\", (string) The root of the Sapling commitment tree after applying this block\n"
+            "  \"finalorchardroot\" : \"xxxx\", (string, optional) The root of the Orchard commitment tree after applying this block (when Orchard is active)\n"
+            "  \"chainhistoryroot\" : \"xxxx\", (string) The chain history root hash\n"
             "  \"tx\" : [               (array of string) The transaction ids\n"
             "     \"transactionid\"     (string) The transaction id\n"
             "     ,...\n"
             "  ],\n"
             "  \"time\" : ttt,          (numeric) The block time in seconds since epoch (Jan 1 1970 GMT)\n"
-            "  \"nonce\" : n,           (numeric) The nonce\n"
+            "  \"nonce\" : \"n\",         (string) The nonce\n"
+            "  \"solution\" : \"xxxx\",   (string) The block solution\n"
             "  \"bits\" : \"1d00ffff\",   (string) The bits\n"
             "  \"difficulty\" : x.xxx,  (numeric) The difficulty\n"
+            "  \"chainwork\" : \"xxxx\",  (string) Expected number of hashes required to produce the current chain\n"
+            "  \"anchor\" : \"xxxx\",     (string) The anchor for the Sprout commitment tree\n"
             "  \"chainSupply\": {          (object) information about the total supply\n"
             "      \"monitored\": xx,           (boolean) true if the total supply is being monitored\n"
-            "      \"chainValue\": xxxxxx,      (numeric, optional) total chain supply\n"
-            "      \"chainValueZat\": xxxxxx,   (numeric, optional) total chain supply in satoshis\n"
-            "      \"valueDelta\": xxxxxx,      (numeric, optional) change to the chain supply produced by this block\n"
-            "      \"valueDeltaZat\": xxxxxx,   (numeric, optional) change to the chain supply produced by this block, in satoshis\n"
+            "      \"chainValue\": xxxxxx,      (numeric, optional) total chain supply in ARRR\n"
+            "      \"chainValueZat\": xxxxxx,   (numeric, optional) total chain supply in zatoshis\n"
+            "      \"valueDelta\": xxxxxx,      (numeric, optional) change to the chain supply produced by this block in ARRR\n"
+            "      \"valueDeltaZat\": xxxxxx,   (numeric, optional) change to the chain supply produced by this block, in zatoshis\n"
             "  }\n"
             "  \"valuePools\": [            (array) information about each value pool\n"
             "      {\n"
-            "          \"id\": \"xxxx\",            (string) name of the pool\n"
+            "          \"id\": \"xxxx\",            (string) name of the pool (transparent, sprout, sapling, orchard)\n"
             "          \"monitored\": xx,           (boolean) true if the pool is being monitored\n"
-            "          \"chainValue\": xxxxxx,      (numeric, optional) total amount in the pool\n"
-            "          \"chainValueZat\": xxxxxx,   (numeric, optional) total amount in the pool in satoshis\n"
-            "          \"valueDelta\": xxxxxx,      (numeric, optional) change to the amount in the pool produced by this block\n"
-            "          \"valueDeltaZat\": xxxxxx,   (numeric, optional) change to the amount in the pool produced by this block, in satoshis\n"
+            "          \"chainValue\": xxxxxx,      (numeric, optional) total amount in the pool in ARRR\n"
+            "          \"chainValueZat\": xxxxxx,   (numeric, optional) total amount in the pool in zatoshis\n"
+            "          \"valueDelta\": xxxxxx,      (numeric, optional) change to the amount in the pool produced by this block in ARRR\n"
+            "          \"valueDeltaZat\": xxxxxx,   (numeric, optional) change to the amount in the pool produced by this block, in zatoshis\n"
             "      }, ...\n"
             "  ]\n"
+            "  \"trees\": {                (object) information about commitment trees\n"
+            "      \"sapling\": {      (object, optional) Sapling commitment tree frontier\n"
+            "          \"size\": n                 (numeric) Number of commitments in the tree\n"
+            "      },\n"
+            "      \"orchard\": {      (object, optional) Orchard commitment tree frontier\n"
+            "          \"size\": n                 (numeric) Number of commitments in the tree\n"
+            "      }\n"
+            "  }\n"
             "  \"previousblockhash\" : \"hash\",  (string) The hash of the previous block\n"
             "  \"nextblockhash\" : \"hash\"       (string) The hash of the next block\n"
             "}\n"
@@ -1625,7 +1641,7 @@ UniValue z_gettreestate(const UniValue& params, bool fHelp, const CPubKey& mypk)
     if (fHelp || params.size() != 1)
         throw runtime_error(
             "z_gettreestate \"hash|height\"\n"
-            "Return information about the given block's tree state.\n"
+            "Return information about the given block's tree state for all shielded transaction types.\n"
             "\nArguments:\n"
             "1. \"hash|height\"          (string, required) The block hash or height. Height can be negative where -1 is the last known valid block\n"
             "\nResult:\n"
@@ -1634,17 +1650,27 @@ UniValue z_gettreestate(const UniValue& params, bool fHelp, const CPubKey& mypk)
             "  \"height\": n,              (numeric) block height\n"
             "  \"time\": n,                (numeric) block time: UTC seconds since the Unix 1970-01-01 epoch\n"
             "  \"sprout\": {\n"
-            "    \"skipHash\": \"hash\",   (string) hash of most recent block with more information\n"
+            "    \"active\": true|false,   (boolean) whether Sprout is active at this height\n"
+            "    \"skipHash\": \"hash\",   (string, optional) hash of most recent block with more information\n"
             "    \"commitments\": {\n"
-            "      \"finalRoot\": \"hex\", (string)\n"
-            "      \"finalState\": \"hex\" (string)\n"
+            "      \"finalRoot\": \"hex\", (string) Sprout commitment tree root\n"
+            "      \"finalState\": \"hex\" (string, optional) Sprout commitment tree state\n"
             "    }\n"
             "  },\n"
             "  \"sapling\": {\n"
-            "    \"skipHash\": \"hash\",   (string) hash of most recent block with more information\n"
+            "    \"active\": true|false,   (boolean) whether Sapling is active at this height\n"
+            "    \"skipHash\": \"hash\",   (string, optional) hash of most recent block with more information\n"
             "    \"commitments\": {\n"
-            "      \"finalRoot\": \"hex\", (string)\n"
-            "      \"finalState\": \"hex\" (string)\n"
+            "      \"finalRoot\": \"hex\", (string) Sapling commitment tree root\n"
+            "      \"finalState\": \"hex\" (string, optional) Sapling frontier state\n"
+            "    }\n"
+            "  },\n"
+            "  \"orchard\": {\n"
+            "    \"active\": true|false,   (boolean) whether Orchard is active at this height\n"
+            "    \"skipHash\": \"hash\",   (string, optional) hash of most recent block with more information\n"
+            "    \"commitments\": {\n"
+            "      \"finalRoot\": \"hex\", (string) Orchard commitment tree root\n"
+            "      \"finalState\": \"hex\" (string, optional) Orchard frontier state\n"
             "    }\n"
             "  }\n"
             "}\n"
@@ -1677,10 +1703,14 @@ UniValue z_gettreestate(const UniValue& params, bool fHelp, const CPubKey& mypk)
     res.pushKV("height", pindex->nHeight);
     res.pushKV("time", int64_t(pindex->nTime));
 
+    bool saplingActive = NetworkUpgradeActive(pindex->nHeight, Params().GetConsensus(), Consensus::UPGRADE_SAPLING);
+    bool orchardActive = NetworkUpgradeActive(pindex->nHeight, Params().GetConsensus(), Consensus::UPGRADE_ORCHARD);
+
     // sprout
     {
         UniValue sprout_result(UniValue::VOBJ);
         UniValue sprout_commitments(UniValue::VOBJ);
+        sprout_result.pushKV("active", true);
         sprout_commitments.pushKV("finalRoot", pindex->hashFinalSproutRoot.GetHex());
         SproutMerkleTree tree;
         if (pcoinsTip->GetSproutAnchorAt(pindex->hashFinalSproutRoot, tree)) {
@@ -1703,10 +1733,11 @@ UniValue z_gettreestate(const UniValue& params, bool fHelp, const CPubKey& mypk)
 
     //Sapling Frontier
     int sapling_activation_height = Params().GetConsensus().vUpgrades[Consensus::UPGRADE_SAPLING].nActivationHeight; /* ASSETCHAINS_SAPLING */
-    if (sapling_activation_height > Consensus::NetworkUpgrade::NO_ACTIVATION_HEIGHT)
+    //if (sapling_activation_height > Consensus::NetworkUpgrade::NO_ACTIVATION_HEIGHT)
     {
         UniValue sapling_result(UniValue::VOBJ);
         UniValue sapling_commitments(UniValue::VOBJ);
+        sapling_result.pushKV("active", saplingActive);
         sapling_commitments.pushKV("finalRoot", pindex->hashFinalSaplingRoot.GetHex());
         bool need_skiphash = false;
         SaplingMerkleFrontier tree;
@@ -1728,15 +1759,16 @@ UniValue z_gettreestate(const UniValue& params, bool fHelp, const CPubKey& mypk)
             }
         }
         sapling_result.pushKV("commitments", sapling_commitments);
-        res.pushKV("saplingfrontier", sapling_result);
+        res.pushKV("sapling", sapling_result);
     }
 
     //Orchard Frontier
     int orchard_activation_height = Params().GetConsensus().vUpgrades[Consensus::UPGRADE_ORCHARD].nActivationHeight;
-    if (orchard_activation_height > Consensus::NetworkUpgrade::NO_ACTIVATION_HEIGHT)
+    //if (orchard_activation_height > Consensus::NetworkUpgrade::NO_ACTIVATION_HEIGHT)
     {
         UniValue orchard_result(UniValue::VOBJ);
         UniValue orchard_commitments(UniValue::VOBJ);
+        orchard_result.pushKV("active", orchardActive);
         orchard_commitments.pushKV("finalRoot", pindex->hashFinalOrchardRoot.GetHex());
         bool need_skiphash = false;
         OrchardMerkleFrontier tree;
@@ -1758,7 +1790,7 @@ UniValue z_gettreestate(const UniValue& params, bool fHelp, const CPubKey& mypk)
             }
         }
         orchard_result.pushKV("commitments", orchard_commitments);
-        res.pushKV("orchardfrontier", orchard_result);
+        res.pushKV("orchard", orchard_result);
     }
 
     return res;

@@ -15,5 +15,5 @@
  ******************************************************************************/
 
 UniValue TxJoinSplitToJSON(const CTransaction& tx);
-void TxToJSON(const CTransaction& tx, const uint256 hashBlock, UniValue& entry);
+void TxToJSON(const CTransaction& tx, const uint256 hashBlock, UniValue& entry, bool isTxBuilder = false, int nHeight = 0, int nConfirmations = 0, int nBlockTime = 0, bool includeHex = true);
 void ScriptPubKeyToJSON(const CScript& scriptPubKey, UniValue& out, bool fIncludeHex);

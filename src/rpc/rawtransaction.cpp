@@ -55,6 +55,8 @@
 #include <univalue.h>
 #include <utf8cpp/utf8.h>
 
+#include <rust/bridge.h>
+
 using namespace std;
 
 void ScriptPubKeyToJSON(const CScript& scriptPubKey, UniValue& out, bool fIncludeHex)
@@ -142,49 +144,103 @@ UniValue TxJoinSplitToJSON(const CTransaction& tx) {
     return vjoinsplit;
 }
 
-UniValue TxShieldedSpendsToJSON(const CTransaction& tx) {
+UniValue TxShieldedSpendsToJSON(const rust::Vec<sapling::Spend>& saplingSpends) {
     UniValue vdesc(UniValue::VARR);
-    for (const auto& spend : tx.GetSaplingSpends()) {
-        auto cv = spend.cv();
-        auto anchor = spend.anchor();
-        auto nullifier = spend.nullifier();
-        auto rk = spend.rk();
-        auto zkproof = spend.zkproof();
-        auto spendAuthSig = spend.spend_auth_sig();
-
+    for (const auto& spendDesc : saplingSpends) {
         UniValue obj(UniValue::VOBJ);
-        obj.push_back(Pair("cv", HexStr(cv.begin(), cv.end())));
-        obj.push_back(Pair("anchor", HexStr(anchor.begin(), anchor.end())));
-        obj.push_back(Pair("nullifier", HexStr(nullifier.begin(), nullifier.end())));
-        obj.push_back(Pair("rk", HexStr(rk.begin(), rk.end())));
-        obj.push_back(Pair("proof", HexStr(zkproof.begin(), zkproof.end())));
-        obj.push_back(Pair("spendAuthSig", HexStr(spendAuthSig.begin(), spendAuthSig.end())));
+        obj.pushKV("cv", uint256::FromRawBytes(spendDesc.cv()).GetHex());
+        obj.pushKV("anchor", uint256::FromRawBytes(spendDesc.anchor()).GetHex());
+        obj.pushKV("nullifier", uint256::FromRawBytes(spendDesc.nullifier()).GetHex());
+        obj.pushKV("rk", uint256::FromRawBytes(spendDesc.rk()).GetHex());
+        obj.pushKV("proof", HexStr(spendDesc.zkproof()));
+        obj.pushKV("spendAuthSig", HexStr(spendDesc.spend_auth_sig()));
         vdesc.push_back(obj);
     }
     return vdesc;
 }
 
-UniValue TxShieldedOutputsToJSON(const CTransaction& tx) {
+UniValue TxShieldedOutputsToJSON(const rust::Vec<sapling::Output>& saplingOutputs) {
     UniValue vdesc(UniValue::VARR);
-
-    for (const auto& output : tx.GetSaplingOutputs())  {
-        auto cmu = output.cmu();
-        auto ephemeralKey = output.ephemeral_key();
-        auto cv = output.cv();
-        auto encCiphertext = output.enc_ciphertext();
-        auto outCiphertext = output.out_ciphertext();
-        auto zkproof = output.zkproof();
-
+    for (const auto& outputDesc : saplingOutputs) {
         UniValue obj(UniValue::VOBJ);
-        obj.push_back(Pair("cv", HexStr(cv.begin(), cv.end())));
-        obj.push_back(Pair("cmu", HexStr(cmu.begin(), cmu.end())));
-        obj.push_back(Pair("ephemeralKey", HexStr(ephemeralKey.begin(), ephemeralKey.end())));
-        obj.push_back(Pair("encCiphertext", HexStr(encCiphertext.begin(), encCiphertext.end())));
-        obj.push_back(Pair("outCiphertext", HexStr(outCiphertext.begin(), outCiphertext.end())));
-        obj.push_back(Pair("proof", HexStr(zkproof.begin(), zkproof.end())));
+        obj.pushKV("cv", uint256::FromRawBytes(outputDesc.cv()).GetHex());
+        obj.pushKV("cmu", uint256::FromRawBytes(outputDesc.cmu()).GetHex());
+        obj.pushKV("ephemeralKey", uint256::FromRawBytes(outputDesc.ephemeral_key()).GetHex());
+        obj.pushKV("encCiphertext", HexStr(outputDesc.enc_ciphertext()));
+        obj.pushKV("outCiphertext", HexStr(outputDesc.out_ciphertext()));
+        obj.pushKV("proof", HexStr(outputDesc.zkproof()));
         vdesc.push_back(obj);
     }
     return vdesc;
+}
+
+UniValue TxActionsToJSON(const rust::Vec<orchard_bundle::Action>& actions)
+{
+    UniValue arr(UniValue::VARR);
+    for (const auto& action : actions) {
+        UniValue obj(UniValue::VOBJ);
+        auto cv = action.cv();
+        obj.pushKV("cv", HexStr(cv.begin(), cv.end()));
+        auto nullifier = action.nullifier();
+        obj.pushKV("nullifier", HexStr(nullifier.begin(), nullifier.end()));
+        auto rk = action.rk();
+        obj.pushKV("rk", HexStr(rk.begin(), rk.end()));
+        auto cmx = action.cmx();
+        obj.pushKV("cmx", HexStr(cmx.begin(), cmx.end()));
+        auto ephemeralKey = action.ephemeral_key();
+        obj.pushKV("ephemeralKey", HexStr(ephemeralKey.begin(), ephemeralKey.end()));
+        auto encCiphertext = action.enc_ciphertext();
+        obj.pushKV("encCiphertext", HexStr(encCiphertext.begin(), encCiphertext.end()));
+        auto outCiphertext = action.out_ciphertext();
+        obj.pushKV("outCiphertext", HexStr(outCiphertext.begin(), outCiphertext.end()));
+        auto spendAuthSig = action.spend_auth_sig();
+        obj.pushKV("spendAuthSig", HexStr(spendAuthSig.begin(), spendAuthSig.end()));
+        arr.push_back(obj);
+    }
+    return arr;
+}
+
+UniValue TxOrchardBundleToJSON(const CTransaction& tx, UniValue& entry)
+{
+    UniValue obj(UniValue::VOBJ);
+    
+    // Check if the transaction has an Orchard bundle
+    if (!tx.GetOrchardBundle().IsPresent()) {
+        return obj; // Return empty object if no Orchard bundle
+    }
+    
+    try {
+        const auto& bundle = tx.GetOrchardBundle().GetDetails();
+
+        auto actions = bundle.actions();
+        obj.pushKV("actions", TxActionsToJSON(actions));
+        auto valueBalanceZat = bundle.value_balance_zat();
+        obj.pushKV("valueBalance", ValueFromAmount(valueBalanceZat));
+        obj.pushKV("valueBalanceZat", valueBalanceZat);
+        
+        // If this tx has no actions, then flags, anchor, etc. are not present.
+        if (!actions.empty()) {
+            {
+                UniValue obj_flags{UniValue::VOBJ};
+                auto enableSpends = bundle.enable_spends();
+                obj_flags.pushKV("enableSpends", enableSpends);
+                auto enableOutputs = bundle.enable_outputs();
+                obj_flags.pushKV("enableOutputs", enableOutputs);
+                obj.pushKV("flags", obj_flags);
+            }
+            auto anchor = bundle.anchor();
+            obj.pushKV("anchor", HexStr(anchor.begin(), anchor.end()));
+            auto proof = bundle.proof();
+            obj.pushKV("proof", HexStr(proof.begin(), proof.end()));
+            auto bindingSig = bundle.binding_sig();
+            obj.pushKV("bindingSig", HexStr(bindingSig.begin(), bindingSig.end()));
+        }
+    } catch (const std::exception& e) {
+        // If there's any error processing the Orchard bundle, return empty object
+        return UniValue(UniValue::VOBJ);
+    }
+    
+    return obj;
 }
 
 int32_t myIsutxo_spent(uint256 &spenttxid,uint256 txid,int32_t vout)
@@ -200,24 +256,30 @@ int32_t myIsutxo_spent(uint256 &spenttxid,uint256 txid,int32_t vout)
     return(-1);
 }
 
-void TxToJSONExpanded(const CTransaction& tx, const uint256 hashBlock, UniValue& entry, bool isTxBuilder = false, int nHeight = 0, int nConfirmations = 0, int nBlockTime = 0)
+void TxToJSON(const CTransaction& tx, const uint256 hashBlock, UniValue& entry, bool isTxBuilder = false, int nHeight = 0, int nConfirmations = 0, int nBlockTime = 0, bool includeHex = true)
 {
     uint256 notarized_hash,notarized_desttxid; int32_t prevMoMheight,notarized_height;
     notarized_height = komodo_notarized_height(&prevMoMheight,&notarized_hash,&notarized_desttxid);
-    uint256 txid = tx.GetHash();
+    const uint256 txid = tx.GetHash();
     if (!isTxBuilder)
-      entry.push_back(Pair("txid", txid.GetHex()));
+        entry.pushKV("txid", txid.GetHex());
+    entry.pushKV("authdigest", tx.GetAuthDigest().GetHex());
+    entry.pushKV("size", (int)::GetSerializeSize(tx, SER_NETWORK, PROTOCOL_VERSION));
+    entry.pushKV("overwintered", tx.fOverwintered);
+    entry.pushKV("version", tx.nVersion);
+    entry.pushKV("last_notarized_height", notarized_height);
+    if (tx.fOverwintered) {
+        entry.pushKV("versiongroupid", HexInt(tx.nVersionGroupId));
+    }
+    entry.pushKV("locktime", (int64_t)tx.nLockTime);
+    if (tx.fOverwintered) {
+        entry.pushKV("expiryheight", (int64_t)tx.nExpiryHeight);
+    }
 
-    entry.push_back(Pair("overwintered", tx.fOverwintered));
-    entry.push_back(Pair("version", tx.nVersion));
-    entry.push_back(Pair("last_notarized_height", notarized_height));
-    if (tx.fOverwintered) {
-        entry.push_back(Pair("versiongroupid", HexInt(tx.nVersionGroupId)));
+    if (includeHex) {
+        entry.pushKV("hex", EncodeHexTx(tx));
     }
-    entry.push_back(Pair("locktime", (int64_t)tx.nLockTime));
-    if (tx.fOverwintered) {
-        entry.push_back(Pair("expiryheight", (int64_t)tx.nExpiryHeight));
-    }
+
     UniValue vin(UniValue::VARR);
     BOOST_FOREACH(const CTxIn& txin, tx.vin) {
         UniValue in(UniValue::VOBJ);
@@ -295,7 +357,7 @@ void TxToJSONExpanded(const CTransaction& tx, const uint256 hashBlock, UniValue&
             interest = komodo_accrued_interest(&txheight,&locktime,tx.GetHash(),i,0,txout.nValue,(int32_t)tipindex->nHeight);
             out.push_back(Pair("interest", ValueFromAmount(interest)));
         }
-        out.push_back(Pair("valueSat", txout.nValue)); // [+] Decker
+        out.push_back(Pair("valueZat", txout.nValue));
         out.push_back(Pair("n", (int64_t)i));
         UniValue o(UniValue::VOBJ);
         ScriptPubKeyToJSON(txout.scriptPubKey, o, true);
@@ -325,17 +387,25 @@ void TxToJSONExpanded(const CTransaction& tx, const uint256 hashBlock, UniValue&
     UniValue vjoinsplit = TxJoinSplitToJSON(tx);
     entry.push_back(Pair("vjoinsplit", vjoinsplit));
 
-    if (tx.fOverwintered && tx.nVersion >= SAPLING_TX_VERSION) {
-        if (!isTxBuilder)
-          entry.push_back(Pair("valueBalance", ValueFromAmount(tx.GetValueBalanceSapling())));
-
-        UniValue vspenddesc = TxShieldedSpendsToJSON(tx);
-        entry.push_back(Pair("vShieldedSpend", vspenddesc));
-        UniValue voutputdesc = TxShieldedOutputsToJSON(tx);
-        entry.push_back(Pair("vShieldedOutput", voutputdesc));
-        if (!(vspenddesc.empty() && voutputdesc.empty())) {
-            CTransaction::binding_sig_t bindingSig = tx.BindingSigFromBundle();
-            entry.push_back(Pair("bindingSig", HexStr(bindingSig.begin(), bindingSig.end())));
+    if (tx.fOverwintered) {
+        if (tx.nVersion >= SAPLING_TX_VERSION) {
+            const auto& bundle = tx.GetSaplingBundle().GetDetails();
+            entry.pushKV("valueBalance", ValueFromAmount(tx.GetValueBalanceSapling()));
+            entry.pushKV("valueBalanceZat", tx.GetValueBalanceSapling());
+            UniValue vspenddesc = TxShieldedSpendsToJSON(bundle.spends());
+            entry.pushKV("vShieldedSpend", vspenddesc);
+            UniValue voutputdesc = TxShieldedOutputsToJSON(bundle.outputs());
+            entry.pushKV("vShieldedOutput", voutputdesc);
+            if (!(vspenddesc.empty() && voutputdesc.empty())) {
+                auto bindingSig = bundle.binding_sig();
+                entry.pushKV("bindingSig", HexStr(bindingSig.begin(), bindingSig.end()));
+            }
+        }
+        if (tx.nVersion >= ORCHARD_TX_VERSION && tx.GetOrchardBundle().IsPresent()) {
+            UniValue orchard = TxOrchardBundleToJSON(tx, entry);
+            if (!orchard.empty()) {
+                entry.pushKV("orchard", orchard);
+            }
         }
     }
 
@@ -349,95 +419,20 @@ void TxToJSONExpanded(const CTransaction& tx, const uint256 hashBlock, UniValue&
             entry.push_back(Pair("time", nBlockTime));
             entry.push_back(Pair("blocktime", nBlockTime));
         } else {
-            entry.push_back(Pair("height", -1));
-            entry.push_back(Pair("confirmations", 0));
-            entry.push_back(Pair("rawconfirmations", 0));
-        }
-    }
-
-}
-
-void TxToJSON(const CTransaction& tx, const uint256 hashBlock, UniValue& entry)
-{
-    entry.push_back(Pair("txid", tx.GetHash().GetHex()));
-    entry.push_back(Pair("overwintered", tx.fOverwintered));
-    entry.push_back(Pair("version", tx.nVersion));
-    if (tx.fOverwintered) {
-        entry.push_back(Pair("versiongroupid", HexInt(tx.nVersionGroupId)));
-    }
-    entry.push_back(Pair("locktime", (int64_t)tx.nLockTime));
-    if (tx.fOverwintered) {
-        entry.push_back(Pair("expiryheight", (int64_t)tx.nExpiryHeight));
-    }
-    UniValue vin(UniValue::VARR);
-    BOOST_FOREACH(const CTxIn& txin, tx.vin) {
-        UniValue in(UniValue::VOBJ);
-        if (tx.IsCoinBase())
-            in.push_back(Pair("coinbase", HexStr(txin.scriptSig.begin(), txin.scriptSig.end())));
-        else {
-            in.push_back(Pair("txid", txin.prevout.hash.GetHex()));
-            in.push_back(Pair("vout", (int64_t)txin.prevout.n));
-            UniValue o(UniValue::VOBJ);
-            o.push_back(Pair("asm", ScriptToAsmStr(txin.scriptSig, true)));
-            o.push_back(Pair("hex", HexStr(txin.scriptSig.begin(), txin.scriptSig.end())));
-            in.push_back(Pair("scriptSig", o));
-        }
-        in.push_back(Pair("sequence", (int64_t)txin.nSequence));
-        vin.push_back(in);
-    }
-    entry.push_back(Pair("vin", vin));
-    UniValue vout(UniValue::VARR);
-    BlockMap::iterator it = mapBlockIndex.find(pcoinsTip->GetBestBlock());
-    CBlockIndex *tipindex;//,*pindex = it->second;
-    uint64_t interest;
-    for (unsigned int i = 0; i < tx.vout.size(); i++) {
-        const CTxOut& txout = tx.vout[i];
-        UniValue out(UniValue::VOBJ);
-        out.push_back(Pair("value", ValueFromAmount(txout.nValue)));
-        if ( KOMODO_NSPV_FULLNODE && chainName.isKMD() && tx.nLockTime >= 500000000 && (tipindex= chainActive.Tip()) != 0 )
-        {
-            int64_t interest; int32_t txheight; uint32_t locktime;
-            interest = komodo_accrued_interest(&txheight,&locktime,tx.GetHash(),i,0,txout.nValue,(int32_t)tipindex->nHeight);
-            out.push_back(Pair("interest", ValueFromAmount(interest)));
-        }
-        out.push_back(Pair("valueZat", txout.nValue));
-        out.push_back(Pair("n", (int64_t)i));
-        UniValue o(UniValue::VOBJ);
-        ScriptPubKeyToJSON(txout.scriptPubKey, o, true);
-        out.push_back(Pair("scriptPubKey", o));
-        vout.push_back(out);
-    }
-    entry.push_back(Pair("vout", vout));
-
-    UniValue vjoinsplit = TxJoinSplitToJSON(tx);
-    entry.push_back(Pair("vjoinsplit", vjoinsplit));
-
-    if (tx.fOverwintered && tx.nVersion >= SAPLING_TX_VERSION) {
-        entry.push_back(Pair("valueBalance", ValueFromAmount(tx.GetValueBalanceSapling())));
-        UniValue vspenddesc = TxShieldedSpendsToJSON(tx);
-        entry.push_back(Pair("vShieldedSpend", vspenddesc));
-        UniValue voutputdesc = TxShieldedOutputsToJSON(tx);
-        entry.push_back(Pair("vShieldedOutput", voutputdesc));
-        if (!(vspenddesc.empty() && voutputdesc.empty())) {
-            CTransaction::binding_sig_t bindingSig = tx.BindingSigFromBundle();
-            entry.push_back(Pair("bindingSig", HexStr(bindingSig.begin(), bindingSig.end())));
-        }
-    }
-
-    if (!hashBlock.IsNull()) {
-        entry.push_back(Pair("blockhash", hashBlock.GetHex()));
-        BlockMap::iterator mi = mapBlockIndex.find(hashBlock);
-        if (mi != mapBlockIndex.end() && (*mi).second) {
-            CBlockIndex* pindex = (*mi).second;
-            if (chainActive.Contains(pindex)) {
-                entry.push_back(Pair("height", pindex->nHeight));
-                entry.push_back(Pair("rawconfirmations", 1 + chainActive.Height() - pindex->nHeight));
-                entry.push_back(Pair("confirmations", komodo_dpowconfs(pindex->nHeight,1 + chainActive.Height() - pindex->nHeight)));
-                entry.push_back(Pair("time", pindex->GetBlockTime()));
-                entry.push_back(Pair("blocktime", pindex->GetBlockTime()));
-            } else {
-                entry.push_back(Pair("confirmations", 0));
-                entry.push_back(Pair("rawconfirmations", 0));
+            BlockMap::iterator mi = mapBlockIndex.find(hashBlock);
+            if (mi != mapBlockIndex.end() && (*mi).second) {
+                CBlockIndex* pindex = (*mi).second;
+                if (chainActive.Contains(pindex)) {
+                    entry.push_back(Pair("height", pindex->nHeight));
+                    entry.push_back(Pair("rawconfirmations", 1 + chainActive.Height() - pindex->nHeight));
+                    entry.push_back(Pair("confirmations", komodo_dpowconfs(pindex->nHeight,1 + chainActive.Height() - pindex->nHeight)));
+                    entry.push_back(Pair("time", pindex->GetBlockTime()));
+                    entry.push_back(Pair("blocktime", pindex->GetBlockTime()));
+                } else {
+                    entry.push_back(Pair("height", -1));
+                    entry.push_back(Pair("confirmations", 0));
+                    entry.push_back(Pair("rawconfirmations", 0));
+                }
             }
         }
     }
@@ -451,7 +446,7 @@ UniValue getrawtransaction(const UniValue& params, bool fHelp, const CPubKey& my
             "\nNOTE: By default this function only works sometimes. This is when the tx is in the mempool\n"
             "or there is an unspent output in the utxo for this transaction. To make it always work,\n"
             "you need to maintain a transaction index, using the -txindex command line option.\n"
-            "\nReturn the raw transaction data.\n"
+            "\nReturn the raw transaction data for a given transaction id.\n"
             "\nIf verbose=0, returns a string that is serialized, hex-encoded data for 'txid'.\n"
             "If verbose is non-zero, returns an Object with information about 'txid'.\n"
 
@@ -464,11 +459,15 @@ UniValue getrawtransaction(const UniValue& params, bool fHelp, const CPubKey& my
 
             "\nResult (if verbose > 0):\n"
             "{\n"
-            "  \"hex\" : \"data\",       (string) The serialized, hex-encoded data for 'txid'\n"
-            "  \"txid\" : \"id\",        (string) The transaction id (same as provided)\n"
-            "  \"version\" : n,          (numeric) The version\n"
-            "  \"locktime\" : ttt,       (numeric) The lock time\n"
-            "  \"expiryheight\" : ttt,   (numeric, optional) The block height after which the transaction expires\n"
+            "  \"hex\" : \"data\",         (string) The serialized, hex-encoded data for 'txid'\n"
+            "  \"txid\" : \"id\",          (string) The transaction id (same as provided)\n"
+            "  \"authdigest\" : \"hex\",   (string) The transaction authorization digest\n"
+            "  \"size\" : n,               (numeric) The transaction size in bytes\n"
+            "  \"overwintered\" : bool,    (boolean) The Overwintered flag\n"
+            "  \"version\" : n,            (numeric) The transaction version\n"
+            "  \"versiongroupid\" : \"hex\", (string, optional) The version group id (Overwintered txs)\n"
+            "  \"locktime\" : ttt,         (numeric) The lock time\n"
+            "  \"expiryheight\" : ttt,     (numeric, optional) The block height after which the transaction expires\n"
             "  \"vin\" : [               (array of json objects)\n"
             "     {\n"
             "       \"txid\": \"id\",    (string) The transaction id\n"
@@ -484,6 +483,7 @@ UniValue getrawtransaction(const UniValue& params, bool fHelp, const CPubKey& my
             "  \"vout\" : [              (array of json objects)\n"
             "     {\n"
             "       \"value\" : x.xxx,            (numeric) The value in " + CURRENCY_UNIT + "\n"
+            "       \"valueZat\" : nnn,           (numeric) The value in zatoshis\n"
             "       \"n\" : n,                    (numeric) index\n"
             "       \"scriptPubKey\" : {          (json object)\n"
             "         \"asm\" : \"asm\",          (string) the asm\n"
@@ -491,7 +491,7 @@ UniValue getrawtransaction(const UniValue& params, bool fHelp, const CPubKey& my
             "         \"reqSigs\" : n,            (numeric) The required sigs\n"
             "         \"type\" : \"pubkeyhash\",  (string) The type, eg 'pubkeyhash'\n"
             "         \"addresses\" : [           (json array of string)\n"
-            "           \"komodoaddress\"          (string) Komodo address\n"
+            "           \"pirateaddress\"          (string) Pirate address\n"
             "           ,...\n"
             "         ]\n"
             "       }\n"
@@ -500,8 +500,8 @@ UniValue getrawtransaction(const UniValue& params, bool fHelp, const CPubKey& my
             "  ],\n"
             "  \"vjoinsplit\" : [        (array of json objects, only for version >= 2)\n"
             "     {\n"
-            "       \"vpub_old\" : x.xxx,         (numeric) public input value in KMD\n"
-            "       \"vpub_new\" : x.xxx,         (numeric) public output value in KMD\n"
+            "       \"vpub_old\" : x.xxx,         (numeric) public input value in ARRR\n"
+            "       \"vpub_new\" : x.xxx,         (numeric) public output value in ARRR\n"
             "       \"anchor\" : \"hex\",         (string) the anchor\n"
             "       \"nullifiers\" : [            (json array of string)\n"
             "         \"hex\"                     (string) input note nullifier\n"
@@ -525,7 +525,57 @@ UniValue getrawtransaction(const UniValue& params, bool fHelp, const CPubKey& my
             "     }\n"
             "     ,...\n"
             "  ],\n"
+            "  \"valueBalance\" : x.xxx,   (numeric, optional) Sapling value balance (if tx version >= 4)\n"
+            "  \"valueBalanceZat\" : nnn,  (numeric, optional) Sapling value balance in zatoshis\n"
+            "  \"vShieldedSpend\" : [      (array of json objects, only for version >= 4)\n"
+            "     {\n"
+            "       \"cv\" : \"hex\",            (string) Value commitment\n"
+            "       \"anchor\" : \"hex\",        (string) Merkle tree anchor\n"
+            "       \"nullifier\" : \"hex\",     (string) Nullifier\n"
+            "       \"rk\" : \"hex\",            (string) Randomized public key\n"
+            "       \"proof\" : \"hex\",         (string) Zero-knowledge proof\n"
+            "       \"spendAuthSig\" : \"hex\"   (string) Spending authorization signature\n"
+            "     }\n"
+            "     ,...\n"
+            "  ],\n"
+            "  \"vShieldedOutput\" : [     (array of json objects, only for version >= 4)\n"
+            "     {\n"
+            "       \"cv\" : \"hex\",            (string) Value commitment\n"
+            "       \"cmu\" : \"hex\",           (string) Note commitment\n"
+            "       \"ephemeralKey\" : \"hex\",  (string) Ephemeral public key\n"
+            "       \"encCiphertext\" : \"hex\", (string) Encrypted note ciphertext\n"
+            "       \"outCiphertext\" : \"hex\", (string) Output ciphertext\n"
+            "       \"proof\" : \"hex\"          (string) Zero-knowledge proof\n"
+            "     }\n"
+            "     ,...\n"
+            "  ],\n"
+            "  \"bindingSig\" : \"hex\",    (string, optional) Sapling binding signature (if Sapling data present)\n"
+            "  \"orchard\" : {             (object, optional) Orchard bundle data (if tx version >= 5)\n"
+            "    \"actions\" : [           (array of json objects)\n"
+            "       {\n"
+            "         \"cv\" : \"hex\",          (string) Value commitment\n"
+            "         \"nullifier\" : \"hex\",   (string) Nullifier\n"
+            "         \"rk\" : \"hex\",          (string) Randomized public key\n"
+            "         \"cmx\" : \"hex\",         (string) Note commitment\n"
+            "         \"ephemeralKey\" : \"hex\", (string) Ephemeral public key\n"
+            "         \"encCiphertext\" : \"hex\", (string) Encrypted note ciphertext\n"
+            "         \"outCiphertext\" : \"hex\", (string) Output ciphertext\n"
+            "         \"spendAuthSig\" : \"hex\"  (string) Spending authorization signature\n"
+            "       }\n"
+            "       ,...\n"
+            "    ],\n"
+            "    \"valueBalance\" : x.xxx,   (numeric) Orchard value balance\n"
+            "    \"valueBalanceZat\" : nnn,  (numeric) Orchard value balance in zatoshis\n"
+            "    \"flags\" : {              (object, optional)\n"
+            "      \"enableSpends\" : bool, (boolean) Whether spends are enabled\n"
+            "      \"enableOutputs\" : bool (boolean) Whether outputs are enabled\n"
+            "    },\n"
+            "    \"anchor\" : \"hex\",       (string, optional) Merkle tree anchor\n"
+            "    \"proof\" : \"hex\",        (string, optional) Zero-knowledge proof\n"
+            "    \"bindingSig\" : \"hex\"    (string, optional) Binding signature\n"
+            "  },\n"
             "  \"blockhash\" : \"hash\",   (string) the block hash\n"
+            "  \"height\" : n,            (numeric) The block height containing the transaction\n"
             "  \"confirmations\" : n,      (numeric) The number of notarized DPoW confirmations\n"
             "  \"rawconfirmations\" : n,   (numeric) The number of raw confirmations\n"
             "  \"time\" : ttt,             (numeric) The transaction time in seconds since epoch (Jan 1 1970 GMT)\n"
@@ -577,8 +627,7 @@ UniValue getrawtransaction(const UniValue& params, bool fHelp, const CPubKey& my
         return strHex;
 
     UniValue result(UniValue::VOBJ);
-    result.push_back(Pair("hex", strHex));
-    TxToJSONExpanded(tx, hashBlock, result, false, nHeight, nConfirmations, nBlockTime);
+    TxToJSON(tx, hashBlock, result, false, nHeight, nConfirmations, nBlockTime);
     return result;
 }
 
@@ -969,7 +1018,7 @@ UniValue decoderawtransaction(const UniValue& params, bool fHelp, const CPubKey&
 
     if (!isTx) {
         result.push_back(Pair("rawtype","instuctions"));
-        TxToJSONExpanded(tx, uint256(), result, true);
+        TxToJSON(tx, uint256(), result, true, 0, 0, 0, false);
 
         UniValue inputs(UniValue::VARR);
         for (int i = 0; i < tb.vSaplingSpends.size(); i++) {
@@ -1068,7 +1117,7 @@ UniValue decoderawtransaction(const UniValue& params, bool fHelp, const CPubKey&
         result.push_back(Pair("rawoutputs",outputs));
     } else {
         result.push_back(Pair("rawtype","raw"));
-        TxToJSONExpanded(tx, uint256(), result, false);
+        TxToJSON(tx, uint256(), result, false, 0, 0, 0, false);
 
         RpcArcTransaction dtx;
         int nHeight = chainActive.Tip()->nHeight;
