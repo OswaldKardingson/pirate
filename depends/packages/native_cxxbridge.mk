@@ -52,3 +52,7 @@ define $(package)_stage_cmds
 	  cp target/release/cxxbridge.exe $($(package)_staging_prefix_dir)/bin/; \
 	fi
 endef
+
+# Add secp256k1 configuration for AArch64 to use safer settings
+$(package)_config_opts_aarch64_linux = --with-asm=no --with-field=64bit --with-scalar=64bit --with-bignum=no
+$(package)_config_opts_arm_linux = --with-asm=no --with-field=64bit --with-scalar=64bit --with-bignum=no
