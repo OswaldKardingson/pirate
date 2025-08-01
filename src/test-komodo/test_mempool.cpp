@@ -167,9 +167,6 @@ TEST(Mempool, PriorityStatsDoNotCrash) {
 CCriticalSection& get_cs_main(); // in main.cpp
 
 TEST(Mempool, TxInputLimit) {
-    // Save original state
-    auto originalArgs = mapArgs;
-    
     SelectParams(CBaseChainParams::REGTEST);
 
     CTxMemPool pool(::minRelayTxFee);
@@ -236,9 +233,6 @@ TEST(Mempool, TxInputLimit) {
     CValidationState state6;
     EXPECT_FALSE(AcceptToMemoryPool(pool, state6, tx3, false, &missingInputs));
     EXPECT_EQ(state6.GetRejectReason(), "bad-txns-version-too-low");
-    
-    // Restore original state
-    mapArgs = originalArgs;
 }
 
 // Valid overwinter v3 format tx gets rejected because overwinter hasn't activated yet.
@@ -317,9 +311,6 @@ TEST(Mempool, SproutV3TxWhenOverwinterActive) {
 // under Sprout consensus rules, should still be rejected under Overwinter consensus rules.
 // 1. fails CheckTransaction (specifically CheckTransactionWithoutProofVerification)
 TEST(Mempool, SproutNegativeVersionTxWhenOverwinterActive) {
-    // Save original network parameters state
-    auto originalOverwinterActivation = Params().GetConsensus().vUpgrades[Consensus::UPGRADE_OVERWINTER].nActivationHeight;
-    
     SelectParams(CBaseChainParams::REGTEST);
     UpdateNetworkUpgradeParameters(Consensus::UPGRADE_OVERWINTER, Consensus::NetworkUpgrade::ALWAYS_ACTIVE);
 
@@ -370,6 +361,6 @@ TEST(Mempool, SproutNegativeVersionTxWhenOverwinterActive) {
         EXPECT_EQ(state1.GetRejectReason(), "bad-txns-version-too-low");
     }
 
-    // Restore original network parameters state
-    UpdateNetworkUpgradeParameters(Consensus::UPGRADE_OVERWINTER, originalOverwinterActivation);
+    // Revert to default
+    UpdateNetworkUpgradeParameters(Consensus::UPGRADE_OVERWINTER, Consensus::NetworkUpgrade::NO_ACTIVATION_HEIGHT);
 }
