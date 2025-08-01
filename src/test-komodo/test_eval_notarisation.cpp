@@ -76,14 +76,21 @@ namespace TestEvalNotarisation {
                 // Set valid transaction format fields
                 txIn.nVersion = CTransaction::SPROUT_MIN_CURRENT_VERSION;
                 txIn.fOverwintered = false;
+                txIn.nLockTime = 0;
                 
                 txIn.vout.resize(1);
-                txIn.vout[0].scriptPubKey << VCH(eval.notaries[i*2], 33) << OP_CHECKSIG;
+                txIn.vout[0].nValue = 0;
+                txIn.vout[0].scriptPubKey << std::vector<unsigned char>(eval.notaries[i*2], eval.notaries[i*2] + 33) << OP_CHECKSIG;
                 notary.vin[i].prevout = COutPoint(txIn.GetHash(), 0);
                 eval.txs[txIn.GetHash()] = CTransaction(txIn);
             }
 
             modify(notary);
+            
+            // Ensure notary transaction has required fields
+            notary.nVersion = CTransaction::SPROUT_MIN_CURRENT_VERSION;
+            notary.fOverwintered = false;
+            notary.nLockTime = 0;
 
             eval.txs[notary.GetHash()] = CTransaction(notary);
             eval.blocks[notary.GetHash()].nHeight = 780060;
