@@ -602,6 +602,35 @@ jobs:
         ln -sf "$CARGO_BIN_PATH" depends/aarch64-linux-gnu/native/bin/cargo
         ./zcutil/build-arm.sh -j$(nproc)
         
+    - name: Run C++ tests (Linux AArch64)
+      run: make check
+
+    - name: Display test-suite.log on failure (Linux AArch64)
+      if: failure()
+      run: |
+        echo "Attempting to display src/test-suite.log..."
+        if [ -f src/test-suite.log ]; then
+          cat src/test-suite.log
+        else
+          echo "src/test-suite.log not found."
+          echo "Listing src directory:"
+          ls -la src
+        fi
+
+    - name: Run Python utility tests (Linux AArch64)
+      env:
+        PYTHONPATH: ./src/test 
+        SRCDIR: ./src
+        BUILDDIR: ./src 
+      run: |
+        python3 src/test/bitcoin-util-test.py
+        python3 src/test/wallet-utility.py
+
+    - name: Run Python functional tests (Linux AArch64)
+      env:
+        PATH: "${{ github.workspace }}/src:$PATH"
+      run: test/functional/test_runner.py --jobs=$(nproc)
+        
     - name: Strip and Zip Binaries (AArch64 Daemon)
       run: |
         aarch64-linux-gnu-strip src/pirated
@@ -971,41 +1000,58 @@ jobs:
     steps:
     - uses: actions/checkout@v3
 
-    - name: Install QT and other dependencies (Ubuntu for AArch64 cross-compile)
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          build-essential pkg-config autoconf libtool automake bsdmainutils \
-          python3 curl g++-aarch64-linux-gnu gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
-          qttools5-dev zip
-
-    - name: Install Rust (stable, AArch64 target)
+    - name: Install Rust (stable with aarch64-unknown-linux-gnu target)
       uses: dtolnay/rust-toolchain@stable
       with:
         targets: aarch64-unknown-linux-gnu
 
-    - name: Make QT build script executable
-      run: chmod +x zcutil/build-qt-arm.sh
-
-    - name: Prepare for Rust build
+    - name: Install QT and other dependencies (Ubuntu for AArch64 cross-compile)
       run: |
-        mkdir -p vendored-sources
-        touch vendored-sources/.keep
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          libtool \
+          autotools-dev \
+          automake \
+          pkg-config \
+          libssl-dev \
+          libevent-dev \
+          bsdmainutils \
+          python3 \
+          python3-pip \
+          libboost-system-dev \
+          libboost-filesystem-dev \
+          libboost-chrono-dev \
+          libboost-program-options-dev \
+          libboost-test-dev \
+          libboost-thread-dev \
+          libminiupnpc-dev \
+          libzmq3-dev \
+          libqrencode-dev \
+          qtbase5-dev \
+          qttools5-dev-tools \
+          libqt5svg5-dev \
+          libqt5charts5-dev \
+          libprotobuf-dev \
+          protobuf-compiler \
+          libqrencode-dev \
+          g++-aarch64-linux-gnu \
+          gcc-aarch64-linux-gnu \
+          binutils-aarch64-linux-gnu \
+          libc6-dev-arm64-cross
 
     - name: Fix Cargo config for Linux AArch64 QT
       run: |
         # Minimal .cargo/config for AArch64 QT, patching bellman & setting target
-        rm -f .cargo/config
+        mkdir -p .cargo
         echo "# Minimal Cargo config for AArch64 QT" > .cargo/config
         echo "[target.aarch64-unknown-linux-gnu]" >> .cargo/config
         echo "linker = \"aarch64-linux-gnu-gcc\"" >> .cargo/config
         echo "ar = \"aarch64-linux-gnu-ar\"" >> .cargo/config
         echo "" >> .cargo/config
-        echo "# Patches bellman and pairing to use the Pirate Network fork" >> .cargo/config
         echo "[patch.crates-io]" >> .cargo/config
         echo "bellman = { git = \"https://github.com/piratenetwork/librustzcash\", branch = \"master\" }" >> .cargo/config
         echo "pairing = { git = \"https://github.com/piratenetwork/librustzcash\", branch = \"master\" }" >> .cargo/config
-        cat .cargo/config
 
     - name: Build Treasure Chest (AArch64 Cross-Compile)
       env:
@@ -1022,12 +1068,6 @@ jobs:
           exit 1
         fi
         echo "Found cargo at: $CARGO_BIN_PATH"
-        # Verify the target is installed
-        rustup target list --installed | grep aarch64-unknown-linux-gnu || {
-          echo "ERROR: aarch64-unknown-linux-gnu target not found"
-          rustup target list --installed
-          exit 1
-        }
         # Ensure cargo is available when depends system needs it by creating symlinks
         mkdir -p depends/aarch64-linux-gnu/native/bin
         ln -sf "$CARGO_BIN_PATH" depends/aarch64-linux-gnu/native/bin/cargo
@@ -1092,6 +1132,35 @@ jobs:
       run: |
         ./zcutil/build-mac.sh -j$(sysctl -n hw.ncpu)
 
+    - name: Run C++ tests (macOS Intel)
+      run: make check
+
+    - name: Display test-suite.log on failure (macOS Intel)
+      if: failure()
+      run: |
+        echo "Attempting to display src/test-suite.log..."
+        if [ -f src/test-suite.log ]; then
+          cat src/test-suite.log
+        else
+          echo "src/test-suite.log not found."
+          echo "Listing src directory:"
+          ls -la src
+        fi
+
+    - name: Run Python utility tests (macOS Intel)
+      env:
+        PYTHONPATH: ./src/test 
+        SRCDIR: ./src
+        BUILDDIR: ./src 
+      run: |
+        python3 src/test/bitcoin-util-test.py
+        python3 src/test/wallet-utility.py
+
+    - name: Run Python functional tests (macOS Intel)
+      env:
+        PATH: "${{ github.workspace }}/src:$PATH"
+      run: python3 test/functional/test_runner.py --jobs=$(sysctl -n hw.ncpu)
+        
     - name: Strip and Zip Binaries (macOS Intel Daemon)
       run: |
         strip src/pirated src/pirate-cli src/pirate-tx src/wallet/wallet-utility || true
