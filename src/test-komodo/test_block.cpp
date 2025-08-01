@@ -81,11 +81,12 @@ TEST(test_block, TestSpendInSameBlock)
     alice->SetBroadcastTransactions(true);
     auto bob = std::make_shared<TestWallet>("bob");
     auto miner = std::make_shared<TestWallet>("miner");
+    SelectParams(CBaseChainParams::REGTEST);
     std::shared_ptr<CBlock> lastBlock = chain.generateBlock(notary); // genesis block
     
-    // Mine enough blocks to mature the coinbase output
+    // Mine enough blocks to fully mature the coinbase output
     int maturity = Params().CoinbaseMaturity();
-    for (int i = 1; i < maturity; ++i) {
+    for (int i = 1; i <= maturity + 5; ++i) {  // +5 extra for safety
         chain.generateBlock(miner);
     }
     
@@ -102,7 +103,8 @@ TEST(test_block, TestSpendInSameBlock)
     CAmount expectedBalance = notaryBalanceBefore - 105000; // transfer + fee  
     
     // Commit the notary transaction to the mempool so Alice can spend from it
-    EXPECT_TRUE( notary->CommitTransaction(fundAlice.transaction, fundAlice.reserveKey) );
+    CValidationState state;
+    EXPECT_TRUE( notary->CommitTransaction(fundAlice.transaction, fundAlice.reserveKey, state) ) << state.GetRejectReason();
     
     // now have Alice move some funds to Bob in the same block
     CCoinControl useThisTransaction;
@@ -133,6 +135,8 @@ TEST(test_block, TestDoubleSpendInSameBlock)
     std::shared_ptr<CBlock> lastBlock = chain.generateBlock(notary); // genesis block
     CAmount notaryBalance = notary->GetBalance();
     ASSERT_GT( chain.GetIndex()->nHeight, 0 );
+    // Ensure network upgrades are active
+    UpdateNetworkUpgradeParameters();
     // Start to build a block
     int32_t newHeight = chain.GetIndex()->nHeight + 1;
     TransactionInProcess fundAlice = notary->CreateSpendTransaction(alice, 100000, 5000, true);
