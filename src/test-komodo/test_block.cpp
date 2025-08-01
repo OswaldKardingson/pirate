@@ -101,6 +101,9 @@ TEST(test_block, TestSpendInSameBlock)
     TransactionInProcess fundAlice = notary->CreateSpendTransaction(alice, 100000, 5000, true);
     CAmount expectedBalance = notaryBalanceBefore - 105000; // transfer + fee  
     
+    // Commit the notary transaction to the mempool so Alice can spend from it
+    EXPECT_TRUE( notary->CommitTransaction(fundAlice.transaction, fundAlice.reserveKey) );
+    
     // now have Alice move some funds to Bob in the same block
     CCoinControl useThisTransaction;
     COutPoint tx(fundAlice.transaction.GetHash(), 1);
