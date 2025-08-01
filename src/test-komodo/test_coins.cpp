@@ -24,6 +24,14 @@
 namespace TestCoins
 {
 
+// Test setup function to initialize network parameters for crypto operations
+void SetupTestEnvironment() {
+    SelectParams(CBaseChainParams::REGTEST);
+    UpdateNetworkUpgradeParameters(Consensus::UPGRADE_OVERWINTER, Consensus::NetworkUpgrade::ALWAYS_ACTIVE);
+    UpdateNetworkUpgradeParameters(Consensus::UPGRADE_SAPLING, Consensus::NetworkUpgrade::ALWAYS_ACTIVE);
+    UpdateNetworkUpgradeParameters(Consensus::UPGRADE_ORCHARD, Consensus::NetworkUpgrade::ALWAYS_ACTIVE);
+}
+
 class CCoinsViewTest : public CCoinsView
 {
     uint256 hashBestBlock_;
@@ -270,6 +278,7 @@ public:
 
     TxWithNullifiers()
     {
+        SetupTestEnvironment();
         CMutableTransaction mutableTx;
         
         // Set the transaction version to Orchard
@@ -314,6 +323,7 @@ template<typename Tree> void AppendRandomLeaf(Tree &tree);
 template<> void AppendRandomLeaf(SproutMerkleTree &tree) { tree.append(GetRandHash()); }
 template<> void AppendRandomLeaf(SaplingMerkleTree &tree) { tree.append(GetRandHash()); }
 template<> void AppendRandomLeaf(SaplingMerkleFrontier &tree) { 
+    SetupTestEnvironment();
 
     CMutableTransaction mutableTx;
 
@@ -323,6 +333,7 @@ template<> void AppendRandomLeaf(SaplingMerkleFrontier &tree) {
 }
 
 template<> void AppendRandomLeaf(OrchardMerkleFrontier &tree) {
+    SetupTestEnvironment();
     // OrchardMerkleFrontier only has APIs to append entire bundles, but
     // fortunately the tests only require that the tree root change.
     // TODO: Remove the need to create proofs by having a testing-only way to
