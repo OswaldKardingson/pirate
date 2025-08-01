@@ -5,8 +5,10 @@ $(package)_download_path=https://static.rust-lang.org/dist
 # 1. Define all platform-specific file names and hashes first
 $(package)_file_name_linux=rust-$($(package)_version)-x86_64-unknown-linux-gnu.tar.gz
 $(package)_sha256_hash_linux=2ca4a306047c0b8b4029c382910fcbc895badc29680e0332c9df990fd1c70d4f
-$(package)_file_name_darwin=rust-$($(package)_version)-x86_64-apple-darwin.tar.gz
-$(package)_sha256_hash_darwin=9818dab2c3726d63dfbfde12c9273e62e484ef6d6f6e05a6431a3e089c335454
+$(package)_file_name_darwin_x86_64=rust-$($(package)_version)-x86_64-apple-darwin.tar.gz
+$(package)_sha256_hash_darwin_x86_64=9818dab2c3726d63dfbfde12c9273e62e484ef6d6f6e05a6431a3e089c335454
+$(package)_file_name_darwin_aarch64=rust-$($(package)_version)-aarch64-apple-darwin.tar.gz
+$(package)_sha256_hash_darwin_aarch64=8b96e4c2c427c4dc4b44157a0bf0349b6a2e9c7b2d5a8a7c88b256ef1a9a3c2e
 $(package)_file_name_freebsd=rust-$($(package)_version)-x86_64-unknown-freebsd.tar.gz
 $(package)_sha256_hash_freebsd=2985d98910b4a1dd336bfc7a1ac3b18082ed917cff097b4db6f0d6602016c289
 $(package)_file_name_aarch64_linux=rust-$($(package)_version)-aarch64-unknown-linux-gnu.tar.gz
@@ -28,8 +30,13 @@ else ifeq ($(_tmp_build_os),linux)
     _sha256_hash_to_use := $($(package)_sha256_hash_linux)
   endif
 else ifeq ($(_tmp_build_os),darwin)
-  _file_name_to_use := $($(package)_file_name_darwin)
-  _sha256_hash_to_use := $($(package)_sha256_hash_darwin)
+  ifeq ($(strip $(build_arch)),aarch64)
+    _file_name_to_use := $($(package)_file_name_darwin_aarch64)
+    _sha256_hash_to_use := $($(package)_sha256_hash_darwin_aarch64)
+  else
+    _file_name_to_use := $($(package)_file_name_darwin_x86_64)
+    _sha256_hash_to_use := $($(package)_sha256_hash_darwin_x86_64)
+  endif
 else ifeq ($(_tmp_build_os),freebsd)
   _file_name_to_use := $($(package)_file_name_freebsd)
   _sha256_hash_to_use := $($(package)_sha256_hash_freebsd)
