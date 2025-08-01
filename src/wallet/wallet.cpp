@@ -634,29 +634,29 @@ OrchardPaymentAddressPirate CWallet::GenerateNewOrchardDiversifiedAddress()
         ivk = extfvk.fvk.GetIVK().value();
     }
 
-    blob88 diversifier;
-    arith_uint88 div;
+    blob88 diversifierIndex;
+    arith_uint88 diversifierIndexCounter;
 
     //Initalize diversifier
-    diversifier = ArithToUint88(div);
+    diversifierIndex = ArithToUint88(diversifierIndexCounter);
 
     //Get Last used diversifier if one exists
     for (auto entry : mapLastOrchardDiversifierPath) {
         if (entry.first == ivk) {
-            diversifier = entry.second;
-            div = UintToArith88(diversifier);
+            diversifierIndex = entry.second;
+            diversifierIndexCounter = UintToArith88(diversifierIndex);
         }
     }
 
     bool found = false;
     do {
-      auto addrOpt = extfvk.fvk.GetAddress(diversifier);
+      auto addrOpt = extfvk.fvk.GetAddressFromIndex(diversifierIndex);
       if (addrOpt != std::nullopt) {
           addr = addrOpt.value();
           if (!GetOrchardExtendedSpendingKey(addr, extsk)) {
               found = true;
               //Save last used diversifier by ivk
-              if (!AddLastOrchardDiversifierUsed(ivk, diversifier)) {
+              if (!AddLastOrchardDiversifierUsed(ivk, diversifierIndex)) {
                   throw std::runtime_error("CWallet::GenerateNewOrchardDiversifiedAddress(): AddLastOrchardDiversifierUsed failed");
               }
 
@@ -664,8 +664,8 @@ OrchardPaymentAddressPirate CWallet::GenerateNewOrchardDiversifiedAddress()
       }
 
       //increment the diversifier
-      div++;
-      diversifier = ArithToUint88(div);
+      diversifierIndexCounter++;
+      diversifierIndex = ArithToUint88(diversifierIndexCounter);
 
     }
     while (!found);
@@ -676,7 +676,7 @@ OrchardPaymentAddressPirate CWallet::GenerateNewOrchardDiversifiedAddress()
     }
 
     //Add to wallet
-    if (!AddOrchardDiversifiedAddress(addr, ivk, diversifier)) {
+    if (!AddOrchardDiversifiedAddress(addr, ivk, diversifierIndex)) {
         throw std::runtime_error("CWallet::GenerateNewOrchardDiversifiedAddress(): AddOrchardDiversifiedAddress failed");
     }
 
