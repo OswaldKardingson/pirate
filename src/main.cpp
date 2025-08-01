@@ -4987,9 +4987,15 @@ bool ConnectTip(CValidationState &state, CBlockIndex *pindexNew, CBlock *pblock)
     if ( KOMODO_NSPV_FULLNODE )
     {
         if ( ASSETCHAINS_SAPLING <= 0 && pindexNew->nTime > KOMODO_SAPLING_ACTIVATION - 24*3600 )
-            komodo_activate_sapling(pindexNew);
+            // Use Chainparams for regtest activation
+            if (Params().NetworkIDString() != "regtest") {
+                komodo_activate_sapling(pindexNew);
+            }
         if ( ASSETCHAINS_ORCHARD <= 0 && pindexNew->nTime > KOMODO_ORCHARD_ACTIVATION - 24*3600 )
-            komodo_activate_orchard(pindexNew);
+            // Use Chainparams for regtest activation
+            if (Params().NetworkIDString() != "regtest") {
+                komodo_activate_orchard(pindexNew);
+            }
         if ( ASSETCHAINS_CC != 0 && KOMODO_SNAPSHOT_INTERVAL != 0 && (pindexNew->nHeight % KOMODO_SNAPSHOT_INTERVAL) == 0 && pindexNew->nHeight >= KOMODO_SNAPSHOT_INTERVAL )
         {
             uint64_t start = time(NULL);
@@ -7116,12 +7122,18 @@ bool static LoadBlockIndexDB()
         if ( ASSETCHAINS_SAPLING <= 0 )
         {
             fprintf(stderr,"set sapling height, if possible from ht.%d %u\n",(int32_t)pindex->nHeight,(uint32_t)pindex->nTime);
-            komodo_activate_sapling(pindex);
+            // Chainparam for regtest activation
+            if (Params().NetworkIDString() != "regtest") {
+                komodo_activate_sapling(pindex);
+            }
         }
         if ( ASSETCHAINS_ORCHARD <= 0 )
         {
             fprintf(stderr,"set orchard height, if possible from ht.%d %u\n",(int32_t)pindex->nHeight,(uint32_t)pindex->nTime);
-            komodo_activate_orchard(pindex);
+            // Chainparam for regtest activation
+            if (Params().NetworkIDString() != "regtest") {
+                komodo_activate_orchard(pindex);
+            }
         }
     }
     return true;
