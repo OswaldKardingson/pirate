@@ -1,8 +1,5 @@
-![Pirate build - Ubuntu 20.04](https://github.com/PirateNetwork/pirate/actions/workflows/pirate_ci_ubunutu2004.yml/badge.svg)\
-![Pirate build - Windows cross compile 20.04](https://github.com/PirateNetwork/pirate/actions/workflows/pirate_ci_windows_cross2004.yml/badge.svg)\
-![Pirate build - Aarch64 cross compile 20.04](https://github.com/PirateNetwork/pirate/actions/workflows/pirate_ci_aarch64_cross2004.yml/badge.svg)\
+![Build Pirated](https://github.com/PirateNetwork/pirate/actions/workflows/pirated_build.yml/badge.svg)
 ![Pirate Logo](https://i.ibb.co/F7Dgnxy/Pirate-Logo-Wordmark-Gold.png "Pirate Chain Logo")
-
 
 ## Pirate Chain
 
