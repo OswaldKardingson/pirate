@@ -14,6 +14,7 @@
 #include "uint256.h"
 #include "undo.h"
 #include "util/strencodings.h"
+#include "zcash/address/pirate_orchard.hpp"
 
 #include <map>
 #include <vector>
@@ -295,27 +296,44 @@ public:
         mutableTx.saplingBundle = sapling::test_only_invalid_bundle(1, 1, 0);
         saplingNullifier = uint256::FromRawBytes(mutableTx.saplingBundle.GetDetails().spends()[0].nullifier());
 
-        // The Orchard bundle builder always pads to two Actions, so we can just
-        // use an empty builder to create a dummy Orchard bundle.
-        uint256 orchardAnchor;
-        uint256 dataToBeSigned;
-        auto builder = orchard::Builder(true, true, orchardAnchor);
-        
-        // Skip the ProveAndSign step that requires spending keys for test purposes
-        // Instead, create a minimal valid bundle without requiring actual spending keys
-        auto maybe_bundle = builder.Build();
-        if (maybe_bundle.has_value()) {
-            mutableTx.orchardBundle = maybe_bundle.value();
-            auto nullifiers = mutableTx.orchardBundle.GetNullifiers();
-            if (!nullifiers.empty()) {
-                orchardNullifier = nullifiers[0];
+        // Create Orchard bundle for Pirate Chain
+        auto orchardKey = libzcash::OrchardSpendingKeyPirate::random();
+        if (orchardKey.has_value()) {
+            auto fvk = orchardKey.value().GetFVK();
+            if (fvk.has_value()) {
+                auto addr = fvk.value().GetDefaultAddress();
+                if (addr.has_value()) {
+                    uint256 orchardAnchor;
+                    uint256 dataToBeSigned;
+                    auto builder = orchard::Builder(true, true, orchardAnchor);
+                    builder.AddOutput(std::nullopt, addr.value(), 0, std::nullopt);
+                    
+                    // Build and sign the bundle
+                    auto maybe_bundle = builder.Build();
+                    if (maybe_bundle.has_value()) {
+                        auto authorized_bundle = maybe_bundle.value().ProveAndSign({}, dataToBeSigned);
+                        if (authorized_bundle.has_value()) {
+                            mutableTx.orchardBundle = authorized_bundle.value();
+                            auto nullifiers = mutableTx.orchardBundle.GetNullifiers();
+                            if (!nullifiers.empty()) {
+                                orchardNullifier = nullifiers[0];
+                            } else {
+                                orchardNullifier = GetRandHash();
+                            }
+                        } else {
+                            orchardNullifier = GetRandHash();
+                        }
+                    } else {
+                        orchardNullifier = GetRandHash();
+                    }
+                } else {
+                    orchardNullifier = GetRandHash();
+                }
             } else {
-                auto test_note = orchard::testing::CreateTestNote();
-                orchardNullifier = test_note.nullifier();
+                orchardNullifier = GetRandHash();
             }
         } else {
-            auto test_note = orchard::testing::CreateTestNote();
-            orchardNullifier = test_note.nullifier();
+            orchardNullifier = GetRandHash();
         }
 
         tx = CTransaction(mutableTx);
