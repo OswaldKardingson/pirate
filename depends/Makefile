@@ -103,8 +103,8 @@ $(host_prefix)/.stamp_$(final_build_id): $(native_packages) $(packages)
 	$(AT)echo copying packages: $^
 	$(AT)echo to: $(@D)
 	$(AT)cd $(@D); $(foreach package,$^, tar xf $($(package)_cached); )
-	$(AT)if [ -f $(CRATE_ARCHIVE) ]; then \
-		echo "Using cached crate archive: $(CRATE_ARCHIVE)"; \
+	$(AT)if test -f "$(CRATE_ARCHIVE)"; \
+	then echo Extracting pre-vendored crates from $(CRATE_ARCHIVE)...; \
 		tar xf $(CRATE_ARCHIVE) -C $(@D); \
 	else echo Vendoring crates...; \
 		CARGO_BIN="$(@D)/native/bin/$(CARGO_EXEC)"; \
@@ -112,17 +112,16 @@ $(host_prefix)/.stamp_$(final_build_id): $(native_packages) $(packages)
 			CARGO_BIN="$(@D)/bin/$(CARGO_EXEC)"; \
 		fi; \
 		if ! type "$$CARGO_BIN" >/dev/null 2>&1; then \
-			if [ -n "$(SYSTEM_CARGO)" ] && [ -x "$(SYSTEM_CARGO)" ]; then \
-				CARGO_BIN="$(SYSTEM_CARGO)"; \
-			elif [ -n "$${USERPROFILE}" ] && cygpath -u "$${USERPROFILE}" >/dev/null 2>&1 ; then \
+			if [ -n "$${USERPROFILE}" ] && cygpath -u "$${USERPROFILE}" >/dev/null 2>&1 ; then \
 				_uprofile=$$(cygpath -u "$${USERPROFILE}"); \
 				if [ -f "$$_uprofile/.cargo/env" ]; then \
 					. "$$_uprofile/.cargo/env"; \
 				fi; \
 				CARGO_BIN="$$_uprofile/.cargo/bin/$(CARGO_EXEC)"; \
-			else \
-				CARGO_BIN="cargo"; \
 			fi; \
+		fi; \
+		if ! type "$$CARGO_BIN" >/dev/null 2>&1; then \
+			CARGO_BIN="cargo"; \
 		fi; \
 		if [ "$$CARGO_BIN" = "cargo" ]; then \
 			_found=$$(find "$(@D)" -type f -name 'cargo*' 2>/dev/null | head -n 1); \
@@ -190,19 +189,7 @@ download-crates: native_rust
 	$(AT)rm -rf $(crates_download_dir)
 	$(AT)mkdir -p $(crates_download_dir)
 	$(AT)tar xf $(native_rust_cached) -C $(crates_download_dir)
-	$(AT)if [ -f $(crates_download_dir)/native/bin/cargo ]; then \
-		echo "Using depends cargo: $(crates_download_dir)/native/bin/cargo"; \
-		$(crates_download_dir)/native/bin/cargo vendor --locked --manifest-path $(BASEDIR)/../Cargo.toml $(crates_download_dir)/$(CRATE_REGISTRY); \
-	elif [ -n "$(SYSTEM_CARGO)" ] && [ -x "$(SYSTEM_CARGO)" ]; then \
-		echo "Using system cargo: $(SYSTEM_CARGO)"; \
-		$(SYSTEM_CARGO) vendor --locked --manifest-path $(BASEDIR)/../Cargo.toml $(crates_download_dir)/$(CRATE_REGISTRY); \
-	else \
-		echo "ERROR: No cargo binary found in PATH or depends system"; \
-		echo "PATH: $$PATH"; \
-		echo "USERPROFILE: $$USERPROFILE"; \
-		echo "HOME: $$HOME"; \
-		exit 1; \
-	fi
+	$(AT)$(crates_download_dir)/native/bin/cargo vendor --locked --manifest-path $(BASEDIR)/../Cargo.toml $(crates_download_dir)/$(CRATE_REGISTRY)
 	$(AT)cd $(crates_download_dir); find $(CRATE_REGISTRY) | sort | tar --no-recursion -czf $(CRATE_ARCHIVE) -T -
 	$(AT)rm -rf $(crates_download_dir)
 
