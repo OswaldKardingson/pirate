@@ -296,17 +296,26 @@ public:
         mutableTx.saplingBundle = sapling::test_only_invalid_bundle(1, 1, 0);
         saplingNullifier = uint256::FromRawBytes(mutableTx.saplingBundle.GetDetails().spends()[0].nullifier());
 
-        // Create Orchard bundle for Pirate Chain
-        auto orchardKey = libzcash::OrchardSpendingKeyPirate::random();
-        if (orchardKey.has_value()) {
-            auto fvk = orchardKey.value().GetFVK();
-            if (fvk.has_value()) {
-                auto addr = fvk.value().GetDefaultAddress();
-                if (addr.has_value()) {
+        // Create Orchard bundle using deterministic keys
+        RawHDSeed seed(32, 0);
+        uint32_t bip44CoinType = Params().BIP44CoinType();
+        
+        // Use OrchardExtendedSpendingKeyPirate::Master(seed).Derive() which is Pirate's equivalent of Zcash's ForAccount
+        auto orchardSkOpt = libzcash::OrchardExtendedSpendingKeyPirate::Master(seed).Derive(bip44CoinType, 133);
+        if (orchardSkOpt.has_value()) {
+            auto orchardSk = orchardSkOpt.value();
+            auto orchardFvkOpt = orchardSk.GetXFVK();
+            if (orchardFvkOpt.has_value()) {
+                auto orchardFvk = orchardFvkOpt.value();
+                auto addressOpt = orchardFvk.fvk.GetDefaultAddress();
+                if (addressOpt.has_value()) {
+                    auto to = addressOpt.value();
                     uint256 orchardAnchor;
                     uint256 dataToBeSigned;
+                    
+                    // Create builder and add output
                     auto builder = orchard::Builder(true, true, orchardAnchor);
-                    builder.AddOutput(std::nullopt, addr.value(), 0, std::nullopt);
+                    builder.AddOutput(std::nullopt, to, 0, std::nullopt);
                     
                     // Build and sign the bundle
                     auto maybe_bundle = builder.Build();
