@@ -1,18 +1,21 @@
-#pragma once
-#include <array>
-#include <cassert>
-#include <cstddef>
-#include <cstdint>
-#include <exception>
-#include <functional>
-#include <iterator>
-#include <memory>
-#include <new>
-#include <stdexcept>
-#include <string>
-#include <type_traits>
-#include <utility>
-#include <vector>
+--- /dev/null
++++ b/gen/cmd/src/gen/include/cxx.h
+@@ -0,0 +1,1118 @@
++#pragma once
++#include <array>
++#include <cassert>
++#include <cstddef>
++#include <cstdint>
++#include <exception>
++#include <functional>
++#include <iterator>
++#include <memory>
++#include <new>
++#include <stdexcept>
++#include <string>
++#include <type_traits>
++#include <utility>
++#include <vector>
 
 namespace rust {
 inline namespace cxxbridge1 {
@@ -528,7 +531,7 @@ Box<T> &Box<T>::operator=(Box &&other) &noexcept {
   return *this;
 }
 
-+emplate <typename T>
+emplate <typename T>
 const T *Box<T>::operator->() const noexcept {
   return this->ptr;
 }
