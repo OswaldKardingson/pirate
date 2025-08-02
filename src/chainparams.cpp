@@ -492,14 +492,11 @@ public:
         consensus.vUpgrades[Consensus::UPGRADE_TESTDUMMY].nActivationHeight =
             Consensus::NetworkUpgrade::NO_ACTIVATION_HEIGHT;
         consensus.vUpgrades[Consensus::UPGRADE_OVERWINTER].nProtocolVersion = 170003;
-        consensus.vUpgrades[Consensus::UPGRADE_OVERWINTER].nActivationHeight =
-            Consensus::NetworkUpgrade::NO_ACTIVATION_HEIGHT;
+        consensus.vUpgrades[Consensus::UPGRADE_OVERWINTER].nActivationHeight = 50;
         consensus.vUpgrades[Consensus::UPGRADE_SAPLING].nProtocolVersion = 170006;
-        consensus.vUpgrades[Consensus::UPGRADE_SAPLING].nActivationHeight =
-            Consensus::NetworkUpgrade::NO_ACTIVATION_HEIGHT;
+        consensus.vUpgrades[Consensus::UPGRADE_SAPLING].nActivationHeight = 100;
         consensus.vUpgrades[Consensus::UPGRADE_ORCHARD].nProtocolVersion = 170007;
-        consensus.vUpgrades[Consensus::UPGRADE_ORCHARD].nActivationHeight =
-            Consensus::NetworkUpgrade::NO_ACTIVATION_HEIGHT;
+        consensus.vUpgrades[Consensus::UPGRADE_ORCHARD].nActivationHeight = 200;
 
         // The best chain should have at least this much work.
         consensus.nMinimumChainWork = uint256S("0x00");
@@ -1032,19 +1029,22 @@ void *chainparams_commandline()
         pCurrentParams->pchMessageStart[3] = (ASSETCHAINS_MAGIC >> 24) & 0xff;
         fprintf(stdout,">>>>>>>>>> %s: p2p.%u rpc.%u magic.%08x %u %u coins\n",chainName.symbol().c_str(),ASSETCHAINS_P2PPORT,ASSETCHAINS_RPCPORT,ASSETCHAINS_MAGIC,ASSETCHAINS_MAGIC,(uint32_t)ASSETCHAINS_SUPPLY);
 
-        pCurrentParams->consensus.vUpgrades[Consensus::UPGRADE_SAPLING].nActivationHeight = ASSETCHAINS_SAPLING;
-        pCurrentParams->consensus.vUpgrades[Consensus::UPGRADE_OVERWINTER].nActivationHeight = ASSETCHAINS_OVERWINTER;
-        pCurrentParams->consensus.vUpgrades[Consensus::UPGRADE_ORCHARD].nActivationHeight = ASSETCHAINS_ORCHARD;
+        //Use defined activation heights when in non-regtest mode
+        if (Params().NetworkIDString() != "regtest") {
+            pCurrentParams->consensus.vUpgrades[Consensus::UPGRADE_SAPLING].nActivationHeight = ASSETCHAINS_SAPLING;
+            pCurrentParams->consensus.vUpgrades[Consensus::UPGRADE_OVERWINTER].nActivationHeight = ASSETCHAINS_OVERWINTER;
+            pCurrentParams->consensus.vUpgrades[Consensus::UPGRADE_ORCHARD].nActivationHeight = ASSETCHAINS_ORCHARD;
 
-        if (chainName.isSymbol("PIRATE"))
-        {
-            pCurrentParams->consensus.vUpgrades[Consensus::UPGRADE_SAPLING].nActivationHeight = 152855;
-            pCurrentParams->consensus.vUpgrades[Consensus::UPGRADE_OVERWINTER].nActivationHeight = 152855;
-            pCurrentParams->consensus.nMinimumChainWork = uint256S("0x00000000000000000000000000000000000000000000000000c46a0c07176634");
+            if (chainName.isSymbol("PIRATE"))
+            {
+                pCurrentParams->consensus.vUpgrades[Consensus::UPGRADE_SAPLING].nActivationHeight = 152855;
+                pCurrentParams->consensus.vUpgrades[Consensus::UPGRADE_OVERWINTER].nActivationHeight = 152855;
+                pCurrentParams->consensus.nMinimumChainWork = uint256S("0x00000000000000000000000000000000000000000000000000c46a0c07176634");
 
+            }
+
+            checkpointData = GetACCheckPoints();
         }
-
-        checkpointData = GetACCheckPoints();
 
     }
     else

@@ -55,8 +55,21 @@
 #include <univalue.h>
 #include <utf8cpp/utf8.h>
 
+#include <rust/bridge.h>
+
 using namespace std;
 
+/**
+ * @brief Converts a script public key to JSON representation with address extraction
+ * 
+ * Analyzes the provided script to extract transaction output type, required signatures,
+ * and associated addresses. Supports standard script types including P2PKH, P2PK, P2SH,
+ * and multisig patterns.
+ * 
+ * @param scriptPubKey The script to analyze and convert
+ * @param out Reference to UniValue object that will contain the JSON output
+ * @param fIncludeHex Whether to include the raw hex-encoded script data
+ */
 void ScriptPubKeyToJSON(const CScript& scriptPubKey, UniValue& out, bool fIncludeHex)
 {
     txnouttype type;
@@ -83,6 +96,16 @@ void ScriptPubKeyToJSON(const CScript& scriptPubKey, UniValue& out, bool fInclud
     out.push_back(Pair("addresses", a));
 }
 
+/**
+ * @brief Converts Sprout JoinSplit transaction data to JSON format
+ * 
+ * Processes zero-knowledge proof data from Sprout shielded transactions, including
+ * nullifiers, commitments, ciphertexts, and proof serialization. Handles both
+ * PGHR13 and Groth16 proof systems based on transaction version.
+ * 
+ * @param tx Transaction containing JoinSplit descriptions to serialize
+ * @return UniValue JSON array containing all JoinSplit objects with complete proof data
+ */
 UniValue TxJoinSplitToJSON(const CTransaction& tx) {
     bool useGroth = tx.fOverwintered && tx.nVersion >= SAPLING_TX_VERSION;
     UniValue vjoinsplit(UniValue::VARR);
@@ -142,51 +165,155 @@ UniValue TxJoinSplitToJSON(const CTransaction& tx) {
     return vjoinsplit;
 }
 
-UniValue TxShieldedSpendsToJSON(const CTransaction& tx) {
+/**
+ * @brief Converts Sapling shielded spend descriptions to JSON format
+ * 
+ * Serializes Sapling spend proofs including value commitments, nullifiers,
+ * randomized verification keys, and zero-knowledge proofs for spend authorization.
+ * 
+ * @param saplingSpends Vector of Sapling spend descriptions from transaction
+ * @return UniValue JSON array of spend objects with cryptographic commitments
+ */
+UniValue TxShieldedSpendsToJSON(const rust::Vec<sapling::Spend>& saplingSpends) {
     UniValue vdesc(UniValue::VARR);
-    for (const auto& spend : tx.GetSaplingSpends()) {
-        auto cv = spend.cv();
-        auto anchor = spend.anchor();
-        auto nullifier = spend.nullifier();
-        auto rk = spend.rk();
-        auto zkproof = spend.zkproof();
-        auto spendAuthSig = spend.spend_auth_sig();
-
+    for (const auto& spendDesc : saplingSpends) {
         UniValue obj(UniValue::VOBJ);
-        obj.push_back(Pair("cv", HexStr(cv.begin(), cv.end())));
-        obj.push_back(Pair("anchor", HexStr(anchor.begin(), anchor.end())));
-        obj.push_back(Pair("nullifier", HexStr(nullifier.begin(), nullifier.end())));
-        obj.push_back(Pair("rk", HexStr(rk.begin(), rk.end())));
-        obj.push_back(Pair("proof", HexStr(zkproof.begin(), zkproof.end())));
-        obj.push_back(Pair("spendAuthSig", HexStr(spendAuthSig.begin(), spendAuthSig.end())));
+        obj.pushKV("cv", uint256::FromRawBytes(spendDesc.cv()).GetHex());
+        obj.pushKV("anchor", uint256::FromRawBytes(spendDesc.anchor()).GetHex());
+        obj.pushKV("nullifier", uint256::FromRawBytes(spendDesc.nullifier()).GetHex());
+        obj.pushKV("rk", uint256::FromRawBytes(spendDesc.rk()).GetHex());
+        obj.pushKV("proof", HexStr(spendDesc.zkproof()));
+        obj.pushKV("spendAuthSig", HexStr(spendDesc.spend_auth_sig()));
         vdesc.push_back(obj);
     }
     return vdesc;
 }
 
-UniValue TxShieldedOutputsToJSON(const CTransaction& tx) {
+/**
+ * @brief Converts Sapling shielded output descriptions to JSON format
+ * 
+ * Serializes Sapling output data including value commitments, note commitments,
+ * ephemeral keys, encrypted ciphertexts, and zero-knowledge proofs for output validity.
+ * 
+ * @param saplingOutputs Vector of Sapling output descriptions from transaction
+ * @return UniValue JSON array of output objects with encrypted note data
+ */
+UniValue TxShieldedOutputsToJSON(const rust::Vec<sapling::Output>& saplingOutputs) {
     UniValue vdesc(UniValue::VARR);
-
-    for (const auto& output : tx.GetSaplingOutputs())  {
-        auto cmu = output.cmu();
-        auto ephemeralKey = output.ephemeral_key();
-        auto cv = output.cv();
-        auto encCiphertext = output.enc_ciphertext();
-        auto outCiphertext = output.out_ciphertext();
-        auto zkproof = output.zkproof();
-
+    for (const auto& outputDesc : saplingOutputs) {
         UniValue obj(UniValue::VOBJ);
-        obj.push_back(Pair("cv", HexStr(cv.begin(), cv.end())));
-        obj.push_back(Pair("cmu", HexStr(cmu.begin(), cmu.end())));
-        obj.push_back(Pair("ephemeralKey", HexStr(ephemeralKey.begin(), ephemeralKey.end())));
-        obj.push_back(Pair("encCiphertext", HexStr(encCiphertext.begin(), encCiphertext.end())));
-        obj.push_back(Pair("outCiphertext", HexStr(outCiphertext.begin(), outCiphertext.end())));
-        obj.push_back(Pair("proof", HexStr(zkproof.begin(), zkproof.end())));
+        obj.pushKV("cv", uint256::FromRawBytes(outputDesc.cv()).GetHex());
+        obj.pushKV("cmu", uint256::FromRawBytes(outputDesc.cmu()).GetHex());
+        obj.pushKV("ephemeralKey", uint256::FromRawBytes(outputDesc.ephemeral_key()).GetHex());
+        obj.pushKV("encCiphertext", HexStr(outputDesc.enc_ciphertext()));
+        obj.pushKV("outCiphertext", HexStr(outputDesc.out_ciphertext()));
+        obj.pushKV("proof", HexStr(outputDesc.zkproof()));
         vdesc.push_back(obj);
     }
     return vdesc;
 }
 
+/**
+ * @brief Converts Orchard action descriptions to JSON format
+ * 
+ * Serializes Orchard actions which combine both spend and output functionality
+ * in a single cryptographic action, including nullifiers, commitments, ciphertexts,
+ * and authorization signatures.
+ * 
+ * @param actions Vector of Orchard actions from the transaction bundle
+ * @return UniValue JSON array of action objects with unified spend/output data
+ */
+UniValue TxActionsToJSON(const rust::Vec<orchard_bundle::Action>& actions)
+{
+    UniValue arr(UniValue::VARR);
+    for (const auto& action : actions) {
+        UniValue obj(UniValue::VOBJ);
+        auto cv = action.cv();
+        obj.pushKV("cv", HexStr(cv.begin(), cv.end()));
+        auto nullifier = action.nullifier();
+        obj.pushKV("nullifier", HexStr(nullifier.begin(), nullifier.end()));
+        auto rk = action.rk();
+        obj.pushKV("rk", HexStr(rk.begin(), rk.end()));
+        auto cmx = action.cmx();
+        obj.pushKV("cmx", HexStr(cmx.begin(), cmx.end()));
+        auto ephemeralKey = action.ephemeral_key();
+        obj.pushKV("ephemeralKey", HexStr(ephemeralKey.begin(), ephemeralKey.end()));
+        auto encCiphertext = action.enc_ciphertext();
+        obj.pushKV("encCiphertext", HexStr(encCiphertext.begin(), encCiphertext.end()));
+        auto outCiphertext = action.out_ciphertext();
+        obj.pushKV("outCiphertext", HexStr(outCiphertext.begin(), outCiphertext.end()));
+        auto spendAuthSig = action.spend_auth_sig();
+        obj.pushKV("spendAuthSig", HexStr(spendAuthSig.begin(), spendAuthSig.end()));
+        arr.push_back(obj);
+    }
+    return arr;
+}
+
+/**
+ * @brief Converts Orchard transaction bundle to JSON format with error handling
+ * 
+ * Extracts and serializes Orchard bundle data including actions, value balance,
+ * flags, anchors, proofs, and binding signatures. Implements defensive programming
+ * to handle missing bundles and processing errors gracefully.
+ * 
+ * @param tx Transaction containing the Orchard bundle
+ * @param entry Reference to transaction JSON object (unused but kept for consistency)
+ * @return UniValue JSON object containing Orchard bundle data or empty object if unavailable
+ */
+UniValue TxOrchardBundleToJSON(const CTransaction& tx, UniValue& entry)
+{
+    UniValue obj(UniValue::VOBJ);
+    
+    // Check if the transaction has an Orchard bundle
+    if (!tx.GetOrchardBundle().IsPresent()) {
+        return obj; // Return empty object if no Orchard bundle
+    }
+    
+    try {
+        const auto& bundle = tx.GetOrchardBundle().GetDetails();
+
+        auto actions = bundle.actions();
+        obj.pushKV("actions", TxActionsToJSON(actions));
+        auto valueBalanceZat = bundle.value_balance_zat();
+        obj.pushKV("valueBalance", ValueFromAmount(valueBalanceZat));
+        obj.pushKV("valueBalanceZat", valueBalanceZat);
+        
+        // If this tx has no actions, then flags, anchor, etc. are not present.
+        if (!actions.empty()) {
+            {
+                UniValue obj_flags{UniValue::VOBJ};
+                auto enableSpends = bundle.enable_spends();
+                obj_flags.pushKV("enableSpends", enableSpends);
+                auto enableOutputs = bundle.enable_outputs();
+                obj_flags.pushKV("enableOutputs", enableOutputs);
+                obj.pushKV("flags", obj_flags);
+            }
+            auto anchor = bundle.anchor();
+            obj.pushKV("anchor", HexStr(anchor.begin(), anchor.end()));
+            auto proof = bundle.proof();
+            obj.pushKV("proof", HexStr(proof.begin(), proof.end()));
+            auto bindingSig = bundle.binding_sig();
+            obj.pushKV("bindingSig", HexStr(bindingSig.begin(), bindingSig.end()));
+        }
+    } catch (const std::exception& e) {
+        // If there's any error processing the Orchard bundle, return empty object
+        return UniValue(UniValue::VOBJ);
+    }
+    
+    return obj;
+}
+
+/**
+ * @brief Utility function to check if a UTXO has been spent
+ * 
+ * Queries the spent index to determine if a specific transaction output
+ * has been consumed by a subsequent transaction.
+ * 
+ * @param spenttxid Reference to store the spending transaction ID
+ * @param txid Transaction ID of the output to check
+ * @param vout Output index within the transaction
+ * @return Input index in spending transaction, or -1 if unspent
+ */
 int32_t myIsutxo_spent(uint256 &spenttxid,uint256 txid,int32_t vout)
 {
     CSpentIndexValue spentInfo; CSpentIndexKey spentKey(txid,vout);
@@ -196,28 +323,58 @@ int32_t myIsutxo_spent(uint256 &spenttxid,uint256 txid,int32_t vout)
         return((int32_t)spentInfo.inputIndex);
         // out.push_back(Pair("spentHeight", spentInfo.blockHeight));
     }
-    memset(&spenttxid,0,sizeof(spenttxid));
+    spenttxid.SetNull();
     return(-1);
 }
 
-void TxToJSONExpanded(const CTransaction& tx, const uint256 hashBlock, UniValue& entry, bool isTxBuilder = false, int nHeight = 0, int nConfirmations = 0, int nBlockTime = 0)
+/**
+ * @brief Converts transaction to comprehensive JSON representation
+ * 
+ * Primary transaction serialization function supporting all transaction types including
+ * transparent, Sprout JoinSplit, Sapling, and Orchard. Handles version-specific features,
+ * block context, confirmation data, and optional components like notarization info.
+ * 
+ * Key features:
+ * - Multi-version transaction support (v1-v5)
+ * - Shielded transaction data (JoinSplit, Sapling, Orchard)
+ * - Input/output analysis with spent index information
+ * - Block context and confirmation tracking
+ * - Interest calculation for time-locked outputs
+ * - Import/export transaction handling
+ * 
+ * @param tx Transaction to serialize
+ * @param hashBlock Block hash containing transaction (null hash if mempool)
+ * @param entry Output JSON object to populate with transaction data
+ * @param isTxBuilder Whether output is for transaction builder (affects txid inclusion)
+ * @param nHeight Block height (0 if not in block)
+ * @param nConfirmations Number of confirmations (0 if not confirmed)
+ * @param nBlockTime Block timestamp (0 if not in block)
+ * @param includeHex Whether to include raw hex-encoded transaction data
+ */
+void TxToJSON(const CTransaction& tx, const uint256 hashBlock, UniValue& entry, bool isTxBuilder = false, int nHeight = 0, int nConfirmations = 0, int nBlockTime = 0, bool includeHex = true)
 {
     uint256 notarized_hash,notarized_desttxid; int32_t prevMoMheight,notarized_height;
     notarized_height = komodo_notarized_height(&prevMoMheight,&notarized_hash,&notarized_desttxid);
-    uint256 txid = tx.GetHash();
+    const uint256 txid = tx.GetHash();
     if (!isTxBuilder)
-      entry.push_back(Pair("txid", txid.GetHex()));
+        entry.pushKV("txid", txid.GetHex());
+    entry.pushKV("authdigest", tx.GetAuthDigest().GetHex());
+    entry.pushKV("size", (int)::GetSerializeSize(tx, SER_NETWORK, PROTOCOL_VERSION));
+    entry.pushKV("overwintered", tx.fOverwintered);
+    entry.pushKV("version", tx.nVersion);
+    entry.pushKV("last_notarized_height", notarized_height);
+    if (tx.fOverwintered) {
+        entry.pushKV("versiongroupid", HexInt(tx.nVersionGroupId));
+    }
+    entry.pushKV("locktime", (int64_t)tx.nLockTime);
+    if (tx.fOverwintered) {
+        entry.pushKV("expiryheight", (int64_t)tx.nExpiryHeight);
+    }
 
-    entry.push_back(Pair("overwintered", tx.fOverwintered));
-    entry.push_back(Pair("version", tx.nVersion));
-    entry.push_back(Pair("last_notarized_height", notarized_height));
-    if (tx.fOverwintered) {
-        entry.push_back(Pair("versiongroupid", HexInt(tx.nVersionGroupId)));
+    if (includeHex) {
+        entry.pushKV("hex", EncodeHexTx(tx));
     }
-    entry.push_back(Pair("locktime", (int64_t)tx.nLockTime));
-    if (tx.fOverwintered) {
-        entry.push_back(Pair("expiryheight", (int64_t)tx.nExpiryHeight));
-    }
+
     UniValue vin(UniValue::VARR);
     BOOST_FOREACH(const CTxIn& txin, tx.vin) {
         UniValue in(UniValue::VOBJ);
@@ -295,7 +452,7 @@ void TxToJSONExpanded(const CTransaction& tx, const uint256 hashBlock, UniValue&
             interest = komodo_accrued_interest(&txheight,&locktime,tx.GetHash(),i,0,txout.nValue,(int32_t)tipindex->nHeight);
             out.push_back(Pair("interest", ValueFromAmount(interest)));
         }
-        out.push_back(Pair("valueSat", txout.nValue)); // [+] Decker
+        out.push_back(Pair("valueZat", txout.nValue));
         out.push_back(Pair("n", (int64_t)i));
         UniValue o(UniValue::VOBJ);
         ScriptPubKeyToJSON(txout.scriptPubKey, o, true);
@@ -325,17 +482,25 @@ void TxToJSONExpanded(const CTransaction& tx, const uint256 hashBlock, UniValue&
     UniValue vjoinsplit = TxJoinSplitToJSON(tx);
     entry.push_back(Pair("vjoinsplit", vjoinsplit));
 
-    if (tx.fOverwintered && tx.nVersion >= SAPLING_TX_VERSION) {
-        if (!isTxBuilder)
-          entry.push_back(Pair("valueBalance", ValueFromAmount(tx.GetValueBalanceSapling())));
-
-        UniValue vspenddesc = TxShieldedSpendsToJSON(tx);
-        entry.push_back(Pair("vShieldedSpend", vspenddesc));
-        UniValue voutputdesc = TxShieldedOutputsToJSON(tx);
-        entry.push_back(Pair("vShieldedOutput", voutputdesc));
-        if (!(vspenddesc.empty() && voutputdesc.empty())) {
-            CTransaction::binding_sig_t bindingSig = tx.BindingSigFromBundle();
-            entry.push_back(Pair("bindingSig", HexStr(bindingSig.begin(), bindingSig.end())));
+    if (tx.fOverwintered) {
+        if (tx.nVersion >= SAPLING_TX_VERSION) {
+            const auto& bundle = tx.GetSaplingBundle().GetDetails();
+            entry.pushKV("valueBalance", ValueFromAmount(tx.GetValueBalanceSapling()));
+            entry.pushKV("valueBalanceZat", tx.GetValueBalanceSapling());
+            UniValue vspenddesc = TxShieldedSpendsToJSON(bundle.spends());
+            entry.pushKV("vShieldedSpend", vspenddesc);
+            UniValue voutputdesc = TxShieldedOutputsToJSON(bundle.outputs());
+            entry.pushKV("vShieldedOutput", voutputdesc);
+            if (!(vspenddesc.empty() && voutputdesc.empty())) {
+                auto bindingSig = bundle.binding_sig();
+                entry.pushKV("bindingSig", HexStr(bindingSig.begin(), bindingSig.end()));
+            }
+        }
+        if (tx.nVersion >= ORCHARD_TX_VERSION && tx.GetOrchardBundle().IsPresent()) {
+            UniValue orchard = TxOrchardBundleToJSON(tx, entry);
+            if (!orchard.empty()) {
+                entry.pushKV("orchard", orchard);
+            }
         }
     }
 
@@ -349,109 +514,47 @@ void TxToJSONExpanded(const CTransaction& tx, const uint256 hashBlock, UniValue&
             entry.push_back(Pair("time", nBlockTime));
             entry.push_back(Pair("blocktime", nBlockTime));
         } else {
-            entry.push_back(Pair("height", -1));
-            entry.push_back(Pair("confirmations", 0));
-            entry.push_back(Pair("rawconfirmations", 0));
-        }
-    }
-
-}
-
-void TxToJSON(const CTransaction& tx, const uint256 hashBlock, UniValue& entry)
-{
-    entry.push_back(Pair("txid", tx.GetHash().GetHex()));
-    entry.push_back(Pair("overwintered", tx.fOverwintered));
-    entry.push_back(Pair("version", tx.nVersion));
-    if (tx.fOverwintered) {
-        entry.push_back(Pair("versiongroupid", HexInt(tx.nVersionGroupId)));
-    }
-    entry.push_back(Pair("locktime", (int64_t)tx.nLockTime));
-    if (tx.fOverwintered) {
-        entry.push_back(Pair("expiryheight", (int64_t)tx.nExpiryHeight));
-    }
-    UniValue vin(UniValue::VARR);
-    BOOST_FOREACH(const CTxIn& txin, tx.vin) {
-        UniValue in(UniValue::VOBJ);
-        if (tx.IsCoinBase())
-            in.push_back(Pair("coinbase", HexStr(txin.scriptSig.begin(), txin.scriptSig.end())));
-        else {
-            in.push_back(Pair("txid", txin.prevout.hash.GetHex()));
-            in.push_back(Pair("vout", (int64_t)txin.prevout.n));
-            UniValue o(UniValue::VOBJ);
-            o.push_back(Pair("asm", ScriptToAsmStr(txin.scriptSig, true)));
-            o.push_back(Pair("hex", HexStr(txin.scriptSig.begin(), txin.scriptSig.end())));
-            in.push_back(Pair("scriptSig", o));
-        }
-        in.push_back(Pair("sequence", (int64_t)txin.nSequence));
-        vin.push_back(in);
-    }
-    entry.push_back(Pair("vin", vin));
-    UniValue vout(UniValue::VARR);
-    BlockMap::iterator it = mapBlockIndex.find(pcoinsTip->GetBestBlock());
-    CBlockIndex *tipindex;//,*pindex = it->second;
-    uint64_t interest;
-    for (unsigned int i = 0; i < tx.vout.size(); i++) {
-        const CTxOut& txout = tx.vout[i];
-        UniValue out(UniValue::VOBJ);
-        out.push_back(Pair("value", ValueFromAmount(txout.nValue)));
-        if ( KOMODO_NSPV_FULLNODE && chainName.isKMD() && tx.nLockTime >= 500000000 && (tipindex= chainActive.Tip()) != 0 )
-        {
-            int64_t interest; int32_t txheight; uint32_t locktime;
-            interest = komodo_accrued_interest(&txheight,&locktime,tx.GetHash(),i,0,txout.nValue,(int32_t)tipindex->nHeight);
-            out.push_back(Pair("interest", ValueFromAmount(interest)));
-        }
-        out.push_back(Pair("valueZat", txout.nValue));
-        out.push_back(Pair("n", (int64_t)i));
-        UniValue o(UniValue::VOBJ);
-        ScriptPubKeyToJSON(txout.scriptPubKey, o, true);
-        out.push_back(Pair("scriptPubKey", o));
-        vout.push_back(out);
-    }
-    entry.push_back(Pair("vout", vout));
-
-    UniValue vjoinsplit = TxJoinSplitToJSON(tx);
-    entry.push_back(Pair("vjoinsplit", vjoinsplit));
-
-    if (tx.fOverwintered && tx.nVersion >= SAPLING_TX_VERSION) {
-        entry.push_back(Pair("valueBalance", ValueFromAmount(tx.GetValueBalanceSapling())));
-        UniValue vspenddesc = TxShieldedSpendsToJSON(tx);
-        entry.push_back(Pair("vShieldedSpend", vspenddesc));
-        UniValue voutputdesc = TxShieldedOutputsToJSON(tx);
-        entry.push_back(Pair("vShieldedOutput", voutputdesc));
-        if (!(vspenddesc.empty() && voutputdesc.empty())) {
-            CTransaction::binding_sig_t bindingSig = tx.BindingSigFromBundle();
-            entry.push_back(Pair("bindingSig", HexStr(bindingSig.begin(), bindingSig.end())));
-        }
-    }
-
-    if (!hashBlock.IsNull()) {
-        entry.push_back(Pair("blockhash", hashBlock.GetHex()));
-        BlockMap::iterator mi = mapBlockIndex.find(hashBlock);
-        if (mi != mapBlockIndex.end() && (*mi).second) {
-            CBlockIndex* pindex = (*mi).second;
-            if (chainActive.Contains(pindex)) {
-                entry.push_back(Pair("height", pindex->nHeight));
-                entry.push_back(Pair("rawconfirmations", 1 + chainActive.Height() - pindex->nHeight));
-                entry.push_back(Pair("confirmations", komodo_dpowconfs(pindex->nHeight,1 + chainActive.Height() - pindex->nHeight)));
-                entry.push_back(Pair("time", pindex->GetBlockTime()));
-                entry.push_back(Pair("blocktime", pindex->GetBlockTime()));
-            } else {
-                entry.push_back(Pair("confirmations", 0));
-                entry.push_back(Pair("rawconfirmations", 0));
+            BlockMap::iterator mi = mapBlockIndex.find(hashBlock);
+            if (mi != mapBlockIndex.end() && (*mi).second) {
+                CBlockIndex* pindex = (*mi).second;
+                if (chainActive.Contains(pindex)) {
+                    entry.push_back(Pair("height", pindex->nHeight));
+                    entry.push_back(Pair("rawconfirmations", 1 + chainActive.Height() - pindex->nHeight));
+                    entry.push_back(Pair("confirmations", komodo_dpowconfs(pindex->nHeight,1 + chainActive.Height() - pindex->nHeight)));
+                    entry.push_back(Pair("time", pindex->GetBlockTime()));
+                    entry.push_back(Pair("blocktime", pindex->GetBlockTime()));
+                } else {
+                    entry.push_back(Pair("height", -1));
+                    entry.push_back(Pair("confirmations", 0));
+                    entry.push_back(Pair("rawconfirmations", 0));
+                }
             }
         }
     }
 }
 
+/**
+ * @brief RPC command to retrieve raw transaction data by transaction ID
+ * 
+ * Fetches transaction data from mempool or blockchain and returns either raw hex
+ * or detailed JSON representation. Supports all transaction types including
+ * transparent, Sapling, and Orchard shielded transactions.
+ * 
+ * @param params RPC parameters: [txid, verbose]
+ * @param fHelp Whether to display help information
+ * @param mypk Public key for authentication (unused)
+ * @return UniValue Raw hex string (verbose=0) or detailed JSON object (verbose=1)
+ */
 UniValue getrawtransaction(const UniValue& params, bool fHelp, const CPubKey& mypk)
 {
     if (fHelp || params.size() < 1 || params.size() > 2)
         throw runtime_error(
             "getrawtransaction \"txid\" ( verbose )\n"
+            "\nReturn the raw transaction data for a given transaction id.\n"
+            "Retrieves complete transaction information including transparent, Sapling, and Orchard data.\n"
             "\nNOTE: By default this function only works sometimes. This is when the tx is in the mempool\n"
             "or there is an unspent output in the utxo for this transaction. To make it always work,\n"
             "you need to maintain a transaction index, using the -txindex command line option.\n"
-            "\nReturn the raw transaction data.\n"
             "\nIf verbose=0, returns a string that is serialized, hex-encoded data for 'txid'.\n"
             "If verbose is non-zero, returns an Object with information about 'txid'.\n"
 
@@ -464,15 +567,19 @@ UniValue getrawtransaction(const UniValue& params, bool fHelp, const CPubKey& my
 
             "\nResult (if verbose > 0):\n"
             "{\n"
-            "  \"hex\" : \"data\",       (string) The serialized, hex-encoded data for 'txid'\n"
-            "  \"txid\" : \"id\",        (string) The transaction id (same as provided)\n"
-            "  \"version\" : n,          (numeric) The version\n"
-            "  \"locktime\" : ttt,       (numeric) The lock time\n"
-            "  \"expiryheight\" : ttt,   (numeric, optional) The block height after which the transaction expires\n"
+            "  \"hex\" : \"data\",         (string) The serialized, hex-encoded data for 'txid'\n"
+            "  \"txid\" : \"id\",          (string) The transaction id (same as provided)\n"
+            "  \"authdigest\" : \"hex\",   (string) The transaction authorization digest\n"
+            "  \"size\" : n,               (numeric) The transaction size in bytes\n"
+            "  \"overwintered\" : bool,    (boolean) The Overwintered flag\n"
+            "  \"version\" : n,            (numeric) The transaction version\n"
+            "  \"versiongroupid\" : \"hex\", (string, optional) The version group id (Overwintered txs)\n"
+            "  \"locktime\" : ttt,         (numeric) The lock time\n"
+            "  \"expiryheight\" : ttt,     (numeric, optional) The block height after which the transaction expires\n"
             "  \"vin\" : [               (array of json objects)\n"
             "     {\n"
             "       \"txid\": \"id\",    (string) The transaction id\n"
-            "       \"vout\": n,         (numeric) \n"
+            "       \"vout\": n,         (numeric) The output number\n"
             "       \"scriptSig\": {     (json object) The script\n"
             "         \"asm\": \"asm\",  (string) asm\n"
             "         \"hex\": \"hex\"   (string) hex\n"
@@ -484,6 +591,7 @@ UniValue getrawtransaction(const UniValue& params, bool fHelp, const CPubKey& my
             "  \"vout\" : [              (array of json objects)\n"
             "     {\n"
             "       \"value\" : x.xxx,            (numeric) The value in " + CURRENCY_UNIT + "\n"
+            "       \"valueZat\" : nnn,           (numeric) The value in zatoshis\n"
             "       \"n\" : n,                    (numeric) index\n"
             "       \"scriptPubKey\" : {          (json object)\n"
             "         \"asm\" : \"asm\",          (string) the asm\n"
@@ -491,7 +599,7 @@ UniValue getrawtransaction(const UniValue& params, bool fHelp, const CPubKey& my
             "         \"reqSigs\" : n,            (numeric) The required sigs\n"
             "         \"type\" : \"pubkeyhash\",  (string) The type, eg 'pubkeyhash'\n"
             "         \"addresses\" : [           (json array of string)\n"
-            "           \"komodoaddress\"          (string) Komodo address\n"
+            "           \"pirateaddress\"          (string) Pirate address\n"
             "           ,...\n"
             "         ]\n"
             "       }\n"
@@ -500,8 +608,8 @@ UniValue getrawtransaction(const UniValue& params, bool fHelp, const CPubKey& my
             "  ],\n"
             "  \"vjoinsplit\" : [        (array of json objects, only for version >= 2)\n"
             "     {\n"
-            "       \"vpub_old\" : x.xxx,         (numeric) public input value in KMD\n"
-            "       \"vpub_new\" : x.xxx,         (numeric) public output value in KMD\n"
+            "       \"vpub_old\" : x.xxx,         (numeric) public input value in ARRR\n"
+            "       \"vpub_new\" : x.xxx,         (numeric) public output value in ARRR\n"
             "       \"anchor\" : \"hex\",         (string) the anchor\n"
             "       \"nullifiers\" : [            (json array of string)\n"
             "         \"hex\"                     (string) input note nullifier\n"
@@ -525,7 +633,57 @@ UniValue getrawtransaction(const UniValue& params, bool fHelp, const CPubKey& my
             "     }\n"
             "     ,...\n"
             "  ],\n"
+            "  \"valueBalance\" : x.xxx,   (numeric, optional) Sapling value balance (if tx version >= 4)\n"
+            "  \"valueBalanceZat\" : nnn,  (numeric, optional) Sapling value balance in zatoshis\n"
+            "  \"vShieldedSpend\" : [      (array of json objects, only for version >= 4)\n"
+            "     {\n"
+            "       \"cv\" : \"hex\",            (string) Value commitment\n"
+            "       \"anchor\" : \"hex\",        (string) Merkle tree anchor\n"
+            "       \"nullifier\" : \"hex\",     (string) Nullifier\n"
+            "       \"rk\" : \"hex\",            (string) Randomized public key\n"
+            "       \"proof\" : \"hex\",         (string) Zero-knowledge proof\n"
+            "       \"spendAuthSig\" : \"hex\"   (string) Spending authorization signature\n"
+            "     }\n"
+            "     ,...\n"
+            "  ],\n"
+            "  \"vShieldedOutput\" : [     (array of json objects, only for version >= 4)\n"
+            "     {\n"
+            "       \"cv\" : \"hex\",            (string) Value commitment\n"
+            "       \"cmu\" : \"hex\",           (string) Note commitment\n"
+            "       \"ephemeralKey\" : \"hex\",  (string) Ephemeral public key\n"
+            "       \"encCiphertext\" : \"hex\", (string) Encrypted note ciphertext\n"
+            "       \"outCiphertext\" : \"hex\", (string) Output ciphertext\n"
+            "       \"proof\" : \"hex\"          (string) Zero-knowledge proof\n"
+            "     }\n"
+            "     ,...\n"
+            "  ],\n"
+            "  \"bindingSig\" : \"hex\",    (string, optional) Sapling binding signature (if Sapling data present)\n"
+            "  \"orchard\" : {             (object, optional) Orchard bundle data (if tx version >= 5)\n"
+            "    \"actions\" : [           (array of json objects)\n"
+            "       {\n"
+            "         \"cv\" : \"hex\",          (string) Value commitment\n"
+            "         \"nullifier\" : \"hex\",   (string) Nullifier\n"
+            "         \"rk\" : \"hex\",          (string) Randomized public key\n"
+            "         \"cmx\" : \"hex\",         (string) Note commitment\n"
+            "         \"ephemeralKey\" : \"hex\", (string) Ephemeral public key\n"
+            "         \"encCiphertext\" : \"hex\", (string) Encrypted note ciphertext\n"
+            "         \"outCiphertext\" : \"hex\", (string) Output ciphertext\n"
+            "         \"spendAuthSig\" : \"hex\"  (string) Spending authorization signature\n"
+            "       }\n"
+            "       ,...\n"
+            "    ],\n"
+            "    \"valueBalance\" : x.xxx,   (numeric) Orchard value balance\n"
+            "    \"valueBalanceZat\" : nnn,  (numeric) Orchard value balance in zatoshis\n"
+            "    \"flags\" : {              (object, optional)\n"
+            "      \"enableSpends\" : bool, (boolean) Whether spends are enabled\n"
+            "      \"enableOutputs\" : bool (boolean) Whether outputs are enabled\n"
+            "    },\n"
+            "    \"anchor\" : \"hex\",       (string, optional) Merkle tree anchor\n"
+            "    \"proof\" : \"hex\",        (string, optional) Zero-knowledge proof\n"
+            "    \"bindingSig\" : \"hex\"    (string, optional) Binding signature\n"
+            "  },\n"
             "  \"blockhash\" : \"hash\",   (string) the block hash\n"
+            "  \"height\" : n,            (numeric) The block height containing the transaction\n"
             "  \"confirmations\" : n,      (numeric) The number of notarized DPoW confirmations\n"
             "  \"rawconfirmations\" : n,   (numeric) The number of raw confirmations\n"
             "  \"time\" : ttt,             (numeric) The transaction time in seconds since epoch (Jan 1 1970 GMT)\n"
@@ -577,31 +735,46 @@ UniValue getrawtransaction(const UniValue& params, bool fHelp, const CPubKey& my
         return strHex;
 
     UniValue result(UniValue::VOBJ);
-    result.push_back(Pair("hex", strHex));
-    TxToJSONExpanded(tx, hashBlock, result, false, nHeight, nConfirmations, nBlockTime);
+    TxToJSON(tx, hashBlock, result, false, nHeight, nConfirmations, nBlockTime);
     return result;
 }
 
+/**
+ * @brief RPC command to generate Merkle proofs for transaction inclusion
+ * 
+ * Constructs cryptographic proof that specified transactions were included in
+ * a blockchain block using Merkle tree verification. Enables efficient transaction
+ * validation without downloading complete block data.
+ * 
+ * @param params RPC parameters: [txids, blockhash]
+ * @param fHelp Whether to display help information
+ * @param mypk Public key for authentication (unused)
+ * @return UniValue Hex-encoded Merkle proof data
+ */
 UniValue gettxoutproof(const UniValue& params, bool fHelp, const CPubKey& mypk)
 {
     if (fHelp || (params.size() != 1 && params.size() != 2))
         throw runtime_error(
             "gettxoutproof [\"txid\",...] ( blockhash )\n"
-            "\nReturns a hex-encoded proof that \"txid\" was included in a block.\n"
+            "\nReturns a hex-encoded Merkle proof that one or more specified transactions were included in a block.\n"
             "\nNOTE: By default this function only works sometimes. This is when there is an\n"
-            "unspent output in the utxo for this transaction. To make it always work,\n"
+            "unspent output in the UTXO set for this transaction. To make it always work,\n"
             "you need to maintain a transaction index, using the -txindex command line option or\n"
-            "specify the block in which the transaction is included in manually (by blockhash).\n"
-            "\nReturn the raw transaction data.\n"
+            "specify the block in which the transaction is included manually (by blockhash).\n"
+            "\nProvides cryptographic proof of transaction inclusion in the Pirate blockchain.\n"
             "\nArguments:\n"
-            "1. \"txids\"       (string) A json array of txids to filter\n"
+            "1. \"txids\"       (array, required) A JSON array of transaction IDs to filter\n"
             "    [\n"
             "      \"txid\"     (string) A transaction hash\n"
             "      ,...\n"
             "    ]\n"
-            "2. \"block hash\"  (string, optional) If specified, looks for txid in the block with this hash\n"
+            "2. \"blockhash\"   (string, optional) If specified, looks for txids in the block with this hash\n"
             "\nResult:\n"
-            "\"data\"           (string) A string that is a serialized, hex-encoded data for the proof.\n"
+            "\"data\"           (string) A hex-encoded string containing the serialized Merkle proof\n"
+            "\nExamples:\n"
+            + HelpExampleCli("gettxoutproof", "\\\"[\\\"mytxid\\\"]\\\"")
+            + HelpExampleCli("gettxoutproof", "\\\"[\\\"mytxid\\\"]\\\" \\\"myblockhash\\\"")
+            + HelpExampleRpc("gettxoutproof", "\\\"[\\\"mytxid\\\"]\\\", \\\"myblockhash\\\"")
         );
 
     set<uint256> setTxids;
@@ -663,17 +836,33 @@ UniValue gettxoutproof(const UniValue& params, bool fHelp, const CPubKey& mypk)
     return strHex;
 }
 
+/**
+ * @brief RPC command to verify Merkle proofs for transaction inclusion
+ * 
+ * Validates cryptographic proofs generated by gettxoutproof to confirm that
+ * transactions were included in blockchain blocks. Returns transaction IDs
+ * that the proof commits to or empty array if verification fails.
+ * 
+ * @param params RPC parameters: [proof]
+ * @param fHelp Whether to display help information
+ * @param mypk Public key for authentication (unused)
+ * @return UniValue Array of transaction IDs verified by the proof
+ */
 UniValue verifytxoutproof(const UniValue& params, bool fHelp, const CPubKey& mypk)
 {
     if (fHelp || params.size() != 1)
         throw runtime_error(
             "verifytxoutproof \"proof\"\n"
-            "\nVerifies that a proof points to a transaction in a block, returning the transaction it commits to\n"
-            "and throwing an RPC error if the block is not in our best chain\n"
+            "\nVerifies that a Merkle proof points to one or more transactions in a block, returning the\n"
+            "transaction IDs it commits to and throwing an RPC error if the block is not in our best chain.\n"
+            "\nThis function validates cryptographic inclusion proofs generated by gettxoutproof.\n"
             "\nArguments:\n"
-            "1. \"proof\"    (string, required) The hex-encoded proof generated by gettxoutproof\n"
+            "1. \"proof\"    (string, required) The hex-encoded Merkle proof generated by gettxoutproof\n"
             "\nResult:\n"
-            "[\"txid\"]      (array, strings) The txid(s) which the proof commits to, or empty array if the proof is invalid\n"
+            "[\"txid\"]      (array, strings) The transaction ID(s) which the proof commits to, or empty array if the proof is invalid\n"
+            "\nExamples:\n"
+            + HelpExampleCli("verifytxoutproof", "\\\"proof_hex_string\\\"")
+            + HelpExampleRpc("verifytxoutproof", "\\\"proof_hex_string\\\"")
         );
 
     CDataStream ssMB(ParseHexV(params[0], "proof"), SER_NETWORK, PROTOCOL_VERSION);
@@ -696,6 +885,17 @@ UniValue verifytxoutproof(const UniValue& params, bool fHelp, const CPubKey& myp
     return res;
 }
 
+/**
+ * @brief RPC command to create unsigned raw transaction from inputs and outputs
+ * 
+ * Constructs a raw transaction with specified inputs and outputs without signing.
+ * Supports contextual transaction creation with Overwinter/Sapling features.
+ * 
+ * @param params RPC parameters: [inputs, outputs, locktime, expiryheight]
+ * @param fHelp Whether to display help information
+ * @param mypk Public key for authentication (unused)
+ * @return UniValue Hex-encoded raw transaction string
+ */
 UniValue createrawtransaction(const UniValue& params, bool fHelp, const CPubKey& mypk)
 {
     string examplescriptPubKey = "21021ce1eac70455c3e6c52d67c133549b8aed4a588fba594372e8048e65c4f0fcb6ac";
@@ -704,13 +904,13 @@ UniValue createrawtransaction(const UniValue& params, bool fHelp, const CPubKey&
         throw runtime_error(
             "createrawtransaction [{\"txid\":\"id\",\"vout\":n},...] {\"address\":amount,...} ( locktime ) ( expiryheight )\n"
             "\nCreate a transaction spending the given inputs and creating new outputs.\n"
-            "Outputs can be addresses or standart scripts (in hex) or data.\n"
+            "Outputs can be Pirate addresses, standard scripts (in hex), or data.\n"
             "Returns hex-encoded raw transaction.\n"
             "Note that the transaction's inputs are not signed, and\n"
             "it is not stored in the wallet or transmitted to the network.\n"
 
             "\nArguments:\n"
-            "1. \"inputs\"                (array, required) A json array of json objects\n"
+            "1. \"inputs\"                (array, required) A JSON array of JSON objects\n"
             "     [\n"
             "       {\n"
             "         \"txid\":\"id\",    (string, required) The transaction id\n"
@@ -719,18 +919,18 @@ UniValue createrawtransaction(const UniValue& params, bool fHelp, const CPubKey&
             "       } \n"
             "       ,...\n"
             "     ]\n"
-            "2. \"outputs\"               (object, required) a json object with outputs\n"
+            "2. \"outputs\"               (object, required) A JSON object with outputs\n"
             "    {\n"
-            "      \"address\": x.xxx,    (numeric or string, required) The key is the komodo address or script (in hex), the numeric value (can be string) is the " + CURRENCY_UNIT + " amount\n"
-            "      \"data\": \"hex\"      (string, required) The key is \"data\", the value is hex encoded data\n"
+            "      \"address\": x.xxx,    (numeric or string, required) The key is the Pirate address or script (in hex), the numeric value (can be string) is the " + CURRENCY_UNIT + " amount\n"
+            "      \"data\": \"hex\"      (string, required) The key is \"data\", the value is hex-encoded data\n"
             "      ,...\n"
             "    }\n"
             "3. locktime              (numeric, optional, default=0) Raw locktime. Non-0 value also locktime-activates inputs\n"
             "4. expiryheight          (numeric, optional, default=" + strprintf("%d", DEFAULT_TX_EXPIRY_DELTA) + ") Expiry height of transaction (if Overwinter is active)\n"
             "\nResult:\n"
-            "\"transaction\"            (string) hex string of the transaction\n"
+            "\"transaction\"            (string) Hex string of the transaction\n"
 
-            "\nExamples\n"
+            "\nExamples:\n"
             + HelpExampleCli("createrawtransaction", "\"[{\\\"txid\\\":\\\"myid\\\",\\\"vout\\\":0}]\" \"{\\\"address\\\":0.01}\"")
             + HelpExampleCli("createrawtransaction", "\"[{\\\"txid\\\":\\\"myid\\\",\\\"vout\\\":0}]\" \"{\\\""+examplescriptPubKey+"\\\":0.01}\"")
             + HelpExampleCli("createrawtransaction", "\"[{\\\"txid\\\":\\\"myid\\\",\\\"vout\\\":0}]\" \"{\\\"data\\\":\\\"00010203\\\"}\"")
@@ -755,7 +955,7 @@ UniValue createrawtransaction(const UniValue& params, bool fHelp, const CPubKey&
         int64_t nLockTime = params[2].get_int64();
         if (nLockTime < 0 || nLockTime > std::numeric_limits<uint32_t>::max())
             throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, locktime out of range");
-        rawTx.nLockTime = nLockTime;
+        rawTx.nLockTime = static_cast<uint32_t>(nLockTime);
     }
 
     if (params.size() > 3 && !params[3].isNull()) {
@@ -856,21 +1056,36 @@ UniValue createrawtransaction(const UniValue& params, bool fHelp, const CPubKey&
     return EncodeHexTx(rawTx);
 }
 
+/**
+ * @brief RPC command to decode hex-encoded transaction or transaction builder data
+ * 
+ * Parses hex-encoded transaction data and returns detailed JSON representation.
+ * Supports both completed transactions and transaction builder instructions with
+ * decryption capabilities for shielded transaction components.
+ * 
+ * @param params RPC parameters: [hexstring]
+ * @param fHelp Whether to display help information
+ * @param mypk Public key for authentication (unused)
+ * @return UniValue Detailed JSON object containing decoded transaction data
+ */
 UniValue decoderawtransaction(const UniValue& params, bool fHelp, const CPubKey& mypk)
 {
     if (fHelp || params.size() != 1)
         throw runtime_error(
             "decoderawtransaction \"hexstring\"\n"
             "\nReturn a JSON object representing the serialized, hex-encoded transaction.\n"
+            "Supports all transaction types including transparent, Sapling, and Orchard shielded transactions.\n"
 
             "\nArguments:\n"
-            "1. \"hex\"      (string, required) The transaction hex string\n"
+            "1. \"hexstring\" (string, required) The transaction hex string\n"
 
             "\nResult:\n"
             "{\n"
             "  \"txid\" : \"id\",        (string) The transaction id\n"
-            "  \"overwintered\" : bool   (boolean) The Overwintered flag\n"
-            "  \"version\" : n,          (numeric) The version\n"
+            "  \"authdigest\" : \"hex\",   (string) The transaction authorization digest\n"
+            "  \"size\" : n,               (numeric) The transaction size in bytes\n"
+            "  \"overwintered\" : bool,    (boolean) The Overwintered flag\n"
+            "  \"version\" : n,            (numeric) The version\n"
             "  \"versiongroupid\": \"hex\"   (string, optional) The version group id (Overwintered txs)\n"
             "  \"locktime\" : ttt,       (numeric) The lock time\n"
             "  \"expiryheight\" : n,     (numeric, optional) Last valid block height for mining transaction (Overwintered txs)\n"
@@ -889,6 +1104,7 @@ UniValue decoderawtransaction(const UniValue& params, bool fHelp, const CPubKey&
             "  \"vout\" : [             (array of json objects)\n"
             "     {\n"
             "       \"value\" : x.xxx,            (numeric) The value in " + CURRENCY_UNIT + "\n"
+            "       \"valueZat\" : nnn,           (numeric) The value in zatoshis\n"
             "       \"n\" : n,                    (numeric) index\n"
             "       \"scriptPubKey\" : {          (json object)\n"
             "         \"asm\" : \"asm\",          (string) the asm\n"
@@ -896,7 +1112,7 @@ UniValue decoderawtransaction(const UniValue& params, bool fHelp, const CPubKey&
             "         \"reqSigs\" : n,            (numeric) The required sigs\n"
             "         \"type\" : \"pubkeyhash\",  (string) The type, eg 'pubkeyhash'\n"
             "         \"addresses\" : [           (json array of string)\n"
-            "           \"RTZMZHDFSTFQst8XmX2dR4DaH87cEUs3gC\"   (string) komodo address\n"
+            "           \"zs1...\"                (string) Pirate address\n"
             "           ,...\n"
             "         ]\n"
             "       }\n"
@@ -905,8 +1121,8 @@ UniValue decoderawtransaction(const UniValue& params, bool fHelp, const CPubKey&
             "  ],\n"
             "  \"vjoinsplit\" : [        (array of json objects, only for version >= 2)\n"
             "     {\n"
-            "       \"vpub_old\" : x.xxx,         (numeric) public input value in KMD\n"
-            "       \"vpub_new\" : x.xxx,         (numeric) public output value in KMD\n"
+            "       \"vpub_old\" : x.xxx,         (numeric) public input value in ARRR\n"
+            "       \"vpub_new\" : x.xxx,         (numeric) public output value in ARRR\n"
             "       \"anchor\" : \"hex\",         (string) the anchor\n"
             "       \"nullifiers\" : [            (json array of string)\n"
             "         \"hex\"                     (string) input note nullifier\n"
@@ -930,6 +1146,61 @@ UniValue decoderawtransaction(const UniValue& params, bool fHelp, const CPubKey&
             "     }\n"
             "     ,...\n"
             "  ],\n"
+            "  \"valueBalance\" : x.xxx,   (numeric, optional) Sapling value balance (if tx version >= 4)\n"
+            "  \"valueBalanceZat\" : nnn,  (numeric, optional) Sapling value balance in zatoshis\n"
+            "  \"vShieldedSpend\" : [      (array of json objects, only for version >= 4)\n"
+            "     {\n"
+            "       \"cv\" : \"hex\",            (string) Value commitment\n"
+            "       \"anchor\" : \"hex\",        (string) Merkle tree anchor\n"
+            "       \"nullifier\" : \"hex\",     (string) Nullifier\n"
+            "       \"rk\" : \"hex\",            (string) Randomized public key\n"
+            "       \"proof\" : \"hex\",         (string) Zero-knowledge proof\n"
+            "       \"spendAuthSig\" : \"hex\"   (string) Spending authorization signature\n"
+            "     }\n"
+            "     ,...\n"
+            "  ],\n"
+            "  \"vShieldedOutput\" : [     (array of json objects, only for version >= 4)\n"
+            "     {\n"
+            "       \"cv\" : \"hex\",            (string) Value commitment\n"
+            "       \"cmu\" : \"hex\",           (string) Note commitment\n"
+            "       \"ephemeralKey\" : \"hex\",  (string) Ephemeral public key\n"
+            "       \"encCiphertext\" : \"hex\", (string) Encrypted note ciphertext\n"
+            "       \"outCiphertext\" : \"hex\", (string) Output ciphertext\n"
+            "       \"proof\" : \"hex\"          (string) Zero-knowledge proof\n"
+            "     }\n"
+            "     ,...\n"
+            "  ],\n"
+            "  \"bindingSig\" : \"hex\",    (string, optional) Sapling binding signature (if Sapling data present)\n"
+            "  \"orchard\" : {             (object, optional) Orchard bundle data (if tx version >= 5)\n"
+            "    \"actions\" : [           (array of json objects)\n"
+            "       {\n"
+            "         \"cv\" : \"hex\",          (string) Value commitment\n"
+            "         \"nullifier\" : \"hex\",   (string) Nullifier\n"
+            "         \"rk\" : \"hex\",          (string) Randomized public key\n"
+            "         \"cmx\" : \"hex\",         (string) Note commitment\n"
+            "         \"ephemeralKey\" : \"hex\", (string) Ephemeral public key\n"
+            "         \"encCiphertext\" : \"hex\", (string) Encrypted note ciphertext\n"
+            "         \"outCiphertext\" : \"hex\", (string) Output ciphertext\n"
+            "         \"spendAuthSig\" : \"hex\"  (string) Spending authorization signature\n"
+            "       }\n"
+            "       ,...\n"
+            "    ],\n"
+            "    \"valueBalance\" : x.xxx,   (numeric) Orchard value balance\n"
+            "    \"valueBalanceZat\" : nnn,  (numeric) Orchard value balance in zatoshis\n"
+            "    \"flags\" : {              (object, optional)\n"
+            "      \"enableSpends\" : bool, (boolean) Whether spends are enabled\n"
+            "      \"enableOutputs\" : bool (boolean) Whether outputs are enabled\n"
+            "    },\n"
+            "    \"anchor\" : \"hex\",       (string, optional) Merkle tree anchor\n"
+            "    \"proof\" : \"hex\",        (string, optional) Zero-knowledge proof\n"
+            "    \"bindingSig\" : \"hex\"    (string, optional) Binding signature\n"
+            "  },\n"
+            "  \"rawtype\" : \"type\",       (string) Either \"raw\" for decoded transaction or \"instructions\" for transaction builder\n"
+            "  \"decryptedinputs\" : [...], (array, optional) Decrypted shielded input information (if wallet enabled)\n"
+            "  \"decryptedoutputs\" : [...], (array, optional) Decrypted shielded output information (if wallet enabled)\n"
+            "  \"rawinputs\" : [...],       (array, optional) Raw transaction builder input information (if transaction builder)\n"
+            "  \"rawoutputs\" : [...],      (array, optional) Raw transaction builder output information (if transaction builder)\n"
+            "  \"checksum\" : \"hex\"       (string) Transaction builder checksum (if transaction builder)\n"
             "}\n"
 
             "\nExamples:\n"
@@ -943,7 +1214,7 @@ UniValue decoderawtransaction(const UniValue& params, bool fHelp, const CPubKey&
     string strHexTx = params[0].get_str();
     string strHexTb = params[0].get_str();
     if (!IsHex(strHexTx))
-        return false;
+        throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "Invalid hex string");
 
     CTransaction tx;
     TransactionBuilder tb;
@@ -969,7 +1240,7 @@ UniValue decoderawtransaction(const UniValue& params, bool fHelp, const CPubKey&
 
     if (!isTx) {
         result.push_back(Pair("rawtype","instuctions"));
-        TxToJSONExpanded(tx, uint256(), result, true);
+        TxToJSON(tx, uint256(), result, true, 0, 0, 0, false);
 
         UniValue inputs(UniValue::VARR);
         for (int i = 0; i < tb.vSaplingSpends.size(); i++) {
@@ -1068,8 +1339,9 @@ UniValue decoderawtransaction(const UniValue& params, bool fHelp, const CPubKey&
         result.push_back(Pair("rawoutputs",outputs));
     } else {
         result.push_back(Pair("rawtype","raw"));
-        TxToJSONExpanded(tx, uint256(), result, false);
+        TxToJSON(tx, uint256(), result, false, 0, 0, 0, false);
 
+#ifdef ENABLE_WALLET
         RpcArcTransaction dtx;
         int nHeight = chainActive.Tip()->nHeight;
         decrypttransaction(tx, dtx, nHeight);
@@ -1081,6 +1353,7 @@ UniValue decoderawtransaction(const UniValue& params, bool fHelp, const CPubKey&
         UniValue sends(UniValue::VARR);
         getRpcArcTxJSONSends(dtx, sends);
         result.push_back(Pair("decryptedoutputs", sends));
+#endif
     }
 
     //Return Hex encoded serialized merkle path
@@ -1091,30 +1364,42 @@ UniValue decoderawtransaction(const UniValue& params, bool fHelp, const CPubKey&
     return result;
 }
 
-
+/**
+ * @brief RPC command to decode hex-encoded script data into human-readable format
+ * 
+ * Analyzes a hex-encoded script and extracts detailed information including
+ * assembly representation, script type classification, required signatures,
+ * and associated addresses for standard script patterns.
+ * 
+ * @param params RPC parameters: [hex]
+ * @param fHelp Whether to display help information
+ * @param mypk Public key for authentication (unused)
+ * @return UniValue JSON object containing decoded script information
+ */
 UniValue decodescript(const UniValue& params, bool fHelp, const CPubKey& mypk)
 {
     if (fHelp || params.size() != 1)
         throw runtime_error(
             "decodescript \"hex\"\n"
-            "\nDecode a hex-encoded script.\n"
+            "\nDecode a hex-encoded script and return detailed script information.\n"
+            "Supports standard script types including P2PKH, P2PK, P2SH, and multisig.\n"
             "\nArguments:\n"
-            "1. \"hex\"     (string) the hex encoded script\n"
+            "1. \"hex\"     (string, required) The hex-encoded script to decode\n"
             "\nResult:\n"
             "{\n"
-            "  \"asm\":\"asm\",   (string) Script public key\n"
-            "  \"hex\":\"hex\",   (string) hex encoded public key\n"
-            "  \"type\":\"type\", (string) The output type\n"
-            "  \"reqSigs\": n,    (numeric) The required signatures\n"
+            "  \"asm\":\"asm\",   (string) Script assembly representation\n"
+            "  \"hex\":\"hex\",   (string) Hex-encoded script\n"
+            "  \"type\":\"type\", (string) Script type (e.g., pubkeyhash, scripthash, multisig)\n"
+            "  \"reqSigs\": n,    (numeric) Required signatures for multisig scripts\n"
             "  \"addresses\": [   (json array of string)\n"
-            "     \"address\"     (string) Komodo address\n"
+            "     \"address\"     (string) Pirate address associated with script\n"
             "     ,...\n"
             "  ],\n"
-            "  \"p2sh\",\"address\" (string) script address\n"
+            "  \"p2sh\":\"address\" (string) Pay-to-script-hash address for this script\n"
             "}\n"
             "\nExamples:\n"
-            + HelpExampleCli("decodescript", "\"hexstring\"")
-            + HelpExampleRpc("decodescript", "\"hexstring\"")
+            + HelpExampleCli("decodescript", "\"76a914...88ac\"")
+            + HelpExampleRpc("decodescript", "\"76a914...88ac\"")
         );
 
     LOCK(cs_main);
@@ -1134,7 +1419,17 @@ UniValue decodescript(const UniValue& params, bool fHelp, const CPubKey& mypk)
     return r;
 }
 
-/** Pushes a JSON object for script verification or signing errors to vErrorsRet. */
+/**
+ * @brief Creates JSON error object for transaction input verification failures
+ * 
+ * Constructs a detailed error report for failed script verification or signing
+ * operations, including transaction input details and error descriptions for
+ * debugging purposes.
+ * 
+ * @param txin Transaction input that failed verification
+ * @param vErrorsRet Reference to JSON array for appending error objects
+ * @param strMessage Descriptive error message explaining the failure
+ */
 static void TxInErrorToJSON(const CTxIn& txin, UniValue& vErrorsRet, const std::string& strMessage)
 {
     UniValue entry(UniValue::VOBJ);
@@ -1146,36 +1441,49 @@ static void TxInErrorToJSON(const CTxIn& txin, UniValue& vErrorsRet, const std::
     vErrorsRet.push_back(entry);
 }
 
+/**
+ * @brief RPC command to sign inputs of a raw transaction using available keys
+ * 
+ * Creates digital signatures for transaction inputs to authorize UTXO spending.
+ * Supports multiple signature types, custom private keys, and partial signing
+ * workflows for complex transaction construction scenarios.
+ * 
+ * @param params RPC parameters: [hexstring, prevtxs, privatekeys, sighashtype, branchid]
+ * @param fHelp Whether to display help information
+ * @param mypk Public key for authentication (unused)
+ * @return UniValue JSON object with signed transaction hex and completion status
+ */
 UniValue signrawtransaction(const UniValue& params, bool fHelp, const CPubKey& mypk)
 {
     if (fHelp || params.size() < 1 || params.size() > 5)
         throw runtime_error(
             "signrawtransaction \"hexstring\" ( [{\"txid\":\"id\",\"vout\":n,\"scriptPubKey\":\"hex\",\"redeemScript\":\"hex\"},...] [\"privatekey1\",...] sighashtype )\n"
-            "\nSign inputs for raw transaction (serialized, hex-encoded).\n"
-            "The second optional argument (may be null) is an array of previous transaction outputs that\n"
-            "this transaction depends on but may not yet be in the block chain.\n"
-            "The third optional argument (may be null) is an array of base58-encoded private\n"
+            "\nSign inputs for raw transaction (serialized, hex-encoded) using available keys.\n"
+            "Creates digital signatures for transaction inputs to authorize spending of UTXO.\n"
+            "The second optional argument is an array of previous transaction outputs that\n"
+            "this transaction depends on but may not yet be in the blockchain.\n"
+            "The third optional argument is an array of base58-encoded private\n"
             "keys that, if given, will be the only keys used to sign the transaction.\n"
 #ifdef ENABLE_WALLET
             + HelpRequiringPassphrase() + "\n"
 #endif
 
             "\nArguments:\n"
-            "1. \"hexstring\"     (string, required) The transaction hex string\n"
-            "2. \"prevtxs\"       (string, optional) An json array of previous dependent transaction outputs\n"
+            "1. \"hexstring\"     (string, required) The transaction hex string to sign\n"
+            "2. \"prevtxs\"       (array, optional) Previous dependent transaction outputs\n"
             "     [               (json array of json objects, or 'null' if none provided)\n"
             "       {\n"
             "         \"txid\":\"id\",             (string, required) The transaction id\n"
             "         \"vout\":n,                  (numeric, required) The output number\n"
-            "         \"scriptPubKey\": \"hex\",   (string, required) script key\n"
-            "         \"redeemScript\": \"hex\",   (string, required for P2SH) redeem script\n"
-            "         \"amount\": value            (numeric, required) The amount spent\n"
+            "         \"scriptPubKey\": \"hex\",   (string, required) Script public key\n"
+            "         \"redeemScript\": \"hex\",   (string, required for P2SH) Redeem script\n"
+            "         \"amount\": value            (numeric, required) The amount spent in " + CURRENCY_UNIT + "\n"
             "       }\n"
             "       ,...\n"
             "    ]\n"
-            "3. \"privatekeys\"     (string, optional) A json array of base58-encoded private keys for signing\n"
+            "3. \"privatekeys\"     (array, optional) Private keys for signing\n"
             "    [                  (json array of strings, or 'null' if none provided)\n"
-            "      \"privatekey\"   (string) private key in base58-encoding\n"
+            "      \"privatekey\"   (string) Private key in base58-encoding\n"
             "      ,...\n"
             "    ]\n"
             "4. \"sighashtype\"     (string, optional, default=ALL) The signature hash type. Must be one of\n"
@@ -1457,6 +1765,18 @@ UniValue signrawtransaction(const UniValue& params, bool fHelp, const CPubKey& m
 
 extern UniValue NSPV_broadcast(char *hex);
 
+/**
+ * @brief RPC command to broadcast a signed raw transaction to the network
+ * 
+ * Submits a hex-encoded signed transaction to the local node and propagates it
+ * across the Pirate network for inclusion in the blockchain. Validates transaction
+ * format and performs initial checks before broadcasting.
+ * 
+ * @param params RPC parameters: [hexstring, allowhighfees]
+ * @param fHelp Whether to display help information
+ * @param mypk Public key for authentication (unused)
+ * @return UniValue Transaction hash as hex string upon successful broadcast
+ */
 UniValue sendrawtransaction(const UniValue& params, bool fHelp, const CPubKey& mypk)
 {
     if (fHelp || params.size() < 1 || params.size() > 2)
@@ -1464,9 +1784,10 @@ UniValue sendrawtransaction(const UniValue& params, bool fHelp, const CPubKey& m
         throw runtime_error(
             "sendrawtransaction \"hexstring\" ( allowhighfees )\n"
             "\nSubmits raw transaction (serialized, hex-encoded) to local node and network.\n"
+            "Broadcasts the signed transaction to the Pirate network for inclusion in blockchain.\n"
             "\nAlso see createrawtransaction and signrawtransaction calls.\n"
             "\nArguments:\n"
-            "1. \"hexstring\"    (string, required) The hex string of the raw transaction)\n"
+            "1. \"hexstring\"    (string, required) The hex string of the raw transaction\n"
             "2. allowhighfees    (boolean, optional, default=false) Allow high fees\n"
             "\nResult:\n"
             "\"hex\"             (string) The transaction hash in hex\n"
@@ -1477,7 +1798,7 @@ UniValue sendrawtransaction(const UniValue& params, bool fHelp, const CPubKey& m
             + HelpExampleCli("signrawtransaction", "\"myhex\"") +
             "\nSend the transaction (signed hex)\n"
             + HelpExampleCli("sendrawtransaction", "\"signedhex\"") +
-            "\nAs a json rpc call\n"
+            "\nAs a JSON-RPC call\n"
             + HelpExampleRpc("sendrawtransaction", "\"signedhex\"")
         );
     }
@@ -1526,15 +1847,32 @@ UniValue sendrawtransaction(const UniValue& params, bool fHelp, const CPubKey& m
     return hashTx.GetHex();
 }
 
+/**
+ * @brief RPC command to build and finalize shielded transactions from builder instructions
+ * 
+ * Processes transaction builder hex data to construct complete shielded transactions
+ * with Sapling and Orchard components. Handles witness generation, proof creation,
+ * and transaction signing for offline transaction construction workflows.
+ * 
+ * @param params RPC parameters: [hexstring]
+ * @param fHelp Whether to display help information
+ * @param mypk Public key for authentication (unused)
+ * @return UniValue Hex-encoded finalized transaction ready for broadcast
+ */
 UniValue z_buildrawtransaction(const UniValue& params, bool fHelp, const CPubKey& mypk)
 {
   if (fHelp || params.size() != 1)
       throw runtime_error(
           "z_buildrawtransaction \"hexstring\"\n"
-          "\nReturn a JSON object representing the serialized, hex-encoded transaction.\n"
+          "\nBuild and finalize a shielded transaction from transaction builder data.\n"
+          "Processes hex-encoded transaction builder instructions to create a complete\n"
+          "shielded transaction for Sapling or Orchard pools.\n"
 
           "\nArguments:\n"
-          "1. \"hex\"      (string, required) The transaction hex string\n"
+          "1. \"hex\"      (string, required) The transaction builder hex string\n"
+
+          "\nResult:\n"
+          "\"transaction\"  (string) Hex-encoded raw transaction ready for broadcast\n"
 
           "\nExamples:\n"
           + HelpExampleCli("z_buildrawtransaction", "\"hexstring\"")
@@ -1576,7 +1914,7 @@ UniValue z_buildrawtransaction(const UniValue& params, bool fHelp, const CPubKey
   }
 
   if (tb.vSaplingSpends.size() == 0 && tb.vOrchardSpends.size() == 0 ) {
-      throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "Transaction builder doe not contains Sapling Spends or Orchard Spends, coins must be spent from Sapling Orchard.");
+      throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "Transaction builder does not contain Sapling Spends or Orchard Spends, coins must be spent from Sapling or Orchard.");
   }
 
   //Outgoing viewing key to be set by either the Sapling spending key or the Orchard spending key
@@ -1713,27 +2051,43 @@ UniValue z_buildrawtransaction(const UniValue& params, bool fHelp, const CPubKey
 
 }
 
+/**
+ * @brief RPC command to create transaction builder instructions for offline shielded transactions
+ * 
+ * Generates hex-encoded transaction builder data for constructing shielded transactions
+ * offline. Supports transparent and shielded inputs with automatic change handling
+ * and coinbase UTXO spending restrictions for enhanced privacy workflows.
+ * 
+ * @param params RPC parameters: [fromaddress, amounts, minconf, fee]
+ * @param fHelp Whether to display help information
+ * @param mypk Public key for authentication (unused)
+ * @return UniValue Hex-encoded transaction builder instructions
+ */
 UniValue z_createbuildinstructions(const UniValue& params, bool fHelp, const CPubKey& mypk) {
   if (fHelp || params.size() < 2 || params.size() > 4)
       throw runtime_error(
-          "z_createofflinetransactionbuilder \"fromaddress\" [{\"address\":... ,\"amount\":...},...] ( minconf ) ( fee )\n"
-          "\nSend multiple times. Amounts are decimal numbers with at most 8 digits of precision."
-          "\nChange generated from a taddr flows to a new taddr address, while change generated from a zaddr returns to itself."
-          "\nWhen sending coinbase UTXOs to a zaddr, change is not allowed. The entire value of the UTXO(s) must be consumed."
+          "z_createbuildinstructions \"fromaddress\" [{\"address\":... ,\"amount\":...},...] ( minconf ) ( fee )\n"
+          "\nCreate transaction builder instructions for offline shielded transaction construction.\n"
+          "Generates hex-encoded builder data that can be used to create shielded transactions\n"
+          "from transparent or shielded addresses to shielded (Sapling/Orchard) addresses.\n"
+          "Change generated from a transparent address flows to a new transparent address,\n"
+          "while change generated from a shielded address returns to itself.\n"
+          "\nWhen sending coinbase UTXOs to a shielded address, change is not allowed.\n"
+          "The entire value of the UTXO(s) must be consumed.\n"
 
           + HelpRequiringPassphrase() + "\n"
           "\nArguments:\n"
-          "1. \"fromaddress\"         (string, required) The taddr or zaddr to send the funds from.\n"
-          "2. \"amounts\"             (array, required) An array of json objects representing the amounts to send.\n"
+          "1. \"fromaddress\"         (string, required) The transparent or shielded address to send funds from\n"
+          "2. \"amounts\"             (array, required) Array of output destinations and amounts\n"
           "    [{\n"
-          "      \"address\":address  (string, required) The address is a sapling or orchard\n"
-          "      \"amount\":amount    (numeric, required) The numeric amount in KMD is the value\n"
-          "      \"memo\":memo        (string, optional) If the address is a zaddr, raw data represented in hexadecimal string format\n"
+          "      \"address\":address  (string, required) The Sapling or Orchard shielded address\n"
+          "      \"amount\":amount    (numeric, required) The amount in " + CURRENCY_UNIT + "\n"
+          "      \"memo\":memo        (string, optional) Hex-encoded memo data for shielded addresses\n"
           "    }, ... ]\n"
-          "3. minconf               (numeric, optional, default=1) Only use funds confirmed at least this many times.\n"
-          "4. fee                   (numeric, optional, default=10000"
+          "3. minconf               (numeric, optional, default=1) Only use funds confirmed at least this many times\n"
+          "4. fee                   (numeric, optional, default=10000) The fee in zatoshis\n"
           "\nResult:\n"
-          "\"transaction\"            (string) hex string of the transaction builder\n"
+          "\"transaction\"            (string) Hex string of the transaction builder instructions\n"
           "\nExamples:\n"
           + HelpExampleCli("z_createbuildinstructions", "\"RD6GgnrMpPaTSMn8vai6yiGA7mN4QGPV\" '[{\"address\": \"zs14d8tc0hl9q0vg5l28uec5vk6sk34fkj2n8s7jalvw5fxpy6v39yn4s2ga082lymrkjk0x2nqg37\" ,\"amount\": 5.0}]'")
           + HelpExampleRpc("z_createbuildinstructions", "\"RD6GgnrMpPaTSMn8vai6yiGA7mN4QGPV\", [{\"address\": \"zs14d8tc0hl9q0vg5l28uec5vk6sk34fkj2n8s7jalvw5fxpy6v39yn4s2ga082lymrkjk0x2nqg37\" ,\"amount\": 5.0}]")
@@ -1970,37 +2324,51 @@ UniValue z_createbuildinstructions(const UniValue& params, bool fHelp, const CPu
 
 }
 
+/**
+ * @brief RPC command to create transaction builder instructions with manual coin control
+ * 
+ * Generates transaction builder data with precise control over input selection and
+ * output destinations for advanced shielded transaction construction. Enables
+ * deterministic note spending and custom fee management for privacy-focused workflows.
+ * 
+ * @param params RPC parameters: [inputs, outputs, fee, expiryBlocks]
+ * @param fHelp Whether to display help information
+ * @param mypk Public key for authentication (unused)
+ * @return UniValue Hex-encoded transaction builder instructions with coin control
+ */
 UniValue z_createbuildinstructionscoincontrol(const UniValue& params, bool fHelp, const CPubKey& mypk)
 {
   if (fHelp)
       throw runtime_error(
-          "z_createbuildinstructionscoincontrol \n"
-          "\nExamples:\n"
+          "z_createbuildinstructionscoincontrol inputs outputs ( fee ) ( expiryBlocks )\n"
+          "\nCreate transaction builder instructions with manual coin control for shielded transactions.\n"
+          "Allows precise control over which shielded notes to spend and where to send outputs.\n"
+          "Provides fine-grained control over transaction construction for advanced users.\n"
 
           "\nArguments:\n"
-          "1. \"inputs\"                (array, required) A json array of json input objects\n"
+          "1. \"inputs\"                (array, required) Array of shielded inputs to spend\n"
           "     [\n"
           "       {\n"
           "         \"txid\":\"id\",          (string, required) The transaction id\n"
-          "         \"index\":n,          (numeric, required) shieldedOutputIndex of input transaction\n"
+          "         \"index\":n,          (numeric, required) Shielded output index of input transaction\n"
           "       } \n"
           "       ,...\n"
           "     ]\n"
-          "2. \"outputs\"               (array, required) A json array of json output objects\n"
+          "2. \"outputs\"               (array, required) Array of shielded outputs to create\n"
           "     [\n"
           "       {\n"
-          "         \"address\":address     (string, required) Pirate zaddr\n"
-          "         \"amount\":amount       (numeric, required) The numeric amount in ARRR\n"
-          "         \"memo\": \"string\"    (string, optional) String memo in UTF8 or Hexidecimal format\n"
+          "         \"address\":address     (string, required) Pirate shielded address\n"
+          "         \"amount\":amount       (numeric, required) The amount in " + CURRENCY_UNIT + "\n"
+          "         \"memo\": \"string\"    (string, optional) Memo in UTF-8 or hexadecimal format\n"
           "         ,...\n"
           "       }\n"
           "     ]\n"
-          "3. fee                  (numeric, optional, default=0.0001\n"
-          "4. expiryBlocks         (numeric, optional, default=" + strprintf("%d", DEFAULT_TX_EXPIRY_DELTA) + ") Qty of blocks before the transaction expires and is removed from the mempool if not confirmed.\n"
+          "3. fee                  (numeric, optional, default=0.0001) Transaction fee in " + CURRENCY_UNIT + "\n"
+          "4. expiryBlocks         (numeric, optional, default=" + strprintf("%d", DEFAULT_TX_EXPIRY_DELTA) + ") Number of blocks before transaction expires\n"
           "\nResult:\n"
-          "\"transaction\"            (string) hex string of the transaction\n"
+          "\"transaction\"            (string) Hex string of the transaction builder instructions\n"
 
-
+          "\nExamples:\n"
           + HelpExampleCli("z_createbuildinstructionscoincontrol", "\"[{\\\"txid\\\":\\\"myid\\\",\\\"index\\\":0},...]\" \"[{\\\"address\\\":\\\"sendtoaddress\\\",\\\"amount\\\":1.0000,\\\"memo\\\":\\\"memostring\\\"},...]\" 0.0001 200")
       );
 
@@ -2195,6 +2563,15 @@ static const CRPCCommand commands[] =
     { "blockchain",         "verifytxoutproof",                       &verifytxoutproof,                        true  },
 };
 
+/**
+ * @brief Registers all raw transaction RPC commands with the RPC server
+ * 
+ * Initializes the RPC command table with all transaction-related commands including
+ * creation, signing, decoding, and broadcasting operations. Configures command
+ * categories and safety mode settings for each RPC endpoint.
+ * 
+ * @param tableRPC Reference to the RPC command table for registration
+ */
 void RegisterRawTransactionRPCCommands(CRPCTable &tableRPC)
 {
     for (unsigned int vcidx = 0; vcidx < ARRAYLEN(commands); vcidx++)

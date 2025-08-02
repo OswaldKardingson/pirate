@@ -536,7 +536,7 @@ bool TransactionBuilder::ConvertRawOrchardSpend(libzcash::OrchardExtendedSpendin
         }
 
         // Check FVK is valid for Address
-        auto checkAddrOpt = fvk.GetAddress(vOrchardSpends[i].addr.GetDiversifier());
+        auto checkAddrOpt = fvk.GetAddress(vOrchardSpends[i].addr.d);
         if (checkAddrOpt == std::nullopt) {
             throw std::runtime_error("NullOpt - TransactionBuilder cannot add Orchard Spend with FVK that does not match Address\n");
         } else {

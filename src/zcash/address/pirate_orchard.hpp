@@ -53,13 +53,6 @@ public:
     // Get serialized bytes of an Orchard Address
     OrchardPaymentAddress_t ToBytes() const;
 
-    blob88 GetDiversifier() const
-    {
-        blob88 diversifier;
-        std::memcpy(diversifier.begin(), d.data(), ZC_DIVERSIFIER_SIZE);
-        return diversifier;
-    }
-
     friend inline bool operator==(const OrchardPaymentAddressPirate& a, const OrchardPaymentAddressPirate& b)
     {
         return a.d == b.d && a.pk_d == b.pk_d;
@@ -116,6 +109,8 @@ public:
 
     // Can pass in diversifier for Sapling addr
     std::optional<OrchardPaymentAddressPirate> address(diversifier_t d) const;
+
+    std::optional<OrchardPaymentAddressPirate> addressfromindex(blob88 d_index) const;
 
     ADD_SERIALIZE_METHODS;
 
@@ -177,8 +172,12 @@ public:
     std::optional<OrchardPaymentAddressPirate> GetDefaultAddressInternal() const;
 
     // Get the addresses of a given diversifier associated to a full viewing key
-    std::optional<OrchardPaymentAddressPirate> GetAddress(blob88 diversifier) const;
-    std::optional<OrchardPaymentAddressPirate> GetAddressInternal(blob88 diversifier) const;
+    std::optional<OrchardPaymentAddressPirate> GetAddress(diversifier_t diversifier) const;
+    std::optional<OrchardPaymentAddressPirate> GetAddressInternal(diversifier_t diversifier) const;
+
+    // Get the addresses of a given diversifier index associated to a full viewing key
+    std::optional<OrchardPaymentAddressPirate> GetAddressFromIndex(blob88 diversifier_index) const;
+    std::optional<OrchardPaymentAddressPirate> GetAddressFromIndexInternal(blob88 diversifier_index) const;
 
     friend inline bool operator==(const OrchardFullViewingKeyPirate& a, const OrchardFullViewingKeyPirate& b)
     {

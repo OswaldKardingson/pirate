@@ -83,6 +83,51 @@ std::optional<OrchardPaymentAddressPirate> OrchardIncomingViewingKeyPirate::addr
     return std::nullopt;
 }
 
+std::optional<OrchardPaymentAddressPirate> OrchardIncomingViewingKeyPirate::addressfromindex(blob88 diversifier_index) const
+{
+    // Datastreams for serialization
+    CDataStream ss(SER_NETWORK, PROTOCOL_VERSION); // sending stream
+    CDataStream ds(SER_NETWORK, PROTOCOL_VERSION); // sending stream - diversifier
+    CDataStream rs(SER_NETWORK, PROTOCOL_VERSION); // returning stream
+
+    // Tranfer Data
+    OrchardIncomingViewingKey_t ivk_t;
+    OrchardPaymentAddress_t address_t;
+
+    // Return Type
+    OrchardPaymentAddressPirate address;
+
+    // rust result
+    bool rustCompleted;
+
+    // Serialize sending data
+    ss << *this;
+    ss >> ivk_t;
+
+
+    // Call rust FFI
+    rustCompleted = orchard_ivk_to_address_from_index(ivk_t.begin(), diversifier_index.begin(), address_t.begin());
+
+    // Deserialize rust result on success
+    if (rustCompleted) {
+        rs << address_t;
+        rs >> address;
+    }
+
+    // Cleanse the memory of the transfer and serialization objects
+    memory_cleanse(ss.data(), ss.size());
+    memory_cleanse(rs.data(), rs.size());
+    memory_cleanse(ivk_t.data(), ivk_t.size());
+    memory_cleanse(address_t.data(), address_t.size());
+
+    // Return data
+    if (rustCompleted) {
+        return address;
+    }
+
+    return std::nullopt;
+}
+
 uint256 OrchardFullViewingKeyPirate::GetFingerprint() const
 {
     CBLAKE2bWriter ss(SER_GETHASH, 0, ZCASH_ORCHARH_FVFP_PERSONALIZATION);
@@ -348,7 +393,7 @@ std::optional<OrchardPaymentAddressPirate> OrchardFullViewingKeyPirate::GetDefau
     return std::nullopt;
 }
 
-std::optional<OrchardPaymentAddressPirate> OrchardFullViewingKeyPirate::GetAddress(blob88 diversifier) const
+std::optional<OrchardPaymentAddressPirate> OrchardFullViewingKeyPirate::GetAddress(diversifier_t diversifier) const
 {
     // Datastreams for serialization
     CDataStream ss(SER_NETWORK, PROTOCOL_VERSION); // sending stream
@@ -391,7 +436,7 @@ std::optional<OrchardPaymentAddressPirate> OrchardFullViewingKeyPirate::GetAddre
     return std::nullopt;
 }
 
-std::optional<OrchardPaymentAddressPirate> OrchardFullViewingKeyPirate::GetAddressInternal(blob88 diversifier) const
+std::optional<OrchardPaymentAddressPirate> OrchardFullViewingKeyPirate::GetAddressInternal(diversifier_t diversifier) const
 {
     // Datastreams for serialization
     CDataStream ss(SER_NETWORK, PROTOCOL_VERSION); // sending stream
@@ -413,6 +458,92 @@ std::optional<OrchardPaymentAddressPirate> OrchardFullViewingKeyPirate::GetAddre
 
     // Call rust FFI
     rustCompleted = orchard_fvk_to_address_internal(fvk_t.begin(), diversifier.begin(), address_t.begin());
+
+    // Deserialize rust result on success
+    if (rustCompleted) {
+        rs << address_t;
+        rs >> address;
+    }
+
+    // Cleanse the memory of the transfer and serialization objects
+    memory_cleanse(ss.data(), ss.size());
+    memory_cleanse(rs.data(), rs.size());
+    memory_cleanse(address_t.data(), address_t.size());
+    memory_cleanse(fvk_t.data(), fvk_t.size());
+
+    // Return data
+    if (rustCompleted) {
+        return address;
+    }
+
+    return std::nullopt;
+}
+
+std::optional<OrchardPaymentAddressPirate> OrchardFullViewingKeyPirate::GetAddressFromIndex(blob88 diversifier_index) const
+{
+    // Datastreams for serialization
+    CDataStream ss(SER_NETWORK, PROTOCOL_VERSION); // sending stream
+    CDataStream rs(SER_NETWORK, PROTOCOL_VERSION); // returning stream
+
+    // Tranfer Data
+    OrchardPaymentAddress_t address_t;
+    OrchardFullViewingKey_t fvk_t;
+
+    // Return Type
+    OrchardPaymentAddressPirate address;
+
+    // rust result
+    bool rustCompleted;
+
+    // Serialize sending data
+    ss << *this;
+    ss >> fvk_t;
+
+    // Call rust FFI
+    rustCompleted = orchard_fvk_to_address_from_index(fvk_t.begin(), diversifier_index.begin(), address_t.begin());
+
+    // Deserialize rust result on success
+    if (rustCompleted) {
+        rs << address_t;
+        rs >> address;
+    }
+
+    // Cleanse the memory of the transfer and serialization objects
+    memory_cleanse(ss.data(), ss.size());
+    memory_cleanse(rs.data(), rs.size());
+    memory_cleanse(address_t.data(), address_t.size());
+    memory_cleanse(fvk_t.data(), fvk_t.size());
+
+    // Return data
+    if (rustCompleted) {
+        return address;
+    }
+
+    return std::nullopt;
+}
+
+std::optional<OrchardPaymentAddressPirate> OrchardFullViewingKeyPirate::GetAddressFromIndexInternal(blob88 diversifier_index) const
+{
+    // Datastreams for serialization
+    CDataStream ss(SER_NETWORK, PROTOCOL_VERSION); // sending stream
+    CDataStream rs(SER_NETWORK, PROTOCOL_VERSION); // returning stream
+
+    // Tranfer Data
+    OrchardPaymentAddress_t address_t;
+    OrchardFullViewingKey_t fvk_t;
+
+    // Return Type
+    OrchardPaymentAddressPirate address;
+
+    // rust result
+    bool rustCompleted;
+
+    // Serialize sending data
+    ss << *this;
+    ss >> fvk_t;
+
+    // Call rust FFI
+    rustCompleted = orchard_fvk_to_address_from_index_internal(fvk_t.begin(), diversifier_index.begin(), address_t.begin());
 
     // Deserialize rust result on success
     if (rustCompleted) {
