@@ -280,11 +280,63 @@ jobs:
     - name: Install Rust (stable)
       uses: dtolnay/rust-toolchain@stable
 
-    - name: Mount Windows Cargo into MSYS2
+    - name: Mount Windows Cargo into MSYS2 and Setup for Depends
       shell: msys2 {0}
       run: |
+        # Set up MSYS2 environment with cargo
         mkdir -p "$HOME"
         ln -sf "$(cygpath -u "$USERPROFILE")/.cargo" "$HOME/.cargo"
+        
+        # Set up cargo environment variables for MSYS2
+        export CARGO_HOME=$(cygpath -u "$USERPROFILE")/.cargo
+        export PATH="$CARGO_HOME/bin:$PATH"
+        
+        echo "=== Cargo Environment Setup ==="
+        echo "CARGO_HOME: $CARGO_HOME"
+        echo "PATH: $PATH"
+        
+        # Verify cargo is accessible
+        echo "=== Cargo Verification ==="
+        which cargo || echo "cargo not found in PATH"
+        if command -v cargo >/dev/null 2>&1; then
+          cargo --version
+          echo "Cargo is accessible via PATH"
+        else
+          echo "ERROR: Cargo not accessible via PATH"
+          exit 1
+        fi
+        
+        # Ensure cargo will be available for the depends system
+        echo "=== Setting up cargo for depends system ==="
+        mkdir -p depends/x86_64-w64-mingw64/native/bin
+        
+        # Find and copy cargo binary
+        CARGO_BINARY=""
+        if [ -f "$CARGO_HOME/bin/cargo.exe" ]; then
+          CARGO_BINARY="$CARGO_HOME/bin/cargo.exe"
+        elif [ -f "$CARGO_HOME/bin/cargo" ]; then
+          CARGO_BINARY="$CARGO_HOME/bin/cargo"
+        elif command -v cargo >/dev/null 2>&1; then
+          CARGO_BINARY=$(which cargo)
+        fi
+        
+        if [ -n "$CARGO_BINARY" ] && [ -f "$CARGO_BINARY" ]; then
+          echo "Copying cargo binary to depends location: $CARGO_BINARY"
+          cp "$CARGO_BINARY" depends/x86_64-w64-mingw64/native/bin/cargo
+          chmod +x depends/x86_64-w64-mingw64/native/bin/cargo
+          echo "Cargo setup complete"
+          
+          # Verify the setup
+          depends/x86_64-w64-mingw64/native/bin/cargo --version
+        else
+          echo "ERROR: Cannot find a valid cargo binary"
+          exit 1
+        fi
+        
+        # Make cargo available globally for all subsequent steps
+        echo "CARGO_HOME=$CARGO_HOME" >> $GITHUB_ENV
+        echo "$CARGO_HOME/bin" >> $GITHUB_PATH
+        echo "$(pwd)/depends/x86_64-w64-mingw64/native/bin" >> $GITHUB_PATH
 
     - name: Make build script executable and Fetch Zcash Params (Windows)
       shell: msys2 {0}
@@ -356,6 +408,24 @@ jobs:
     - name: Debug Make in MSYS2 (Windows)
       shell: msys2 {0}
       run: |
+        # Set up cargo for this step
+        mkdir -p "$HOME"
+        ln -sf "$(cygpath -u "$USERPROFILE")/.cargo" "$HOME/.cargo"
+        export CARGO_HOME=$(cygpath -u "$USERPROFILE")/.cargo
+        export PATH="$CARGO_HOME/bin:$PATH"
+        
+        # Ensure cargo is available for depends
+        mkdir -p depends/x86_64-w64-mingw64/native/bin
+        if command -v cargo >/dev/null 2>&1; then
+          cp "$(which cargo)" depends/x86_64-w64-mingw64/native/bin/cargo
+          chmod +x depends/x86_64-w64-mingw64/native/bin/cargo
+          echo "Cargo available at: $(which cargo)"
+          depends/x86_64-w64-mingw64/native/bin/cargo --version
+        else
+          echo "ERROR: Cargo not found"
+          exit 1
+        fi
+        
         echo "--- Debugging make command ---"
         cd depends
         echo "Current directory: $(pwd)"
@@ -375,68 +445,21 @@ jobs:
     - name: Build Pirated Daemon (Windows)
       shell: msys2 {0}
       run: |
-        # Set up cargo environment variables for MSYS2
+        # Set up cargo for this step
+        mkdir -p "$HOME"
+        ln -sf "$(cygpath -u "$USERPROFILE")/.cargo" "$HOME/.cargo"
         export CARGO_HOME=$(cygpath -u "$USERPROFILE")/.cargo
         export PATH="$CARGO_HOME/bin:$PATH"
         
-        echo "=== Cargo Environment Setup ==="
-        echo "CARGO_HOME: $CARGO_HOME"
-        echo "PATH: $PATH"
-        echo "USERPROFILE: $USERPROFILE"
-        
-        # Verify cargo is accessible
-        echo "=== Cargo Verification ==="
-        which cargo || echo "cargo not found in PATH"
-        if command -v cargo >/dev/null 2>&1; then
-          cargo --version
-          echo "Cargo is accessible via PATH"
-        else
-          echo "Cargo not accessible via PATH"
-        fi
-        
-        # List what's in the cargo bin directory
-        echo "=== Cargo bin directory contents ==="
-        if [ -d "$CARGO_HOME/bin" ]; then
-          ls -la "$CARGO_HOME/bin/"
-        else
-          echo "CARGO_HOME/bin directory does not exist"
-        fi
-        
-        # Ensure cargo will be available for the depends system
-        echo "=== Setting up cargo for depends system ==="
+        # Ensure cargo is available for depends
         mkdir -p depends/x86_64-w64-mingw64/native/bin
-        
-        # Try different approaches to make cargo available
-        CARGO_BINARY=""
-        if [ -f "$CARGO_HOME/bin/cargo.exe" ]; then
-          CARGO_BINARY="$CARGO_HOME/bin/cargo.exe"
-          echo "Found cargo.exe at $CARGO_BINARY"
-        elif [ -f "$CARGO_HOME/bin/cargo" ]; then
-          CARGO_BINARY="$CARGO_HOME/bin/cargo"
-          echo "Found cargo at $CARGO_BINARY"
-        elif command -v cargo >/dev/null 2>&1; then
-          CARGO_BINARY=$(which cargo)
-          echo "Found cargo via which: $CARGO_BINARY"
-        fi
-        
-        if [ -n "$CARGO_BINARY" ] && [ -f "$CARGO_BINARY" ]; then
-          echo "Copying cargo binary to depends location..."
-          cp "$CARGO_BINARY" depends/x86_64-w64-mingw64/native/bin/cargo
+        if command -v cargo >/dev/null 2>&1; then
+          cp "$(which cargo)" depends/x86_64-w64-mingw64/native/bin/cargo
           chmod +x depends/x86_64-w64-mingw64/native/bin/cargo
-          echo "Cargo copied successfully"
-        else
-          echo "ERROR: Cannot find a valid cargo binary"
-          exit 1
-        fi
-        
-        # Verify the setup
-        echo "=== Final Verification ==="
-        ls -la depends/x86_64-w64-mingw64/native/bin/
-        if [ -f depends/x86_64-w64-mingw64/native/bin/cargo ]; then
+          echo "Cargo available at: $(which cargo)"
           depends/x86_64-w64-mingw64/native/bin/cargo --version
-          echo "Cargo setup complete"
         else
-          echo "ERROR: Cargo setup failed"
+          echo "ERROR: Cargo not found"
           exit 1
         fi
         
@@ -847,6 +870,64 @@ jobs:
     - name: Install Rust (stable)
       uses: dtolnay/rust-toolchain@stable
 
+    - name: Mount Windows Cargo into MSYS2 and Setup for Depends (QT)
+      shell: msys2 {0}
+      run: |
+        # Set up MSYS2 environment with cargo for QT build
+        mkdir -p "$HOME"
+        ln -sf "$(cygpath -u "$USERPROFILE")/.cargo" "$HOME/.cargo"
+        
+        # Set up cargo environment variables for MSYS2
+        export CARGO_HOME=$(cygpath -u "$USERPROFILE")/.cargo
+        export PATH="$CARGO_HOME/bin:$PATH"
+        
+        echo "=== Cargo Environment Setup (QT) ==="
+        echo "CARGO_HOME: $CARGO_HOME"
+        echo "PATH: $PATH"
+        
+        # Verify cargo is accessible
+        echo "=== Cargo Verification ==="
+        which cargo || echo "cargo not found in PATH"
+        if command -v cargo >/dev/null 2>&1; then
+          cargo --version
+          echo "Cargo is accessible via PATH"
+        else
+          echo "ERROR: Cargo not accessible via PATH"
+          exit 1
+        fi
+        
+        # Ensure cargo will be available for the depends system
+        echo "=== Setting up cargo for depends system (QT) ==="
+        mkdir -p depends/x86_64-w64-mingw64/native/bin
+        
+        # Find and copy cargo binary
+        CARGO_BINARY=""
+        if [ -f "$CARGO_HOME/bin/cargo.exe" ]; then
+          CARGO_BINARY="$CARGO_HOME/bin/cargo.exe"
+        elif [ -f "$CARGO_HOME/bin/cargo" ]; then
+          CARGO_BINARY="$CARGO_HOME/bin/cargo"
+        elif command -v cargo >/dev/null 2>&1; then
+          CARGO_BINARY=$(which cargo)
+        fi
+        
+        if [ -n "$CARGO_BINARY" ] && [ -f "$CARGO_BINARY" ]; then
+          echo "Copying cargo binary to depends location: $CARGO_BINARY"
+          cp "$CARGO_BINARY" depends/x86_64-w64-mingw64/native/bin/cargo
+          chmod +x depends/x86_64-w64-mingw64/native/bin/cargo
+          echo "Cargo setup complete"
+          
+          # Verify the setup
+          depends/x86_64-w64-mingw64/native/bin/cargo --version
+        else
+          echo "ERROR: Cannot find a valid cargo binary"
+          exit 1
+        fi
+        
+        # Make cargo available globally for all subsequent steps
+        echo "CARGO_HOME=$CARGO_HOME" >> $GITHUB_ENV
+        echo "$CARGO_HOME/bin" >> $GITHUB_PATH
+        echo "$(pwd)/depends/x86_64-w64-mingw64/native/bin" >> $GITHUB_PATH
+
     - name: Make QT build script executable and Fetch Zcash Params (Windows)
       shell: msys2 {0}
       run: |
@@ -874,68 +955,21 @@ jobs:
     - name: Build Treasure Chest (Windows)
       shell: msys2 {0} 
       run: |
-        # Set up cargo environment variables for MSYS2
+        # Set up cargo for this step
+        mkdir -p "$HOME"
+        ln -sf "$(cygpath -u "$USERPROFILE")/.cargo" "$HOME/.cargo"
         export CARGO_HOME=$(cygpath -u "$USERPROFILE")/.cargo
         export PATH="$CARGO_HOME/bin:$PATH"
         
-        echo "=== Cargo Environment Setup (QT) ==="
-        echo "CARGO_HOME: $CARGO_HOME"
-        echo "PATH: $PATH"
-        echo "USERPROFILE: $USERPROFILE"
-        
-        # Verify cargo is accessible
-        echo "=== Cargo Verification ==="
-        which cargo || echo "cargo not found in PATH"
-        if command -v cargo >/dev/null 2>&1; then
-          cargo --version
-          echo "Cargo is accessible via PATH"
-        else
-          echo "Cargo not accessible via PATH"
-        fi
-        
-        # List what's in the cargo bin directory
-        echo "=== Cargo bin directory contents ==="
-        if [ -d "$CARGO_HOME/bin" ]; then
-          ls -la "$CARGO_HOME/bin/"
-        else
-          echo "CARGO_HOME/bin directory does not exist"
-        fi
-        
-        # Ensure cargo will be available for the depends system
-        echo "=== Setting up cargo for depends system ==="
+        # Ensure cargo is available for depends
         mkdir -p depends/x86_64-w64-mingw64/native/bin
-        
-        # Try different approaches to make cargo available
-        CARGO_BINARY=""
-        if [ -f "$CARGO_HOME/bin/cargo.exe" ]; then
-          CARGO_BINARY="$CARGO_HOME/bin/cargo.exe"
-          echo "Found cargo.exe at $CARGO_BINARY"
-        elif [ -f "$CARGO_HOME/bin/cargo" ]; then
-          CARGO_BINARY="$CARGO_HOME/bin/cargo"
-          echo "Found cargo at $CARGO_BINARY"
-        elif command -v cargo >/dev/null 2>&1; then
-          CARGO_BINARY=$(which cargo)
-          echo "Found cargo via which: $CARGO_BINARY"
-        fi
-        
-        if [ -n "$CARGO_BINARY" ] && [ -f "$CARGO_BINARY" ]; then
-          echo "Copying cargo binary to depends location..."
-          cp "$CARGO_BINARY" depends/x86_64-w64-mingw64/native/bin/cargo
+        if command -v cargo >/dev/null 2>&1; then
+          cp "$(which cargo)" depends/x86_64-w64-mingw64/native/bin/cargo
           chmod +x depends/x86_64-w64-mingw64/native/bin/cargo
-          echo "Cargo copied successfully"
-        else
-          echo "ERROR: Cannot find a valid cargo binary"
-          exit 1
-        fi
-        
-        # Verify the setup
-        echo "=== Final Verification ==="
-        ls -la depends/x86_64-w64-mingw64/native/bin/
-        if [ -f depends/x86_64-w64-mingw64/native/bin/cargo ]; then
+          echo "Cargo available at: $(which cargo)"
           depends/x86_64-w64-mingw64/native/bin/cargo --version
-          echo "Cargo setup complete"
         else
-          echo "ERROR: Cargo setup failed"
+          echo "ERROR: Cargo not found"
           exit 1
         fi
         
