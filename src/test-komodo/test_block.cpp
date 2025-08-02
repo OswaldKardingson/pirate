@@ -2,6 +2,7 @@
 #include "testutils.h"
 #include "komodo_extern_globals.h"
 #include "consensus/validation.h"
+#include "consensus/upgrades.h"
 #include "coincontrol.h"
 #include "miner.h"
 
@@ -136,7 +137,9 @@ TEST(test_block, TestDoubleSpendInSameBlock)
     CAmount notaryBalance = notary->GetBalance();
     ASSERT_GT( chain.GetIndex()->nHeight, 0 );
     // Ensure network upgrades are active
-    UpdateNetworkUpgradeParameters();
+    UpdateNetworkUpgradeParameters(Consensus::UPGRADE_OVERWINTER, Consensus::NetworkUpgrade::ALWAYS_ACTIVE);
+    UpdateNetworkUpgradeParameters(Consensus::UPGRADE_SAPLING, Consensus::NetworkUpgrade::ALWAYS_ACTIVE);
+    UpdateNetworkUpgradeParameters(Consensus::UPGRADE_ORCHARD, Consensus::NetworkUpgrade::ALWAYS_ACTIVE);
     // Start to build a block
     int32_t newHeight = chain.GetIndex()->nHeight + 1;
     TransactionInProcess fundAlice = notary->CreateSpendTransaction(alice, 100000, 5000, true);
