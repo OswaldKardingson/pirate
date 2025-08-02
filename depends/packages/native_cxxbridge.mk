@@ -16,7 +16,7 @@ $(package)_dependencies=native_rust
 # $ cd cxx-$VERSION
 # $ cargo check --release --package=cxxbridge-cmd --bin=cxxbridge
 # $ cp Cargo.lock ../../depends/patches/native_cxxbridge/
-$(package)_patches=Cargo.lock
+$(package)_patches=Cargo.lock add-missing-cxx-header.patch
 $(package)_extra_sources=$(package)-$($(package)_version)-vendored.tar.gz
   
 define $(package)_fetch_cmds
