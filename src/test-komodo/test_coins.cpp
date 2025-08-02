@@ -315,7 +315,8 @@ public:
                     
                     // Create builder and add output
                     auto builder = orchard::Builder(true, true, orchardAnchor);
-                    builder.AddOutput(std::nullopt, to, 0, std::nullopt);
+                    std::array<unsigned char, ZC_MEMO_SIZE> emptyMemo = {{0}};
+                    builder.AddOutput(std::nullopt, to, 0, emptyMemo);
                     
                     // Build and sign the bundle
                     auto maybe_bundle = builder.Build();
