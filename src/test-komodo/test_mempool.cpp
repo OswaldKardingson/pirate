@@ -48,13 +48,15 @@ CMutableTransaction GetValidTransaction() {
     uint32_t consensusBranchId = SPROUT_BRANCH_ID;
 
     CMutableTransaction mtx;
+    mtx.nVersion = CTransaction::SPROUT_MIN_CURRENT_VERSION;
+    mtx.fOverwintered = false;
+    mtx.nLockTime = 0;
     mtx.vin.resize(2);
     mtx.vin[0].prevout.hash = uint256S("0000000000000000000000000000000000000000000000000000000000000001");
     mtx.vin[0].prevout.n = 0;
     mtx.vin[1].prevout.hash = uint256S("0000000000000000000000000000000000000000000000000000000000000002");
     mtx.vin[1].prevout.n = 0;
     mtx.vout.resize(2);
-    // mtx.vout[0].scriptPubKey =
     mtx.vout[0].nValue = 0;
     mtx.vout[1].nValue = 0;
     mtx.vjoinsplit.resize(2);
@@ -180,6 +182,7 @@ TEST(Mempool, TxInputLimit) {
     // Set valid base transaction format to avoid serialization errors
     mtx.nVersion = CTransaction::SPROUT_MIN_CURRENT_VERSION;
     mtx.fOverwintered = false;
+    mtx.nLockTime = 0;
     mtx.vin.resize(10);
     // Set version to 0 after ensuring transaction can be serialized
     mtx.nVersion = 0;
@@ -238,7 +241,7 @@ TEST(Mempool, TxInputLimit) {
 // Valid overwinter v3 format tx gets rejected because overwinter hasn't activated yet.
 TEST(Mempool, OverwinterNotActiveYet) {
     SelectParams(CBaseChainParams::REGTEST);
-    UpdateNetworkUpgradeParameters(Consensus::UPGRADE_OVERWINTER, Consensus::NetworkUpgrade::NO_ACTIVATION_HEIGHT);
+    UpdateNetworkUpgradeParameters(Consensus::UPGRADE_ORCHARD, Consensus::NetworkUpgrade::NO_ACTIVATION_HEIGHT);
 
     CTxMemPool pool(::minRelayTxFee);
     bool missingInputs;
@@ -287,7 +290,7 @@ TEST(Mempool, SproutV3TxFailsAsExpected) {
 // 2. fails ContextualCheckTransaction
 TEST(Mempool, SproutV3TxWhenOverwinterActive) {
     SelectParams(CBaseChainParams::REGTEST);
-    UpdateNetworkUpgradeParameters(Consensus::UPGRADE_OVERWINTER, Consensus::NetworkUpgrade::ALWAYS_ACTIVE);
+    UpdateNetworkUpgradeParameters(Consensus::UPGRADE_ORCHARD, Consensus::NetworkUpgrade::ALWAYS_ACTIVE);
 
     CTxMemPool pool(::minRelayTxFee);
     bool missingInputs;
@@ -312,7 +315,7 @@ TEST(Mempool, SproutV3TxWhenOverwinterActive) {
 // 1. fails CheckTransaction (specifically CheckTransactionWithoutProofVerification)
 TEST(Mempool, SproutNegativeVersionTxWhenOverwinterActive) {
     SelectParams(CBaseChainParams::REGTEST);
-    UpdateNetworkUpgradeParameters(Consensus::UPGRADE_OVERWINTER, Consensus::NetworkUpgrade::ALWAYS_ACTIVE);
+    UpdateNetworkUpgradeParameters(Consensus::UPGRADE_ORCHARD, Consensus::NetworkUpgrade::ALWAYS_ACTIVE);
 
     CTxMemPool pool(::minRelayTxFee);
     bool missingInputs;
