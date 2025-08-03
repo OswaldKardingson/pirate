@@ -175,10 +175,10 @@ TEST(TestNotary, KomodoNotaries_S8_KMD)
     komodo_notaries_uninit();
     chainName = assetchain(""); // set as KMD
 
-    EXPECT_EQ( getkmdseason(4125988+1), 8);
+    EXPECT_EQ( getkmdseason(3484958+1), 8);
     EXPECT_EQ( getkmdseason(8113400), NUM_KMD_SEASONS);
     EXPECT_EQ( getkmdseason(8113400+1), 0);
-    int32_t result1 = komodo_notaries(pubkeys, 4125988+1, 0);
+    int32_t result1 = komodo_notaries(pubkeys, 3484958+1, 0);
     EXPECT_EQ(result1, 64);
     EXPECT_EQ( my_key(pubkeys[0]), my_key("028548847b3bbccff37c9b47bc4154183304902773d514b792ec2adc91e600e3b9"));
     EXPECT_EQ( my_key(pubkeys[63]), my_key("02f9a7b49282885cd03969f1f5478287497bc8edfceee9eac676053c107c5fcdaf"));
@@ -188,7 +188,7 @@ TEST(TestNotary, KomodoNotaries_S8_KMD)
     my_key wrong_pk("02ebfc784a4ba768aad88d44d1045d240d47b26e248cafaf1c5169a42d7a61d344");
     uint8_t pubkey[33];
     wrong_pk.fill(pubkey);
-    int32_t result2 = komodo_electednotary(&numnotaries, pubkey, 4125988+1, 0);
+    int32_t result2 = komodo_electednotary(&numnotaries, pubkey, 3484958+1, 0);
     EXPECT_EQ(result2, -1);
     EXPECT_EQ(numnotaries, 64);
 
@@ -204,11 +204,11 @@ TEST(TestNotary, KomodoNotaries_S8_AS)
     SelectParams(CBaseChainParams::MAIN);
     komodo_notaries_uninit();
     chainName = assetchain("MYASSET");
-    EXPECT_EQ( getacseason(1728049053+1), 8);
+    EXPECT_EQ( getacseason(1688132253+1), 8);
     EXPECT_EQ( getacseason(1951328000), NUM_KMD_SEASONS);  
     EXPECT_EQ( getacseason(1951328001), 0);
 
-    int32_t result1 = komodo_notaries(pubkeys, 0, 1728049053+1);
+    int32_t result1 = komodo_notaries(pubkeys, 0, 1688132253+1);
     EXPECT_EQ(result1, 64);
     EXPECT_EQ( my_key(pubkeys[0]), my_key("028548847b3bbccff37c9b47bc4154183304902773d514b792ec2adc91e600e3b9"));
     EXPECT_EQ( my_key(pubkeys[63]), my_key("02f9a7b49282885cd03969f1f5478287497bc8edfceee9eac676053c107c5fcdaf"));
@@ -218,7 +218,7 @@ TEST(TestNotary, KomodoNotaries_S8_AS)
     my_key wrong_pk("02ebfc784a4ba768aad88d44d1045d240d47b26e248cafaf1c5169a42d7a61d344");
     uint8_t pubkey[33];
     wrong_pk.fill(pubkey);
-    int32_t result2 = komodo_electednotary(&numnotaries, pubkey, 4125988+1, 1728049053+1);
+    int32_t result2 = komodo_electednotary(&numnotaries, pubkey, 3484958+1, 1688132253+1);
     EXPECT_EQ(result2, -1);
     EXPECT_EQ(numnotaries, 64);
 
