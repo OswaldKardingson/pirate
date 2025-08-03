@@ -216,8 +216,16 @@ TEST(TestEvalNotarisation, testInvalidNotarisationInputNotCheckSig)
     SetupEval(eval, notary, [&](CMutableTransaction &tx) {
         int i = 1;
         CMutableTransaction txIn;
+        // Set valid transaction format fields for txIn
+        txIn.nVersion = CTransaction::ORCHARD_TX_VERSION;
+        txIn.fOverwintered = true;
+        txIn.nVersionGroupId = ORCHARD_VERSION_GROUP_ID;
+        txIn.nLockTime = 0;
+        txIn.nExpiryHeight = 0;
+        
         txIn.vout.resize(1);
-        txIn.vout[0].scriptPubKey << VCH(eval.notaries[i*2], 33) << OP_RETURN;
+        txIn.vout[0].nValue = 0;
+        txIn.vout[0].scriptPubKey << std::vector<unsigned char>(eval.notaries[i*2], eval.notaries[i*2] + 33) << OP_RETURN;
         notary.vin[i].prevout = COutPoint(txIn.GetHash(), 0);
         eval.txs[txIn.GetHash()] = CTransaction(txIn);
     });
