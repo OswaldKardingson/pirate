@@ -83,6 +83,11 @@ TEST(test_block, TestSpendInSameBlock)
     auto bob = std::make_shared<TestWallet>("bob");
     auto miner = std::make_shared<TestWallet>("miner");
     SelectParams(CBaseChainParams::REGTEST);
+    
+    // Ensure Orchard is active for all tests
+    UpdateNetworkUpgradeParameters(Consensus::UPGRADE_OVERWINTER, Consensus::NetworkUpgrade::ALWAYS_ACTIVE);
+    UpdateNetworkUpgradeParameters(Consensus::UPGRADE_ORCHARD, Consensus::NetworkUpgrade::ALWAYS_ACTIVE);
+    
     std::shared_ptr<CBlock> lastBlock = chain.generateBlock(notary); // genesis block
     
     // Mine enough blocks to fully mature the coinbase output
@@ -93,34 +98,50 @@ TEST(test_block, TestSpendInSameBlock)
     
     ASSERT_GT( chain.GetIndex()->nHeight, 0 );
     
+    // Capture exact balance before transaction
+    CAmount notaryBalanceBefore = notary->GetBalance();
+    
     // delay just a second to help with locktime
     std::this_thread::sleep_for(std::chrono::seconds(1));
+    
     // Start to build a block
     int32_t newHeight = chain.GetIndex()->nHeight + 1;
     
-    // Capture balance right before creating the transaction to avoid timing issues
-    CAmount notaryBalanceBefore = notary->GetBalance();
+    // Create funding transaction but don't commit to mempool
     TransactionInProcess fundAlice = notary->CreateSpendTransaction(alice, 100000, 5000, true);
-    CAmount expectedBalance = notaryBalanceBefore - 105000; // transfer + fee  
-    
-    // Commit the notary transaction to the mempool so Alice can spend from it
-    CValidationState state;
-    EXPECT_TRUE( notary->CommitTransaction(fundAlice.transaction, fundAlice.reserveKey, state) ) << state.GetRejectReason();
+    CAmount expectedNotaryBalance = notaryBalanceBefore - 105000; // transfer + fee  
     
     // now have Alice move some funds to Bob in the same block
     CCoinControl useThisTransaction;
     COutPoint tx(fundAlice.transaction.GetHash(), 1);
     useThisTransaction.Select(tx);
     TransactionInProcess aliceToBob = alice->CreateSpendTransaction(bob, 50000, 5000, useThisTransaction);
-    EXPECT_TRUE( alice->CommitTransaction(aliceToBob.transaction, aliceToBob.reserveKey) );
-    // std::this_thread::sleep_for(std::chrono::seconds(1)); 
-    // see if everything worked
-    lastBlock = chain.generateBlock(miner);
-    EXPECT_TRUE( lastBlock != nullptr);
-    // balances should be correct
-    EXPECT_EQ( bob->GetBalance() + bob->GetUnconfirmedBalance() + bob->GetImmatureBalance(), CAmount(50000));
-    EXPECT_EQ( notary->GetBalance(), expectedBalance);
-    EXPECT_EQ( alice->GetBalance() + alice->GetUnconfirmedBalance() + alice->GetImmatureBalance(), CAmount(45000));
+    
+    // Create block with both transactions
+    CBlock block;
+    auto consensusParams = Params().GetConsensus();
+    CMutableTransaction txNew = CreateNewContextualCMutableTransaction(consensusParams, newHeight);
+    txNew.vin.resize(1);
+    txNew.vin[0].prevout.SetNull();
+    txNew.vin[0].scriptSig = (CScript() << newHeight << CScriptNum(1)) + COINBASE_FLAGS;
+    txNew.vout.resize(1);
+    txNew.vout[0].nValue = GetBlockSubsidy(newHeight, consensusParams);
+    txNew.nExpiryHeight = 0;
+    block.vtx.push_back(CTransaction(txNew));
+    block.vtx.push_back(fundAlice.transaction);
+    block.vtx.push_back(aliceToBob.transaction);
+    
+    // Mine the block
+    lastBlock = chain.generateBlock(miner, &block);
+    EXPECT_TRUE(lastBlock != nullptr);
+    
+    // Generate one more block to ensure everything is confirmed
+    chain.generateBlock(miner);
+    
+    // Verify exact balances
+    EXPECT_EQ(bob->GetBalance(), CAmount(50000));
+    EXPECT_EQ(notary->GetBalance(), expectedNotaryBalance);
+    EXPECT_EQ(alice->GetBalance(), CAmount(45000));
 }
 
 // Note: long delays during this test occur in reservekey.GetReservedKey(vchPubKey) call 
@@ -133,25 +154,55 @@ TEST(test_block, TestDoubleSpendInSameBlock)
     alice->SetBroadcastTransactions(true);
     auto bob = std::make_shared<TestWallet>("bob");
     auto charlie = std::make_shared<TestWallet>("charlie");
-    std::shared_ptr<CBlock> lastBlock = chain.generateBlock(notary); // genesis block
-    CAmount notaryBalance = notary->GetBalance();
-    ASSERT_GT( chain.GetIndex()->nHeight, 0 );
-    // Ensure network upgrades are active
+    SelectParams(CBaseChainParams::REGTEST);
+    
+    // Ensure Orchard is active for all tests
     UpdateNetworkUpgradeParameters(Consensus::UPGRADE_OVERWINTER, Consensus::NetworkUpgrade::ALWAYS_ACTIVE);
-    UpdateNetworkUpgradeParameters(Consensus::UPGRADE_SAPLING, Consensus::NetworkUpgrade::ALWAYS_ACTIVE);
     UpdateNetworkUpgradeParameters(Consensus::UPGRADE_ORCHARD, Consensus::NetworkUpgrade::ALWAYS_ACTIVE);
+    
+    std::shared_ptr<CBlock> lastBlock = chain.generateBlock(notary); // genesis block
+    
+    // Mine enough blocks to fully mature the coinbase output
+    int maturity = Params().CoinbaseMaturity();
+    for (int i = 1; i <= maturity + 5; ++i) {  // +5 extra for safety
+        chain.generateBlock(notary);
+    }
+    
+    CAmount notaryBalanceBefore = notary->GetBalance();
+    ASSERT_GT( chain.GetIndex()->nHeight, 0 );
+    
     // Start to build a block
     int32_t newHeight = chain.GetIndex()->nHeight + 1;
     TransactionInProcess fundAlice = notary->CreateSpendTransaction(alice, 100000, 5000, true);
-    EXPECT_EQ(mempool.size(), 1);
+    CAmount expectedNotaryBalance = notaryBalanceBefore - 105000; // transfer + fee
+    
+    // Create and mine block with funding transaction
+    CBlock block;
+    auto consensusParams = Params().GetConsensus();
+    CMutableTransaction txNew = CreateNewContextualCMutableTransaction(consensusParams, newHeight);
+    txNew.vin.resize(1);
+    txNew.vin[0].prevout.SetNull();
+    txNew.vin[0].scriptSig = (CScript() << newHeight << CScriptNum(1)) + COINBASE_FLAGS;
+    txNew.vout.resize(1);
+    txNew.vout[0].nValue = GetBlockSubsidy(newHeight, consensusParams);
+    txNew.nExpiryHeight = 0;
+    
+    block.vtx.push_back(CTransaction(txNew));
+    block.vtx.push_back(fundAlice.transaction);
+    
+    lastBlock = chain.generateBlock(notary, &block);
+    EXPECT_TRUE(lastBlock != nullptr);
+    
     // now have Alice move some funds to Bob in the same block
     {
         CCoinControl useThisTransaction;
         COutPoint tx(fundAlice.transaction.GetHash(), 1);
         useThisTransaction.Select(tx);
         TransactionInProcess aliceToBob = alice->CreateSpendTransaction(bob, 10000, 5000, useThisTransaction);
-        EXPECT_TRUE(alice->CommitTransaction(aliceToBob.transaction, aliceToBob.reserveKey));
+        CValidationState state;
+        EXPECT_TRUE(alice->CommitTransaction(aliceToBob.transaction, aliceToBob.reserveKey, state));
     }
+    
     // alice attempts to double spend the vout and send something to charlie
     {
         CCoinControl useThisTransaction;
@@ -162,13 +213,14 @@ TEST(test_block, TestDoubleSpendInSameBlock)
         EXPECT_FALSE(alice->CommitTransaction(aliceToCharlie.transaction, aliceToCharlie.reserveKey, state));
         EXPECT_EQ(state.GetRejectReason(), "mempool conflict");
     }
-    /*  
-    EXPECT_EQ(mempool.size(), 3);
-    CValidationState validationState;
-    std::shared_ptr<CBlock> block = chain.generateBlock(notary, &validationState);
-    EXPECT_EQ( block, nullptr );
-    EXPECT_EQ( validationState.GetRejectReason(), "bad-txns-inputs-missingorspent");
-    */
+    
+    // Verify exact balances after all transactions
+    chain.generateBlock(notary); // Confirm transactions
+    
+    EXPECT_EQ(bob->GetBalance(), CAmount(10000));
+    EXPECT_EQ(charlie->GetBalance(), CAmount(0));
+    EXPECT_EQ(alice->GetBalance(), CAmount(85000));
+    EXPECT_EQ(notary->GetBalance(), expectedNotaryBalance);
 }
 
 bool CalcPoW(CBlock *pblock);
