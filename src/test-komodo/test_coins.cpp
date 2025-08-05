@@ -3,35 +3,25 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "coins.h"
-#include "consensus/validation.h"
-#include "main.h"
-#include "primitives/transaction.h"
-#include "pubkey.h"
 #include "random.h"
 #include "script/standard.h"
-#include "test/test_bitcoin.h"
-#include "transaction_builder.h"
 #include "uint256.h"
-#include "undo.h"
 #include "util/strencodings.h"
-#include "zcash/address/pirate_orchard.hpp"
+#include "test/test_bitcoin.h"
+#include "consensus/validation.h"
+#include "main.h"
+#include "undo.h"
+#include "primitives/transaction.h"
+#include "pubkey.h"
 
-#include <map>
 #include <vector>
+#include <map>
 
-#include "zcash/IncrementalMerkleTree.hpp"
 #include <gtest/gtest.h>
+#include "zcash/IncrementalMerkleTree.hpp"
 
 namespace TestCoins
 {
-
-// Test setup function to initialize network parameters for crypto operations
-void SetupTestEnvironment() {
-    SelectParams(CBaseChainParams::REGTEST);
-    UpdateNetworkUpgradeParameters(Consensus::UPGRADE_OVERWINTER, Consensus::NetworkUpgrade::ALWAYS_ACTIVE);
-    UpdateNetworkUpgradeParameters(Consensus::UPGRADE_SAPLING, Consensus::NetworkUpgrade::ALWAYS_ACTIVE);
-    UpdateNetworkUpgradeParameters(Consensus::UPGRADE_ORCHARD, Consensus::NetworkUpgrade::ALWAYS_ACTIVE);
-}
 
 class CCoinsViewTest : public CCoinsView
 {
@@ -39,29 +29,24 @@ class CCoinsViewTest : public CCoinsView
     uint256 hashBestSproutAnchor_;
     uint256 hashBestSaplingAnchor_;
     uint256 hashBestSaplingFrontierAnchor_;
-    uint256 hashBestOrchardFrontierAnchor_;
+    uint256 hashBestOrchardAnchor_;
     std::map<uint256, CCoins> map_;
     std::map<uint256, SproutMerkleTree> mapSproutAnchors_;
     std::map<uint256, SaplingMerkleTree> mapSaplingAnchors_;
     std::map<uint256, SaplingMerkleFrontier> mapSaplingFrontierAnchors_;
-    std::map<uint256, OrchardMerkleFrontier> mapOrchardFrontierAnchors_;
+    std::map<uint256, OrchardMerkleFrontier> mapOrchardAnchors_;
     std::map<uint256, bool> mapSproutNullifiers_;
     std::map<uint256, bool> mapSaplingNullifiers_;
     std::map<uint256, bool> mapOrchardNullifiers_;
-    std::map<uint32_t, HistoryCache> historyCacheMap_;
-
 
 public:
-    CCoinsViewTest()
-    {
+    CCoinsViewTest() {
         hashBestSproutAnchor_ = SproutMerkleTree::empty_root();
         hashBestSaplingAnchor_ = SaplingMerkleTree::empty_root();
-        hashBestSaplingFrontierAnchor_ = SaplingMerkleFrontier::empty_root();
-        hashBestOrchardFrontierAnchor_ = OrchardMerkleFrontier::empty_root();
+        hashBestOrchardAnchor_ = OrchardMerkleFrontier::empty_root();
     }
 
-    bool GetSproutAnchorAt(const uint256& rt, SproutMerkleTree& tree) const
-    {
+    bool GetSproutAnchorAt(const uint256& rt, SproutMerkleTree &tree) const {
         if (rt == SproutMerkleTree::empty_root()) {
             SproutMerkleTree new_tree;
             tree = new_tree;
@@ -77,14 +62,29 @@ public:
         }
     }
 
-    bool GetSaplingFrontierAnchorAt(const uint256& rt, SaplingMerkleFrontier& tree) const
-    {
+    bool GetSaplingAnchorAt(const uint256& rt, SaplingMerkleTree &tree) const {
+        if (rt == SaplingMerkleTree::empty_root()) {
+            SaplingMerkleTree new_tree;
+            tree = new_tree;
+            return true;
+        }
+
+        std::map<uint256, SaplingMerkleTree>::const_iterator it = mapSaplingAnchors_.find(rt);
+        if (it == mapSaplingAnchors_.end()) {
+            return false;
+        } else {
+            tree = it->second;
+            return true;
+        }
+    }
+
+    bool GetSaplingFrontierAnchorAt(const uint256& rt, SaplingMerkleFrontier &tree) const {
         if (rt == SaplingMerkleFrontier::empty_root()) {
             SaplingMerkleFrontier new_tree;
             tree = new_tree;
             return true;
         }
-
+        
         std::map<uint256, SaplingMerkleFrontier>::const_iterator it = mapSaplingFrontierAnchors_.find(rt);
         if (it == mapSaplingFrontierAnchors_.end()) {
             return false;
@@ -93,17 +93,16 @@ public:
             return true;
         }
     }
-
-    bool GetOrchardFrontierAnchorAt(const uint256& rt, OrchardMerkleFrontier& tree) const
-    {
+        
+    bool GetOrchardAnchorAt(const uint256& rt, OrchardMerkleFrontier &tree) const {
         if (rt == OrchardMerkleFrontier::empty_root()) {
             OrchardMerkleFrontier new_tree;
             tree = new_tree;
             return true;
         }
 
-        std::map<uint256, OrchardMerkleFrontier>::const_iterator it = mapOrchardFrontierAnchors_.find(rt);
-        if (it == mapOrchardFrontierAnchors_.end()) {
+        std::map<uint256, OrchardMerkleFrontier>::const_iterator it = mapOrchardAnchors_.find(rt);
+        if (it == mapOrchardAnchors_.end()) {
             return false;
         } else {
             tree = it->second;
@@ -111,22 +110,21 @@ public:
         }
     }
 
-
-    bool GetNullifier(const uint256& nf, ShieldedType type) const
+    bool GetNullifier(const uint256 &nf, ShieldedType type) const
     {
         const std::map<uint256, bool>* mapToUse;
         switch (type) {
-        case SPROUT:
-            mapToUse = &mapSproutNullifiers_;
-            break;
-        case SAPLINGFRONTIER:
-            mapToUse = &mapSaplingNullifiers_;
-            break;
-        case ORCHARDFRONTIER:
-            mapToUse = &mapOrchardNullifiers_;
-            break;
-        default:
-            throw std::runtime_error("Unknown shielded type");
+            case SPROUT:
+                mapToUse = &mapSproutNullifiers_;
+                break;
+            case SAPLING:
+                mapToUse = &mapSaplingNullifiers_;
+                break;
+            case ORCHARDFRONTIER:
+                mapToUse = &mapOrchardNullifiers_;
+                break;
+            default:
+                throw std::runtime_error("Unknown shielded type");
         }
         std::map<uint256, bool>::const_iterator it = mapToUse->find(nf);
         if (it == mapToUse->end()) {
@@ -138,20 +136,22 @@ public:
         }
     }
 
-    uint256 GetBestAnchor(ShieldedType type) const
-    {
+    uint256 GetBestAnchor(ShieldedType type) const {
         switch (type) {
-        case SPROUT:
-            return hashBestSproutAnchor_;
-            break;
-        case SAPLINGFRONTIER:
-            return hashBestSaplingFrontierAnchor_;
-            break;
-        case ORCHARDFRONTIER:
-            return hashBestOrchardFrontierAnchor_;
-            break;
-        default:
-            throw std::runtime_error("Unknown shielded type");
+            case SPROUT:
+                return hashBestSproutAnchor_;
+                break;
+            case SAPLING:
+                return hashBestSaplingAnchor_;
+                break;
+            case SAPLINGFRONTIER:
+                return hashBestSaplingFrontierAnchor_;
+                break;
+            case ORCHARDFRONTIER:
+                return hashBestOrchardAnchor_;
+                break;
+            default:
+                throw std::runtime_error("Unknown shielded type");
         }
     }
 
@@ -179,7 +179,7 @@ public:
 
     void BatchWriteNullifiers(CNullifiersMap& mapNullifiers, std::map<uint256, bool>& cacheNullifiers)
     {
-        for (CNullifiersMap::iterator it = mapNullifiers.begin(); it != mapNullifiers.end();) {
+        for (CNullifiersMap::iterator it = mapNullifiers.begin(); it != mapNullifiers.end(); ) {
             if (it->second.entered) {
                 cacheNullifiers[it->first] = true;
             } else {
@@ -190,10 +190,23 @@ public:
         mapNullifiers.clear();
     }
 
-    template <typename Tree, typename Map>
+    void BatchWriteProofHashes(CProofHashMap& mapProofHash, std::map<uint256, std::set<std::pair<uint256, int>>>& cacheProofHash)
+    {
+        for (CProofHashMap::iterator it = mapProofHash.begin(); it != mapProofHash.end(); ) {
+            if (!it->second.txids.empty()) {
+                cacheProofHash[it->first] = it->second.txids;
+            } else {
+                cacheProofHash.erase(it->first);
+            }
+            mapProofHash.erase(it++);
+        }
+        mapProofHash.clear();
+    }
+
+    template<typename Tree, typename Map>
     void BatchWriteAnchors(Map& mapAnchors, std::map<uint256, Tree>& cacheAnchors)
     {
-        for (auto it = mapAnchors.begin(); it != mapAnchors.end();) {
+        for (auto it = mapAnchors.begin(); it != mapAnchors.end(); ) {
             if (it->second.entered) {
                 auto ret = cacheAnchors.insert(std::make_pair(it->first, Tree())).first;
                 ret->second = it->second.tree;
@@ -207,17 +220,18 @@ public:
     bool BatchWrite(CCoinsMap& mapCoins,
                     const uint256& hashBlock,
                     const uint256& hashSproutAnchor,
-                    const uint256& hashSaplingFrontierAnchor,
-                    const uint256& hashOrchardFrontierAnchor,
+                    const uint256& hashSaplingAnchor,
+                    const uint256 &hashOrchardAnchor,
                     CAnchorsSproutMap& mapSproutAnchors,
-                    CAnchorsSaplingFrontierMap& mapSaplingFrontierAnchors,
-                    CAnchorsOrchardFrontierMap& mapOrchardFrontierAnchors,
+                    CAnchorsSaplingMap& mapSaplingAnchors,
+                    CAnchorsOrchardMap& mapOrchardAnchors,
                     CNullifiersMap& mapSproutNullifiers,
                     CNullifiersMap& mapSaplingNullifiers,
-                    CNullifiersMap& mapOrchardNullifiers,
-                    CHistoryCacheMap& historyCacheMap)
+                    CNullifiersMap &mapOrchardNullifiers,
+                    CProofHashMap &mapZkOutputProofHash,
+                    CProofHashMap &mapZkSpendProofHash)
     {
-        for (CCoinsMap::iterator it = mapCoins.begin(); it != mapCoins.end();) {
+        for (CCoinsMap::iterator it = mapCoins.begin(); it != mapCoins.end(); ) {
             map_[it->first] = it->second.coins;
             if (it->second.coins.IsPruned() && insecure_rand() % 3 == 0) {
                 // Randomly delete empty entries on write.
@@ -227,8 +241,8 @@ public:
         }
 
         BatchWriteAnchors<SproutMerkleTree, CAnchorsSproutMap>(mapSproutAnchors, mapSproutAnchors_);
-        BatchWriteAnchors<SaplingMerkleFrontier, CAnchorsSaplingFrontierMap>(mapSaplingFrontierAnchors, mapSaplingFrontierAnchors_);
-        BatchWriteAnchors<OrchardMerkleFrontier, CAnchorsOrchardFrontierMap>(mapOrchardFrontierAnchors, mapOrchardFrontierAnchors_);
+        BatchWriteAnchors<SaplingMerkleTree, CAnchorsSaplingMap>(mapSaplingAnchors, mapSaplingAnchors_);
+        BatchWriteAnchors<OrchardMerkleFrontier, CAnchorsOrchardMap>(mapOrchardAnchors, mapOrchardAnchors_);
 
         BatchWriteNullifiers(mapSproutNullifiers, mapSproutNullifiers_);
         BatchWriteNullifiers(mapSaplingNullifiers, mapSaplingNullifiers_);
@@ -236,10 +250,12 @@ public:
 
         mapCoins.clear();
         mapSproutAnchors.clear();
+        mapSaplingAnchors.clear();
+        mapOrchardAnchors.clear();
         hashBestBlock_ = hashBlock;
         hashBestSproutAnchor_ = hashSproutAnchor;
-        hashBestSaplingFrontierAnchor_ = hashSaplingFrontierAnchor;
-        hashBestOrchardFrontierAnchor_ = hashOrchardFrontierAnchor;
+        hashBestSaplingAnchor_ = hashSaplingAnchor;
+        hashBestOrchardAnchor_ = hashOrchardAnchor;
         return true;
     }
 
@@ -256,17 +272,17 @@ public:
         // Manually recompute the dynamic usage of the whole data, and compare it.
         size_t ret = memusage::DynamicUsage(cacheCoins) +
                      memusage::DynamicUsage(cacheSproutAnchors) +
-                     memusage::DynamicUsage(cacheSaplingFrontierAnchors) +
-                     memusage::DynamicUsage(cacheOrchardFrontierAnchors) +
+                     memusage::DynamicUsage(cacheSaplingAnchors) +
+                     memusage::DynamicUsage(cacheOrchardAnchors) +
                      memusage::DynamicUsage(cacheSproutNullifiers) +
                      memusage::DynamicUsage(cacheSaplingNullifiers) +
-                     memusage::DynamicUsage(cacheOrchardNullifiers) +
-                     memusage::DynamicUsage(historyCacheMap);
+                     memusage::DynamicUsage(cacheOrchardNullifiers);
         for (CCoinsMap::iterator it = cacheCoins.begin(); it != cacheCoins.end(); it++) {
             ret += it->second.coins.DynamicMemoryUsage();
         }
         EXPECT_EQ(DynamicMemoryUsage(), ret);
     }
+
 };
 
 class TxWithNullifiers
@@ -279,78 +295,29 @@ public:
 
     TxWithNullifiers()
     {
-        SetupTestEnvironment();
         CMutableTransaction mutableTx;
-        
-        // Set the transaction version to Orchard
-        mutableTx.fOverwintered = true;
-        mutableTx.nVersionGroupId = ORCHARD_VERSION_GROUP_ID;
-        mutableTx.nVersion = ORCHARD_TX_VERSION;
-        mutableTx.nConsensusBranchId = 0x00000000;
 
         sproutNullifier = GetRandHash();
         JSDescription jsd;
         jsd.nullifiers[0] = sproutNullifier;
         mutableTx.vjoinsplit.emplace_back(jsd);
 
-        mutableTx.saplingBundle = sapling::test_only_invalid_bundle(1, 1, 0);
-        saplingNullifier = uint256::FromRawBytes(mutableTx.saplingBundle.GetDetails().spends()[0].nullifier());
+        saplingNullifier = GetRandHash();
+        SpendDescription sd;
+        sd.nullifier = saplingNullifier;
+        mutableTx.vShieldedSpend.push_back(sd);
 
-        // Create Orchard bundle using deterministic keys
-        RawHDSeed seed(32, 0);
-        uint32_t bip44CoinType = Params().BIP44CoinType();
-        
-        // Use OrchardExtendedSpendingKeyPirate::Master(seed).Derive() which is Pirate's equivalent of Zcash's ForAccount
-        auto orchardSkOpt = libzcash::OrchardExtendedSpendingKeyPirate::Master(seed).Derive(bip44CoinType, 133);
-        if (orchardSkOpt.has_value()) {
-            auto orchardSk = orchardSkOpt.value();
-            auto orchardFvkOpt = orchardSk.GetXFVK();
-            if (orchardFvkOpt.has_value()) {
-                auto orchardFvk = orchardFvkOpt.value();
-                auto addressOpt = orchardFvk.fvk.GetDefaultAddress();
-                if (addressOpt.has_value()) {
-                    auto to = addressOpt.value();
-                    uint256 orchardAnchor;
-                    uint256 dataToBeSigned;
-                    
-                    // Create builder and add output
-                    auto builder = orchard::Builder(true, true, orchardAnchor);
-                    std::array<unsigned char, ZC_MEMO_SIZE> emptyMemo = {{0}};
-                    builder.AddOutput(std::nullopt, to, 0, emptyMemo);
-                    
-                    // Build and sign the bundle
-                    auto maybe_bundle = builder.Build();
-                    if (maybe_bundle.has_value()) {
-                        auto authorized_bundle = maybe_bundle.value().ProveAndSign({}, dataToBeSigned);
-                        if (authorized_bundle.has_value()) {
-                            mutableTx.orchardBundle = authorized_bundle.value();
-                            auto nullifiers = mutableTx.orchardBundle.GetNullifiers();
-                            if (!nullifiers.empty()) {
-                                orchardNullifier = nullifiers[0];
-                            } else {
-                                orchardNullifier = GetRandHash();
-                            }
-                        } else {
-                            orchardNullifier = GetRandHash();
-                        }
-                    } else {
-                        orchardNullifier = GetRandHash();
-                    }
-                } else {
-                    orchardNullifier = GetRandHash();
-                }
-            } else {
-                orchardNullifier = GetRandHash();
-            }
-        } else {
-            orchardNullifier = GetRandHash();
-        }
+        orchardNullifier = GetRandHash();
+        orchard::SpendDescription osd;
+        osd.nullifier = orchardNullifier;
+        mutableTx.vOrchardSpend.push_back(osd);
 
         tx = CTransaction(mutableTx);
     }
 };
 
-uint256 appendRandomSproutCommitment(SproutMerkleTree& tree)
+
+uint256 appendRandomSproutCommitment(SproutMerkleTree &tree)
 {
     libzcash::SproutSpendingKey k = libzcash::SproutSpendingKey::random();
     libzcash::SproutPaymentAddress addr = k.address();
@@ -362,62 +329,24 @@ uint256 appendRandomSproutCommitment(SproutMerkleTree& tree)
     return cm;
 }
 
-template<typename Tree> void AppendRandomLeaf(Tree &tree);
-template<> void AppendRandomLeaf(SproutMerkleTree &tree) { tree.append(GetRandHash()); }
-template<> void AppendRandomLeaf(SaplingMerkleTree &tree) { tree.append(GetRandHash()); }
-template<> void AppendRandomLeaf(SaplingMerkleFrontier &tree) { 
-    SetupTestEnvironment();
+template<typename Tree> bool GetAnchorAt(const CCoinsViewCacheTest &cache, const uint256 &rt, Tree &tree);
+template<> bool GetAnchorAt(const CCoinsViewCacheTest &cache, const uint256 &rt, SproutMerkleTree &tree) { return cache.GetSproutAnchorAt(rt, tree); }
+template<> bool GetAnchorAt(const CCoinsViewCacheTest &cache, const uint256 &rt, SaplingMerkleTree &tree) { return cache.GetSaplingAnchorAt(rt, tree); }
+template<> bool GetAnchorAt(const CCoinsViewCacheTest &cache, const uint256 &rt, SaplingMerkleFrontier &tree) { return cache.GetSaplingFrontierAnchorAt(rt, tree); }
+template<> bool GetAnchorAt(const CCoinsViewCacheTest &cache, const uint256 &rt, OrchardMerkleFrontier &tree) { return cache.GetOrchardAnchorAt(rt, tree); }
 
-    CMutableTransaction mutableTx;
-
-    mutableTx.saplingBundle = sapling::test_only_invalid_bundle(1, 1, 0);
-    uint256 saplingCMU = uint256::FromRawBytes(mutableTx.saplingBundle.GetDetails().outputs()[0].cmu());
-    tree.append(saplingCMU); 
-}
-
-template<> void AppendRandomLeaf(OrchardMerkleFrontier &tree) {
-    SetupTestEnvironment();
-    // OrchardMerkleFrontier only has APIs to append entire bundles, but
-    // fortunately the tests only require that the tree root change.
-    // TODO: Remove the need to create proofs by having a testing-only way to
-    // append a random leaf to OrchardMerkleFrontier.
-    uint256 orchardAnchor;
-    uint256 dataToBeSigned;
-    auto builder = orchard::Builder(true, true, orchardAnchor);
-    auto bundle = builder.Build().value().ProveAndSign({}, dataToBeSigned).value();
-    tree.AppendBundle(bundle);
-}
-
-template <typename Tree>
-bool GetAnchorAt(const CCoinsViewCacheTest& cache, const uint256& rt, Tree& tree);
-template <>
-bool GetAnchorAt(const CCoinsViewCacheTest& cache, const uint256& rt, SproutMerkleTree& tree)
-{
-    return cache.GetSproutAnchorAt(rt, tree);
-}
-template <>
-bool GetAnchorAt(const CCoinsViewCacheTest& cache, const uint256& rt, SaplingMerkleFrontier& tree)
-{
-    return cache.GetSaplingFrontierAnchorAt(rt, tree);
-}
-template <>
-bool GetAnchorAt(const CCoinsViewCacheTest& cache, const uint256& rt, OrchardMerkleFrontier& tree)
-{
-    return cache.GetOrchardFrontierAnchorAt(rt, tree);
-}
-
-void checkNullifierCache(const CCoinsViewCacheTest& cache, const TxWithNullifiers& txWithNullifiers, bool shouldBeInCache)
+void checkNullifierCache(const CCoinsViewCacheTest &cache, const TxWithNullifiers &txWithNullifiers, bool shouldBeInCache)
 {
     // Make sure the nullifiers have not gotten mixed up
-    EXPECT_TRUE(!cache.GetNullifier(txWithNullifiers.sproutNullifier, SAPLINGFRONTIER));
+    EXPECT_TRUE(!cache.GetNullifier(txWithNullifiers.sproutNullifier, SAPLING));
     EXPECT_TRUE(!cache.GetNullifier(txWithNullifiers.sproutNullifier, ORCHARDFRONTIER));
     EXPECT_TRUE(!cache.GetNullifier(txWithNullifiers.saplingNullifier, SPROUT));
     EXPECT_TRUE(!cache.GetNullifier(txWithNullifiers.saplingNullifier, ORCHARDFRONTIER));
     EXPECT_TRUE(!cache.GetNullifier(txWithNullifiers.orchardNullifier, SPROUT));
-    EXPECT_TRUE(!cache.GetNullifier(txWithNullifiers.orchardNullifier, SAPLINGFRONTIER));
+    EXPECT_TRUE(!cache.GetNullifier(txWithNullifiers.orchardNullifier, SAPLING));
     // Check if the nullifiers either are or are not in the cache
     bool containsSproutNullifier = cache.GetNullifier(txWithNullifiers.sproutNullifier, SPROUT);
-    bool containsSaplingNullifier = cache.GetNullifier(txWithNullifiers.saplingNullifier, SAPLINGFRONTIER);
+    bool containsSaplingNullifier = cache.GetNullifier(txWithNullifiers.saplingNullifier, SAPLING);
     bool containsOrchardNullifier = cache.GetNullifier(txWithNullifiers.orchardNullifier, ORCHARDFRONTIER);
     EXPECT_TRUE(containsSproutNullifier == shouldBeInCache);
     EXPECT_TRUE(containsSaplingNullifier == shouldBeInCache);
@@ -512,7 +441,7 @@ TEST(TestCoins, nullifier_regression_test)
     }
 }
 
-template <typename Tree>
+template<typename Tree>
 void anchorPopRegressionTestImpl(ShieldedType type)
 {
     // Correct behavior:
@@ -522,9 +451,7 @@ void anchorPopRegressionTestImpl(ShieldedType type)
 
         // Create dummy anchor/commitment
         Tree tree;
-        AppendRandomLeaf(tree);
-        
-
+        tree.append(GetRandHash());
 
         // Add the anchor
         cache1.PushAnchor(tree);
@@ -553,7 +480,7 @@ void anchorPopRegressionTestImpl(ShieldedType type)
 
         // Create dummy anchor/commitment
         Tree tree;
-        AppendRandomLeaf(tree);
+        tree.append(GetRandHash());
 
         // Add the anchor and flush to disk
         cache1.PushAnchor(tree);
@@ -564,8 +491,8 @@ void anchorPopRegressionTestImpl(ShieldedType type)
 
         {
             CCoinsViewCacheTest cache2(&cache1); // Build cache on top
-            cache2.PushAnchor(tree);             // Put the same anchor back!
-            cache2.Flush();                      // Flush to cache1
+            cache2.PushAnchor(tree); // Put the same anchor back!
+            cache2.Flush(); // Flush to cache1
         }
 
         // cache2's flush kinda worked, i.e. cache1 thinks the
@@ -591,11 +518,11 @@ void anchorPopRegressionTestImpl(ShieldedType type)
 TEST(TestCoins, anchor_pop_regression_test)
 {
     anchorPopRegressionTestImpl<SproutMerkleTree>(SPROUT);
-    anchorPopRegressionTestImpl<SaplingMerkleFrontier>(SAPLINGFRONTIER);
+    anchorPopRegressionTestImpl<SaplingMerkleTree>(SAPLING);
     anchorPopRegressionTestImpl<OrchardMerkleFrontier>(ORCHARDFRONTIER);
 }
 
-template <typename Tree>
+template<typename Tree>
 void anchorRegressionTestImpl(ShieldedType type)
 {
     // Correct behavior:
@@ -605,7 +532,7 @@ void anchorRegressionTestImpl(ShieldedType type)
 
         // Insert anchor into base.
         Tree tree;
-        AppendRandomLeaf(tree);
+        tree.append(GetRandHash());
 
         cache1.PushAnchor(tree);
         cache1.Flush();
@@ -622,7 +549,7 @@ void anchorRegressionTestImpl(ShieldedType type)
 
         // Insert anchor into base.
         Tree tree;
-        AppendRandomLeaf(tree);
+        tree.append(GetRandHash());
         cache1.PushAnchor(tree);
         cache1.Flush();
 
@@ -639,7 +566,7 @@ void anchorRegressionTestImpl(ShieldedType type)
 
         // Insert anchor into base.
         Tree tree;
-        AppendRandomLeaf(tree);
+        tree.append(GetRandHash());
         cache1.PushAnchor(tree);
         cache1.Flush();
 
@@ -662,7 +589,7 @@ void anchorRegressionTestImpl(ShieldedType type)
 
         // Insert anchor into base.
         Tree tree;
-        AppendRandomLeaf(tree);
+        tree.append(GetRandHash());
         cache1.PushAnchor(tree);
         cache1.Flush();
 
@@ -681,7 +608,7 @@ void anchorRegressionTestImpl(ShieldedType type)
 TEST(TestCoins, anchor_regression_test)
 {
     anchorRegressionTestImpl<SproutMerkleTree>(SPROUT);
-    anchorRegressionTestImpl<SaplingMerkleFrontier>(SAPLINGFRONTIER);
+    anchorRegressionTestImpl<SaplingMerkleTree>(SAPLING);
     anchorRegressionTestImpl<OrchardMerkleFrontier>(ORCHARDFRONTIER);
 }
 
@@ -708,7 +635,7 @@ TEST(TestCoins, nullifiers_test)
     checkNullifierCache(cache3, txWithNullifiers, false);
 }
 
-template <typename Tree>
+template<typename Tree>
 void anchorsFlushImpl(ShieldedType type)
 {
     CCoinsViewTest base;
@@ -717,7 +644,7 @@ void anchorsFlushImpl(ShieldedType type)
         CCoinsViewCacheTest cache(&base);
         Tree tree;
         EXPECT_TRUE(GetAnchorAt(cache, cache.GetBestAnchor(type), tree));
-        AppendRandomLeaf(tree);
+        tree.append(GetRandHash());
 
         newrt = tree.root();
 
@@ -742,7 +669,7 @@ void anchorsFlushImpl(ShieldedType type)
 TEST(TestCoins, anchors_flush_test)
 {
     anchorsFlushImpl<SproutMerkleTree>(SPROUT);
-    anchorsFlushImpl<SaplingMerkleFrontier>(SAPLINGFRONTIER);
+    anchorsFlushImpl<SaplingMerkleTree>(SAPLING);
     anchorsFlushImpl<OrchardMerkleFrontier>(ORCHARDFRONTIER);
 }
 
@@ -783,7 +710,7 @@ TEST(TestCoins, chained_joinsplits)
         CMutableTransaction mtx;
         mtx.vjoinsplit.push_back(js2);
 
-        EXPECT_TRUE(!cache.HaveJoinSplitRequirements(mtx, 2));
+        EXPECT_TRUE(!cache.HaveJoinSplitRequirements(mtx,2));
     }
 
     {
@@ -793,7 +720,7 @@ TEST(TestCoins, chained_joinsplits)
         mtx.vjoinsplit.push_back(js2);
         mtx.vjoinsplit.push_back(js1);
 
-        EXPECT_TRUE(!cache.HaveJoinSplitRequirements(mtx, 2));
+        EXPECT_TRUE(!cache.HaveJoinSplitRequirements(mtx,2));
     }
 
     {
@@ -801,7 +728,7 @@ TEST(TestCoins, chained_joinsplits)
         mtx.vjoinsplit.push_back(js1);
         mtx.vjoinsplit.push_back(js2);
 
-        EXPECT_TRUE(cache.HaveJoinSplitRequirements(mtx, 2));
+        EXPECT_TRUE(cache.HaveJoinSplitRequirements(mtx,2));
     }
 
     {
@@ -810,7 +737,7 @@ TEST(TestCoins, chained_joinsplits)
         mtx.vjoinsplit.push_back(js2);
         mtx.vjoinsplit.push_back(js3);
 
-        EXPECT_TRUE(cache.HaveJoinSplitRequirements(mtx, 2));
+        EXPECT_TRUE(cache.HaveJoinSplitRequirements(mtx,2));
     }
 
     {
@@ -820,11 +747,11 @@ TEST(TestCoins, chained_joinsplits)
         mtx.vjoinsplit.push_back(js2);
         mtx.vjoinsplit.push_back(js3);
 
-        EXPECT_TRUE(cache.HaveJoinSplitRequirements(mtx, 2));
+        EXPECT_TRUE(cache.HaveJoinSplitRequirements(mtx,2));
     }
 }
 
-template <typename Tree>
+template<typename Tree>
 void anchorsTestImpl(ShieldedType type)
 {
     // TODO: These tests should be more methodical.
@@ -840,13 +767,13 @@ void anchorsTestImpl(ShieldedType type)
 
         EXPECT_TRUE(GetAnchorAt(cache, cache.GetBestAnchor(type), tree));
         EXPECT_TRUE(cache.GetBestAnchor(type) == tree.root());
-        AppendRandomLeaf(tree);
-        AppendRandomLeaf(tree);
-        AppendRandomLeaf(tree);
-        AppendRandomLeaf(tree);
-        AppendRandomLeaf(tree);
-        AppendRandomLeaf(tree);
-        AppendRandomLeaf(tree);
+        tree.append(GetRandHash());
+        tree.append(GetRandHash());
+        tree.append(GetRandHash());
+        tree.append(GetRandHash());
+        tree.append(GetRandHash());
+        tree.append(GetRandHash());
+        tree.append(GetRandHash());
 
         Tree save_tree_for_later;
         save_tree_for_later = tree;
@@ -864,8 +791,8 @@ void anchorsTestImpl(ShieldedType type)
             EXPECT_TRUE(confirm_same.root() == newrt);
         }
 
-        AppendRandomLeaf(tree);
-        AppendRandomLeaf(tree);
+        tree.append(GetRandHash());
+        tree.append(GetRandHash());
 
         newrt2 = tree.root();
 
@@ -898,7 +825,7 @@ void anchorsTestImpl(ShieldedType type)
 TEST(TestCoins, anchors_test)
 {
     anchorsTestImpl<SproutMerkleTree>(SPROUT);
-    anchorsTestImpl<SaplingMerkleFrontier>(SAPLINGFRONTIER);
+    anchorsTestImpl<SaplingMerkleTree>(SAPLING);
     anchorsTestImpl<OrchardMerkleFrontier>(ORCHARDFRONTIER);
 }
 
@@ -928,8 +855,8 @@ TEST(TestCoins, coins_cache_simulation_test)
     std::map<uint256, CCoins> result;
 
     // The cache stack.
-    CCoinsViewTest base;                             // A CCoinsViewTest at the bottom.
-    std::vector<CCoinsViewCacheTest*> stack;         // A stack of CCoinsViewCaches on top.
+    CCoinsViewTest base; // A CCoinsViewTest at the bottom.
+    std::vector<CCoinsViewCacheTest*> stack; // A stack of CCoinsViewCaches on top.
     stack.push_back(new CCoinsViewCacheTest(&base)); // Start with one cache.
 
     // Use a limited set of random transaction ids, so we do test overwriting entries.
@@ -975,7 +902,7 @@ TEST(TestCoins, coins_cache_simulation_test)
                     missed_an_entry = true;
                 }
             }
-            BOOST_FOREACH (const CCoinsViewCacheTest* test, stack) {
+            BOOST_FOREACH(const CCoinsViewCacheTest *test, stack) {
                 test->SelfTest();
             }
         }
@@ -1049,7 +976,7 @@ TEST(TestCoins, coins_coinbase_spends)
 
     {
         CTransaction tx2(mtx2);
-        EXPECT_TRUE(Consensus::CheckTxInputs(tx2, state, cache, 100 + Params().CoinbaseMaturity(), Params().GetConsensus()));
+        EXPECT_TRUE(Consensus::CheckTxInputs(tx2, state, cache, 100+ Params().CoinbaseMaturity(), Params().GetConsensus()));
     }
 
     mtx2.vout.resize(1);
@@ -1058,8 +985,8 @@ TEST(TestCoins, coins_coinbase_spends)
 
     {
         CTransaction tx2(mtx2);
-        EXPECT_TRUE(Consensus::CheckTxInputs(tx2, state, cache, 100 + Params().CoinbaseMaturity(), Params().GetConsensus()));
-        // EXPECT_TRUE(state.GetRejectReason() == "bad-txns-coinbase-spend-has-transparent-outputs");
+        EXPECT_TRUE(Consensus::CheckTxInputs(tx2, state, cache, 100+Params().CoinbaseMaturity(), Params().GetConsensus()));
+        //EXPECT_TRUE(state.GetRejectReason() == "bad-txns-coinbase-spend-has-transparent-outputs");
     }
 }
 
@@ -1131,5 +1058,4 @@ TEST(TestCoins, ccoins_serialization)
     } catch (const std::ios_base::failure& e) {
     }
 }
-
 } // namespace TestCoins
