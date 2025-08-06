@@ -1,7 +1,7 @@
 diff --git a/cmd/src/gen/include.rs b/cmd/src/gen/include.rs
 --- a/cmd/src/gen/include.rs
 +++ b/cmd/src/gen/include.rs
-@@ -1 +1,6 @@
+@@ -1,1 +1,6 @@
 -pub static HEADER: &str = include_str!("include/cxx.h");
 +// cxxbridge 1.0.107 occasionally lacks gen/cmd/src/gen/include/cxx.h (on Windows).
 +// Point the generator at the repository-level header instead.
