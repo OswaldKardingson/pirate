@@ -34,6 +34,7 @@ endef
 
 define $(package)_preprocess_cmds
   cp $($(package)_patch_dir)/Cargo.lock . && \
+  patch -p1 < $($(package)_patch_dir)/add-missing-cxx-header.patch && \
   mkdir -p .cargo && \
   echo "[source.crates-io]" >.cargo/config && \
   echo "replace-with = \"vendored-sources\"" >>.cargo/config && \
