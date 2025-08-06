@@ -41,7 +41,7 @@ define $(package)_preprocess_cmds
   echo "directory = \"$(CRATE_REGISTRY)\"" >>.cargo/config && \
   echo "" >> .cargo/config && \
   mkdir -p src/gen/include && \
-  cp ../../include/cxx.h src/gen/include/
+  touch src/gen/include/cxx.h
 endef
 
 define $(package)_build_cmds
