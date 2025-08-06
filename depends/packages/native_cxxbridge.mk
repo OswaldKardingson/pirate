@@ -1,14 +1,14 @@
 package=native_cxxbridge
 # The version needs to match cxx in Cargo.toml
-$(package)_version=1.0.107
+$(package)_version=1.0.163
 $(package)_download_path=https://github.com/dtolnay/cxx/archive/refs/tags
-$(package)_file_name=native_cxxbridge-$($(package)_version).tar.gz
+$(package)_file_name=cxx-$($(package)_version).tar.gz
 $(package)_download_file=$($(package)_version).tar.gz
-$(package)_sha256_hash=961256a942c2369d84db29f6f7d09bce7fa7de221ec729856216a87b0970b1df
+$(package)_sha256_hash=59f30bc0456c3ec87fabf5c32fb8f0a6a72a3b7846f7486aae8dba2b4a132117
 $(package)_build_subdir=gen/cmd
 $(package)_dependencies=native_rust
 # This file is somewhat annoying to update, but can be done like so from the repo base:
-# $ export VERSION=1.0.107
+# $ export VERSION=1.0.163
 # $ rm .cargo/config .cargo/.configured-for-offline
 # $ mkdir tmp
 # $ cd tmp
@@ -16,12 +16,12 @@ $(package)_dependencies=native_rust
 # $ cd cxx-$VERSION
 # $ cargo check --release --package=cxxbridge-cmd --bin=cxxbridge
 # $ cp Cargo.lock ../../depends/patches/native_cxxbridge/
-$(package)_patches=Cargo.lock add-missing-cxx-header.patch
+$(package)_patches=
 $(package)_extra_sources=$(package)-$($(package)_version)-vendored.tar.gz
   
 define $(package)_fetch_cmds
 $(call fetch_file,$(1),$($(1)_download_path),$($(1)_download_file),$($(1)_file_name),$($(1)_sha256_hash)) && \
-$(call vendor_crate_deps,$(1),$($(1)_file_name),$(PATCHES_PATH)/$(1)/Cargo.lock,Cargo.toml,$(1)-$($(1)_version)-vendored.tar.gz)
+$(call vendor_crate_deps,$(1),$($(1)_file_name),,Cargo.toml,$(1)-$($(1)_version)-vendored.tar.gz)
 endef
 
 define $(package)_extract_cmds
@@ -33,8 +33,6 @@ define $(package)_extract_cmds
 endef
 
 define $(package)_preprocess_cmds
-  cp $($(package)_patch_dir)/Cargo.lock . && \
-  patch -p1 < $($(package)_patch_dir)/add-missing-cxx-header.patch && \
   mkdir -p .cargo && \
   echo "[source.crates-io]" >.cargo/config && \
   echo "replace-with = \"vendored-sources\"" >>.cargo/config && \
@@ -48,7 +46,7 @@ define $(package)_build_cmds
 endef
 
 define $(package)_stage_cmds
-	cargo install --locked --path=. --bin=cxxbridge --root=$($(package)_staging_prefix_dir)
+	cargo install --path=. --bin=cxxbridge --root=$($(package)_staging_prefix_dir)
 	if test "$(build_os)" = "mingw32"; then \
 	  cp target/release/cxxbridge.exe $($(package)_staging_prefix_dir)/bin/; \
 	fi
