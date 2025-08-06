@@ -217,7 +217,7 @@ TEST(TestEvalNotarisation, testInvalidNotarisationInputNotCheckSig)
         int i = 1;
         CMutableTransaction txIn;
         // Set valid transaction format fields for txIn
-        txIn.nVersion = CTransaction::ORCHARD_TX_VERSION;
+        txIn.nVersion = ORCHARD_TX_VERSION;
         txIn.fOverwintered = true;
         txIn.nVersionGroupId = ORCHARD_VERSION_GROUP_ID;
         txIn.nLockTime = 0;
