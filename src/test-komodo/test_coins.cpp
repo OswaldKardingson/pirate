@@ -117,7 +117,7 @@ public:
             case SPROUT:
                 mapToUse = &mapSproutNullifiers_;
                 break;
-            case SAPLING:
+            case SAPLINGFRONTIER:
                 mapToUse = &mapSaplingNullifiers_;
                 break;
             case ORCHARDFRONTIER:
@@ -140,9 +140,6 @@ public:
         switch (type) {
             case SPROUT:
                 return hashBestSproutAnchor_;
-                break;
-            case SAPLING:
-                return hashBestSaplingAnchor_;
                 break;
             case SAPLINGFRONTIER:
                 return hashBestSaplingFrontierAnchor_;
@@ -338,15 +335,15 @@ template<> bool GetAnchorAt(const CCoinsViewCacheTest &cache, const uint256 &rt,
 void checkNullifierCache(const CCoinsViewCacheTest &cache, const TxWithNullifiers &txWithNullifiers, bool shouldBeInCache)
 {
     // Make sure the nullifiers have not gotten mixed up
-    EXPECT_TRUE(!cache.GetNullifier(txWithNullifiers.sproutNullifier, SAPLING));
+    EXPECT_TRUE(!cache.GetNullifier(txWithNullifiers.sproutNullifier, SAPLINGFRONTIER));
     EXPECT_TRUE(!cache.GetNullifier(txWithNullifiers.sproutNullifier, ORCHARDFRONTIER));
     EXPECT_TRUE(!cache.GetNullifier(txWithNullifiers.saplingNullifier, SPROUT));
     EXPECT_TRUE(!cache.GetNullifier(txWithNullifiers.saplingNullifier, ORCHARDFRONTIER));
     EXPECT_TRUE(!cache.GetNullifier(txWithNullifiers.orchardNullifier, SPROUT));
-    EXPECT_TRUE(!cache.GetNullifier(txWithNullifiers.orchardNullifier, SAPLING));
+    EXPECT_TRUE(!cache.GetNullifier(txWithNullifiers.orchardNullifier, SAPLINGFRONTIER));
     // Check if the nullifiers either are or are not in the cache
     bool containsSproutNullifier = cache.GetNullifier(txWithNullifiers.sproutNullifier, SPROUT);
-    bool containsSaplingNullifier = cache.GetNullifier(txWithNullifiers.saplingNullifier, SAPLING);
+    bool containsSaplingNullifier = cache.GetNullifier(txWithNullifiers.saplingNullifier, SAPLINGFRONTIER);
     bool containsOrchardNullifier = cache.GetNullifier(txWithNullifiers.orchardNullifier, ORCHARDFRONTIER);
     EXPECT_TRUE(containsSproutNullifier == shouldBeInCache);
     EXPECT_TRUE(containsSaplingNullifier == shouldBeInCache);
@@ -518,7 +515,7 @@ void anchorPopRegressionTestImpl(ShieldedType type)
 TEST(TestCoins, anchor_pop_regression_test)
 {
     anchorPopRegressionTestImpl<SproutMerkleTree>(SPROUT);
-    anchorPopRegressionTestImpl<SaplingMerkleTree>(SAPLING);
+    anchorPopRegressionTestImpl<SaplingMerkleTree>(SAPLINGFRONTIER);
     anchorPopRegressionTestImpl<OrchardMerkleFrontier>(ORCHARDFRONTIER);
 }
 
@@ -608,7 +605,7 @@ void anchorRegressionTestImpl(ShieldedType type)
 TEST(TestCoins, anchor_regression_test)
 {
     anchorRegressionTestImpl<SproutMerkleTree>(SPROUT);
-    anchorRegressionTestImpl<SaplingMerkleTree>(SAPLING);
+    anchorRegressionTestImpl<SaplingMerkleTree>(SAPLINGFRONTIER);
     anchorRegressionTestImpl<OrchardMerkleFrontier>(ORCHARDFRONTIER);
 }
 
@@ -669,7 +666,7 @@ void anchorsFlushImpl(ShieldedType type)
 TEST(TestCoins, anchors_flush_test)
 {
     anchorsFlushImpl<SproutMerkleTree>(SPROUT);
-    anchorsFlushImpl<SaplingMerkleTree>(SAPLING);
+    anchorsFlushImpl<SaplingMerkleTree>(SAPLINGFRONTIER);
     anchorsFlushImpl<OrchardMerkleFrontier>(ORCHARDFRONTIER);
 }
 
@@ -825,7 +822,7 @@ void anchorsTestImpl(ShieldedType type)
 TEST(TestCoins, anchors_test)
 {
     anchorsTestImpl<SproutMerkleTree>(SPROUT);
-    anchorsTestImpl<SaplingMerkleTree>(SAPLING);
+    anchorsTestImpl<SaplingMerkleTree>(SAPLINGFRONTIER);
     anchorsTestImpl<OrchardMerkleFrontier>(ORCHARDFRONTIER);
 }
 
