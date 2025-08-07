@@ -131,8 +131,23 @@ TEST(test_block, TestSpendInSameBlock)
     block.vtx.push_back(fundAlice.transaction);
     block.vtx.push_back(aliceToBob.transaction);
     
-    // Mine the block
-    lastBlock = chain.generateBlock(miner, &block);
+    // Complete the block construction
+    block.nBits = GetNextWorkRequired(chain.GetIndex(), &block, consensusParams);
+    block.nTime = GetTime();
+    block.hashPrevBlock = chain.GetIndex()->GetBlockHash();
+    block.hashMerkleRoot = block.BuildMerkleTree();
+    
+    // Add proof-of-work
+    EXPECT_TRUE(CalcPoW(&block));
+    
+    // Process the block
+    CValidationState state;
+    int32_t newHeight = chain.GetIndex()->nHeight + 1;
+    EXPECT_TRUE(ProcessNewBlock(false, newHeight, state, nullptr, &block, false, nullptr));
+    if (!state.IsValid())
+        FAIL() << state.GetRejectReason();
+    
+    lastBlock = std::make_shared<CBlock>(block);
     EXPECT_TRUE(lastBlock != nullptr);
     
     // Generate one more block to ensure everything is confirmed
@@ -190,7 +205,23 @@ TEST(test_block, TestDoubleSpendInSameBlock)
     block.vtx.push_back(CTransaction(txNew));
     block.vtx.push_back(fundAlice.transaction);
     
-    lastBlock = chain.generateBlock(notary, &block);
+    // Complete the block construction
+    block.nBits = GetNextWorkRequired(chain.GetIndex(), &block, consensusParams);
+    block.nTime = GetTime();
+    block.hashPrevBlock = chain.GetIndex()->GetBlockHash();
+    block.hashMerkleRoot = block.BuildMerkleTree();
+    
+    // Add proof-of-work
+    EXPECT_TRUE(CalcPoW(&block));
+    
+    // Process the block
+    CValidationState state;
+    int32_t newHeight = chain.GetIndex()->nHeight + 1;
+    EXPECT_TRUE(ProcessNewBlock(false, newHeight, state, nullptr, &block, false, nullptr));
+    if (!state.IsValid())
+        FAIL() << state.GetRejectReason();
+    
+    lastBlock = std::make_shared<CBlock>(block);
     EXPECT_TRUE(lastBlock != nullptr);
     
     // now have Alice move some funds to Bob in the same block
