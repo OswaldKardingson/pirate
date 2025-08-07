@@ -40,8 +40,10 @@ define $(package)_preprocess_cmds
   echo "[source.vendored-sources]" >>.cargo/config && \
   echo "directory = \"$(CRATE_REGISTRY)\"" >>.cargo/config && \
   echo "" >> .cargo/config && \
-  mkdir -p src/gen/include && \
-  touch src/gen/include/cxx.h
+  if test "$(build_os)" = "mingw32"; then \
+    mkdir -p src/gen/include && \
+    cp ../../include/cxx.h src/gen/include/cxx.h; \
+  fi
 endef
 
 define $(package)_build_cmds
