@@ -9,6 +9,9 @@
 #include <thread>
 #include <gtest/gtest.h>
 
+// Forward declaration
+bool CalcPoW(CBlock *pblock);
+
 // NB! first generateBlock call changes IsInitialBlockDownload() to false globally (!), affects other tests
 
 TEST(test_block, header_size_is_expected) {
@@ -142,7 +145,6 @@ TEST(test_block, TestSpendInSameBlock)
     
     // Process the block
     CValidationState state;
-    int32_t newHeight = chain.GetIndex()->nHeight + 1;
     EXPECT_TRUE(ProcessNewBlock(false, newHeight, state, nullptr, &block, false, nullptr));
     if (!state.IsValid())
         FAIL() << state.GetRejectReason();
@@ -216,7 +218,6 @@ TEST(test_block, TestDoubleSpendInSameBlock)
     
     // Process the block
     CValidationState state;
-    int32_t newHeight = chain.GetIndex()->nHeight + 1;
     EXPECT_TRUE(ProcessNewBlock(false, newHeight, state, nullptr, &block, false, nullptr));
     if (!state.IsValid())
         FAIL() << state.GetRejectReason();
@@ -253,8 +254,6 @@ TEST(test_block, TestDoubleSpendInSameBlock)
     EXPECT_EQ(alice->GetBalance(), CAmount(85000));
     EXPECT_EQ(notary->GetBalance(), expectedNotaryBalance);
 }
-
-bool CalcPoW(CBlock *pblock);
 
 TEST(test_block, TestProcessBlock)
 {
