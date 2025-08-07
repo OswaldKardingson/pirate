@@ -40,7 +40,7 @@ define $(package)_preprocess_cmds
   echo "[source.vendored-sources]" >>.cargo/config && \
   echo "directory = \"$(CRATE_REGISTRY)\"" >>.cargo/config && \
   echo "" >> .cargo/config && \
-  if test "$(build_os)" = "mingw32"; then \
+  if test "$(build_os)" = "mingw32" -o "$(build_os)" = "mingw64"; then \
     mkdir -p src/gen/include && \
     cp ../../include/cxx.h src/gen/include/cxx.h; \
   fi
@@ -52,7 +52,7 @@ endef
 
 define $(package)_stage_cmds
 	cargo install --locked --path=. --bin=cxxbridge --root=$($(package)_staging_prefix_dir)
-	if test "$(build_os)" = "mingw32"; then \
+	if test "$(build_os)" = "mingw32" -o "$(build_os)" = "mingw64"; then \
 	  cp target/release/cxxbridge.exe $($(package)_staging_prefix_dir)/bin/; \
 	fi
 endef
