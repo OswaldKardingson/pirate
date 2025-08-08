@@ -32,7 +32,7 @@ class CCoinsViewTest : public CCoinsView
     uint256 hashBestOrchardAnchor_;
     std::map<uint256, CCoins> map_;
     std::map<uint256, SproutMerkleTree> mapSproutAnchors_;
-    std::map<uint256, SaplingMerkleTree> mapSaplingAnchors_;
+    std::map<uint256, SaplingMerkleFrontier> mapSaplingAnchors_;
     std::map<uint256, SaplingMerkleFrontier> mapSaplingFrontierAnchors_;
     std::map<uint256, OrchardMerkleFrontier> mapOrchardAnchors_;
     std::map<uint256, bool> mapSproutNullifiers_;
@@ -42,7 +42,7 @@ class CCoinsViewTest : public CCoinsView
 public:
     CCoinsViewTest() {
         hashBestSproutAnchor_ = SproutMerkleTree::empty_root();
-        hashBestSaplingAnchor_ = SaplingMerkleTree::empty_root();
+        hashBestSaplingAnchor_ = SaplingMerkleFrontier::empty_root();
         hashBestSaplingFrontierAnchor_ = SaplingMerkleFrontier::empty_root();
         hashBestOrchardAnchor_ = OrchardMerkleFrontier::empty_root();
     }
@@ -63,14 +63,14 @@ public:
         }
     }
 
-    bool GetSaplingAnchorAt(const uint256& rt, SaplingMerkleTree &tree) const {
-        if (rt == SaplingMerkleTree::empty_root()) {
-            SaplingMerkleTree new_tree;
+    bool GetSaplingAnchorAt(const uint256& rt, SaplingMerkleFrontier &tree) const {
+        if (rt == SaplingMerkleFrontier::empty_root()) {
+            SaplingMerkleFrontier new_tree;
             tree = new_tree;
             return true;
         }
 
-        std::map<uint256, SaplingMerkleTree>::const_iterator it = mapSaplingAnchors_.find(rt);
+        std::map<uint256, SaplingMerkleFrontier>::const_iterator it = mapSaplingAnchors_.find(rt);
         if (it == mapSaplingAnchors_.end()) {
             return false;
         } else {
@@ -331,8 +331,7 @@ uint256 appendRandomSproutCommitment(SproutMerkleTree &tree)
 template<typename Tree> bool GetAnchorAt(const CCoinsViewCacheTest &cache, const uint256 &rt, Tree &tree);
 template<> bool GetAnchorAt(const CCoinsViewCacheTest &cache, const uint256 &rt, SproutMerkleTree &tree) { return cache.GetSproutAnchorAt(rt, tree); }
 template<> bool GetAnchorAt(const CCoinsViewCacheTest &cache, const uint256 &rt, SaplingMerkleFrontier &tree) { return cache.GetSaplingFrontierAnchorAt(rt, tree); }
-template<> bool GetAnchorAt(const CCoinsViewCacheTest &cache, const uint256 &rt, OrchardMerkleFrontier &tree) { return cache.GetOrchardAnchorAt(rt, tree); }
-
+template<> bool GetAnchorAt(const CCoinsViewCacheTest &cache, const uint256 &rt, OrchardMerkleFrontier &tree) { return cache.GetOrchardFrontierAnchorAt(rt, tree); }
 void checkNullifierCache(const CCoinsViewCacheTest &cache, const TxWithNullifiers &txWithNullifiers, bool shouldBeInCache)
 {
     // Make sure the nullifiers have not gotten mixed up
@@ -835,7 +834,7 @@ void anchorsTestImpl(ShieldedType type)
 TEST(TestCoins, anchors_test)
 {
     anchorsTestImpl<SproutMerkleTree>(SPROUT);
-    anchorsTestImpl<SaplingMerkleTree>(SAPLINGFRONTIER);
+    anchorsTestImpl<SaplingMerkleFrontier>(SAPLINGFRONTIER);
     anchorsTestImpl<OrchardMerkleFrontier>(ORCHARDFRONTIER);
 }
 
