@@ -53,9 +53,6 @@ endef
 
 define $(package)_stage_cmds
 	cargo install --locked --path=. --bin=cxxbridge --root=$($(package)_staging_prefix_dir)
-	if test "$(build_os)" = "mingw32" -o "$(build_os)" = "mingw64"; then \
-	  cp target/release/cxxbridge.exe $($(package)_staging_prefix_dir)/bin/; \
-	fi
 endef
 
 # Add secp256k1 configuration for AArch64 to use safer settings
