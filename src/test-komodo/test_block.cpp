@@ -87,10 +87,6 @@ TEST(test_block, TestSpendInSameBlock)
     auto miner = std::make_shared<TestWallet>("miner");
     SelectParams(CBaseChainParams::REGTEST);
     
-    // Ensure Orchard is active for all tests
-    UpdateNetworkUpgradeParameters(Consensus::UPGRADE_OVERWINTER, Consensus::NetworkUpgrade::ALWAYS_ACTIVE);
-    UpdateNetworkUpgradeParameters(Consensus::UPGRADE_ORCHARD, Consensus::NetworkUpgrade::ALWAYS_ACTIVE);
-    
     std::shared_ptr<CBlock> lastBlock = chain.generateBlock(notary); // genesis block
     
     // Mine enough blocks to fully mature the coinbase output
@@ -172,10 +168,6 @@ TEST(test_block, TestDoubleSpendInSameBlock)
     auto bob = std::make_shared<TestWallet>("bob");
     auto charlie = std::make_shared<TestWallet>("charlie");
     SelectParams(CBaseChainParams::REGTEST);
-    
-    // Ensure Orchard is active for all tests
-    UpdateNetworkUpgradeParameters(Consensus::UPGRADE_OVERWINTER, Consensus::NetworkUpgrade::ALWAYS_ACTIVE);
-    UpdateNetworkUpgradeParameters(Consensus::UPGRADE_ORCHARD, Consensus::NetworkUpgrade::ALWAYS_ACTIVE);
     
     std::shared_ptr<CBlock> lastBlock = chain.generateBlock(notary); // genesis block
     

@@ -453,6 +453,14 @@ TEST(TestCoins, nullifier_regression_test)
 template<typename Tree>
 void anchorPopRegressionTestImpl(ShieldedType type)
 {
+    auto init_tree = [](auto &t) {
+        using T = std::decay_t<decltype(t)>;
+        if constexpr (std::is_same_v<T, SproutMerkleTree>) {
+            t.append(GetRandHash());
+        } else {
+            // For Frontier types, leave as empty frontier (valid state)
+        }
+    };
     // Correct behavior:
     {
         CCoinsViewTest base;
@@ -460,7 +468,7 @@ void anchorPopRegressionTestImpl(ShieldedType type)
 
         // Create dummy anchor/commitment
         Tree tree;
-        tree.append(GetRandHash());
+        init_tree(tree);
 
         // Add the anchor
         cache1.PushAnchor(tree);
@@ -489,7 +497,7 @@ void anchorPopRegressionTestImpl(ShieldedType type)
 
         // Create dummy anchor/commitment
         Tree tree;
-        tree.append(GetRandHash());
+        init_tree(tree);
 
         // Add the anchor and flush to disk
         cache1.PushAnchor(tree);
@@ -534,6 +542,14 @@ TEST(TestCoins, anchor_pop_regression_test)
 template<typename Tree>
 void anchorRegressionTestImpl(ShieldedType type)
 {
+    auto init_tree = [](auto &t) {
+        using T = std::decay_t<decltype(t)>;
+        if constexpr (std::is_same_v<T, SproutMerkleTree>) {
+            t.append(GetRandHash());
+        } else {
+            // For Frontier types, leave as empty frontier (valid state)
+        }
+    };
     // Correct behavior:
     {
         CCoinsViewTest base;
@@ -541,7 +557,7 @@ void anchorRegressionTestImpl(ShieldedType type)
 
         // Insert anchor into base.
         Tree tree;
-        tree.append(GetRandHash());
+        init_tree(tree);
 
         cache1.PushAnchor(tree);
         cache1.Flush();
@@ -558,7 +574,7 @@ void anchorRegressionTestImpl(ShieldedType type)
 
         // Insert anchor into base.
         Tree tree;
-        tree.append(GetRandHash());
+        init_tree(tree);
         cache1.PushAnchor(tree);
         cache1.Flush();
 
@@ -575,7 +591,7 @@ void anchorRegressionTestImpl(ShieldedType type)
 
         // Insert anchor into base.
         Tree tree;
-        tree.append(GetRandHash());
+        init_tree(tree);
         cache1.PushAnchor(tree);
         cache1.Flush();
 
@@ -628,14 +644,18 @@ TEST(TestCoins, nullifiers_test)
 
     TxWithNullifiers txWithNullifiers;
     checkNullifierCache(cache, txWithNullifiers, false);
-    cache.SetNullifiers(txWithNullifiers.tx, true);
+    cache.InjectNullifiers(txWithNullifiers.sproutNullifier,
+                            txWithNullifiers.saplingNullifier,
+                            txWithNullifiers.orchardNullifier, true);
     checkNullifierCache(cache, txWithNullifiers, true);
     cache.Flush();
 
     CCoinsViewCacheTest cache2(&base);
 
     checkNullifierCache(cache2, txWithNullifiers, true);
-    cache2.SetNullifiers(txWithNullifiers.tx, false);
+    cache2.InjectNullifiers(txWithNullifiers.sproutNullifier,
+                             txWithNullifiers.saplingNullifier,
+                             txWithNullifiers.orchardNullifier, false);
     checkNullifierCache(cache2, txWithNullifiers, false);
     cache2.Flush();
 
@@ -653,7 +673,10 @@ void anchorsFlushImpl(ShieldedType type)
         CCoinsViewCacheTest cache(&base);
         Tree tree;
         EXPECT_TRUE(GetAnchorAt(cache, cache.GetBestAnchor(type), tree));
-        tree.append(GetRandHash());
+        // For Sprout we can append; for Frontier, leave empty frontier
+        if constexpr (std::is_same_v<Tree, SproutMerkleTree>) {
+            tree.append(GetRandHash());
+        }
 
         newrt = tree.root();
 
