@@ -41,8 +41,8 @@ define $(package)_preprocess_cmds
   echo "directory = \"$(CRATE_REGISTRY)\"" >>.cargo/config && \
   echo "" >> .cargo/config && \
   if test "$(build_os)" = "mingw32" -o "$(build_os)" = "mingw64"; then \
-    mkdir -p src/gen/include && \
-    cp ../../include/cxx.h src/gen/include/cxx.h; \
+    mkdir -p gen/cmd/src/gen/include && \
+    cp include/cxx.h gen/cmd/src/gen/include/cxx.h; \
   fi
 endef
 
