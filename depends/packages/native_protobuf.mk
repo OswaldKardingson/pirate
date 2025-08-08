@@ -13,11 +13,19 @@ define $(package)_config_cmds
 endef
 
 define $(package)_build_cmds
-  $(MAKE) -C src protoc
+  if test "$(build_os)" = "mingw32" -o "$(build_os)" = "mingw64"; then \
+    $(MAKE) -C src all; \
+  else \
+    $(MAKE) -C src protoc; \
+  fi
 endef
 
 define $(package)_stage_cmds
-  $(MAKE) -C src DESTDIR=$($(package)_staging_dir) install-strip
+  if test "$(build_os)" = "mingw32" -o "$(build_os)" = "mingw64"; then \
+    $(MAKE) DESTDIR=$($(package)_staging_dir) install-strip; \
+  else \
+    $(MAKE) -C src DESTDIR=$($(package)_staging_dir) install-strip; \
+  fi
 endef
 
 define $(package)_postprocess_cmds
