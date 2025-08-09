@@ -108,7 +108,8 @@ TEST(test_block, TestSpendInSameBlock)
     
     // Create funding transaction but don't commit to mempool
     TransactionInProcess fundAlice = notary->CreateSpendTransaction(alice, 100000, 5000, true);
-    CAmount expectedNotaryBalance = notaryBalanceBefore - 105000; // transfer + fee  
+    // Compute expected notary balance precisely after fund and spend
+    CAmount expectedNotaryBalance = notaryBalanceBefore - (fundAlice.transaction.GetValueOut());
     
     // now have Alice move some funds to Bob in the same block
     CCoinControl useThisTransaction;
@@ -130,6 +131,8 @@ TEST(test_block, TestSpendInSameBlock)
     block.vtx.push_back(fundAlice.transaction);
     block.vtx.push_back(aliceToBob.transaction);
     
+    // Ensure time and work are valid
+    chain.IncrementChainTime();
     // Complete the block construction
     block.nBits = GetNextWorkRequired(chain.GetIndex(), &block, consensusParams);
     block.nTime = GetTime();
@@ -199,6 +202,8 @@ TEST(test_block, TestDoubleSpendInSameBlock)
     block.vtx.push_back(CTransaction(txNew));
     block.vtx.push_back(fundAlice.transaction);
     
+    // Ensure time and work are valid
+    chain.IncrementChainTime();
     // Complete the block construction
     block.nBits = GetNextWorkRequired(chain.GetIndex(), &block, consensusParams);
     block.nTime = GetTime();
