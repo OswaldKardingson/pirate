@@ -16,6 +16,7 @@ $(package)_config_opts_linux=target-os=linux threadapi=pthread runtime-link=shar
 $(package)_config_opts_freebsd=cxxflags=-fPIC
 $(package)_config_opts_darwin=target-os=darwin runtime-link=shared
 $(package)_config_opts_mingw32=target-os=windows binary-format=pe threadapi=win32 runtime-link=static
+$(package)_config_opts_mingw64=target-os=windows binary-format=pe threadapi=win32 runtime-link=static
 $(package)_config_opts_x86_64=architecture=x86 address-model=64
 $(package)_config_opts_i686=architecture=x86 address-model=32
 $(package)_config_opts_aarch64=address-model=64
@@ -35,7 +36,7 @@ define $(package)_preprocess_cmds
 endef
 
 define $(package)_config_cmds
-  ./bootstrap.sh --without-icu --with-libraries=$($(package)_config_libraries) --with-toolset=$($(package)_toolset_$(host_os)) --with-bjam=b2 --libdir=lib
+  ./bootstrap.sh --without-icu --with-libraries=$(if $(filter $(host_os),mingw64 mingw32),chrono,filesystem,program_options,system,thread,$($(package)_config_libraries)) --with-toolset=$($(package)_toolset_$(host_os)) --with-bjam=b2 --libdir=lib
 endef
 
 define $(package)_build_cmds
