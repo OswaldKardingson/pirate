@@ -434,14 +434,18 @@ TEST(TestCoins, nullifier_regression_test)
 
         // Insert a nullifier into the base.
         TxWithNullifiers txWithNullifiers;
-        cache1.SetNullifiers(txWithNullifiers.tx, true);
+        cache1.InjectNullifiers(txWithNullifiers.sproutNullifier,
+                                 txWithNullifiers.saplingNullifier,
+                                 txWithNullifiers.orchardNullifier, true);
         cache1.Flush(); // Empties cache.
 
         // Create cache on top.
         {
             // Remove the nullifier.
             CCoinsViewCacheTest cache2(&cache1);
-            cache2.SetNullifiers(txWithNullifiers.tx, false);
+            cache2.InjectNullifiers(txWithNullifiers.sproutNullifier,
+                                     txWithNullifiers.saplingNullifier,
+                                     txWithNullifiers.orchardNullifier, false);
             cache2.Flush(); // Empties cache, flushes to cache1.
         }
 
@@ -614,7 +618,9 @@ void anchorRegressionTestImpl(ShieldedType type)
 
         // Insert anchor into base.
         Tree tree;
-        tree.append(GetRandHash());
+        if constexpr (std::is_same_v<Tree, SproutMerkleTree>) {
+            tree.append(GetRandHash());
+        }
         cache1.PushAnchor(tree);
         cache1.Flush();
 
