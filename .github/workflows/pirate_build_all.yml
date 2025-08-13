@@ -50,11 +50,6 @@ jobs:
     - name: Install Rust (stable)
       uses: dtolnay/rust-toolchain@stable
 
-    - name: Expose Cargo on Windows PATH for all shells
-      run: |
-        echo "$Env:USERPROFILE\.cargo\bin" | Out-File -FilePath $Env:GITHUB_PATH -Encoding utf8 -Append
-        "CARGO_HOME=$Env:USERPROFILE\.cargo" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
-
     - name: Make build script executable
       run: chmod +x zcutil/build.sh
     
@@ -285,6 +280,10 @@ jobs:
 
     - name: Install Rust (stable)
       uses: dtolnay/rust-toolchain@stable
+    - name: Expose Cargo on Windows PATH for all shells
+      run: |
+        echo "$Env:USERPROFILE\.cargo\bin" | Out-File -FilePath $Env:GITHUB_PATH -Encoding utf8 -Append
+        "CARGO_HOME=$Env:USERPROFILE\.cargo" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
 
     - name: Mount Windows Cargo into MSYS2 and Setup for Depends
       shell: msys2 {0}
