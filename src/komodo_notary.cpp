@@ -148,8 +148,8 @@ int32_t komodo_isnotaryvout(char *coinaddr,uint32_t tiptime) // from ac_private 
 int32_t komodo_notaries(uint8_t pubkeys[64][33],int32_t height,uint32_t timestamp)
 {
     // calculate timestamp if necessary (only height passed in and non-KMD chain)
-    // TODO: check if this logic changed okay 
-    if ( chainName.isKMD() )   
+    // Treat empty symbol (used in some tests) like KMD for season resolution
+    if ( chainName.isKMD() || chainName.symbol().empty() )
         timestamp = 0; // For KMD, we always use height
     else if ( timestamp == 0 )
         timestamp = komodo_heightstamp(height); // derive the timestamp from the passed-in height
@@ -159,7 +159,7 @@ int32_t komodo_notaries(uint8_t pubkeys[64][33],int32_t height,uint32_t timestam
     if ( is_STAKED(chainName.symbol()) == 0 )
     {
         int32_t kmd_season = 0;
-        if ( chainName.isKMD() )
+        if ( chainName.isKMD() || chainName.symbol().empty() )
         {
             // This is KMD, use block heights to determine the KMD notary season.. 
             if ( height >= KOMODO_NOTARIES_HARDCODED )
