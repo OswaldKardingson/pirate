@@ -220,6 +220,8 @@ TEST(TestEvalNotarisation, testInvalidNotarisationInputNotCheckSig)
         txIn.nVersion = ORCHARD_TX_VERSION;
         txIn.fOverwintered = true;
         txIn.nVersionGroupId = ORCHARD_VERSION_GROUP_ID;
+        // Provide a consensus branch id to satisfy v5 hashing/serialization
+        txIn.nConsensusBranchId = NetworkUpgradeInfo[Consensus::UPGRADE_ORCHARD].nBranchId;
         txIn.nLockTime = 0;
         txIn.nExpiryHeight = 0;
         
