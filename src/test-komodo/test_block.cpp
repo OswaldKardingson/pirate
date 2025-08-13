@@ -108,8 +108,9 @@ TEST(test_block, TestSpendInSameBlock)
     
     // Create funding transaction but don't commit to mempool
     TransactionInProcess fundAlice = notary->CreateSpendTransaction(alice, 100000, 5000, true);
-    // Compute expected notary balance precisely after fund and spend
-    CAmount expectedNotaryBalance = notaryBalanceBefore - (fundAlice.transaction.GetValueOut());
+    // Compute expected notary balance precisely: subtract net cost (outputs minus change)
+    CAmount txCost = fundAlice.transaction.GetValueOut() - notary->GetChange(fundAlice.transaction);
+    CAmount expectedNotaryBalance = notaryBalanceBefore - txCost;
     
     // now have Alice move some funds to Bob in the same block
     CCoinControl useThisTransaction;
@@ -186,7 +187,9 @@ TEST(test_block, TestDoubleSpendInSameBlock)
     // Start to build a block
     int32_t newHeight = chain.GetIndex()->nHeight + 1;
     TransactionInProcess fundAlice = notary->CreateSpendTransaction(alice, 100000, 5000, true);
-    CAmount expectedNotaryBalance = notaryBalanceBefore - 105000; // transfer + fee
+    // Compute expected notary balance precisely: subtract net cost (outputs minus change)
+    CAmount txCost = fundAlice.transaction.GetValueOut() - notary->GetChange(fundAlice.transaction);
+    CAmount expectedNotaryBalance = notaryBalanceBefore - txCost;
     
     // Create and mine block with funding transaction
     CBlock block;
