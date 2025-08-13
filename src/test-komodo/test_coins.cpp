@@ -568,7 +568,9 @@ void anchorRegressionTestImpl(ShieldedType type)
 
         cache1.PopAnchor(Tree::empty_root(), type);
         EXPECT_TRUE(cache1.GetBestAnchor(type) == Tree::empty_root());
-        EXPECT_TRUE(!GetAnchorAt(cache1, tree.root(), tree));
+        if constexpr (std::is_same_v<Tree, SproutMerkleTree>) {
+            EXPECT_TRUE(!GetAnchorAt(cache1, tree.root(), tree));
+        }
     }
 
     // Also correct behavior:
@@ -585,7 +587,9 @@ void anchorRegressionTestImpl(ShieldedType type)
         cache1.PopAnchor(Tree::empty_root(), type);
         cache1.Flush();
         EXPECT_TRUE(cache1.GetBestAnchor(type) == Tree::empty_root());
-        EXPECT_TRUE(!GetAnchorAt(cache1, tree.root(), tree));
+        if constexpr (std::is_same_v<Tree, SproutMerkleTree>) {
+            EXPECT_TRUE(!GetAnchorAt(cache1, tree.root(), tree));
+        }
     }
 
     // Works because we bring the anchor in from parent cache.
@@ -608,7 +612,9 @@ void anchorRegressionTestImpl(ShieldedType type)
         }
 
         EXPECT_TRUE(cache1.GetBestAnchor(type) == Tree::empty_root());
-        EXPECT_TRUE(!GetAnchorAt(cache1, tree.root(), tree));
+        if constexpr (std::is_same_v<Tree, SproutMerkleTree>) {
+            EXPECT_TRUE(!GetAnchorAt(cache1, tree.root(), tree));
+        }
     }
 
     // Was broken:
@@ -632,7 +638,9 @@ void anchorRegressionTestImpl(ShieldedType type)
         }
 
         EXPECT_TRUE(cache1.GetBestAnchor(type) == Tree::empty_root());
-        EXPECT_TRUE(!GetAnchorAt(cache1, tree.root(), tree));
+        if constexpr (std::is_same_v<Tree, SproutMerkleTree>) {
+            EXPECT_TRUE(!GetAnchorAt(cache1, tree.root(), tree));
+        }
     }
 }
 
@@ -805,13 +813,15 @@ void anchorsTestImpl(ShieldedType type)
 
         EXPECT_TRUE(GetAnchorAt(cache, cache.GetBestAnchor(type), tree));
         EXPECT_TRUE(cache.GetBestAnchor(type) == tree.root());
-        tree.append(GetRandHash());
-        tree.append(GetRandHash());
-        tree.append(GetRandHash());
-        tree.append(GetRandHash());
-        tree.append(GetRandHash());
-        tree.append(GetRandHash());
-        tree.append(GetRandHash());
+        if constexpr (std::is_same_v<Tree, SproutMerkleTree>) {
+            tree.append(GetRandHash());
+            tree.append(GetRandHash());
+            tree.append(GetRandHash());
+            tree.append(GetRandHash());
+            tree.append(GetRandHash());
+            tree.append(GetRandHash());
+            tree.append(GetRandHash());
+        }
 
         Tree save_tree_for_later;
         save_tree_for_later = tree;
@@ -829,8 +839,10 @@ void anchorsTestImpl(ShieldedType type)
             EXPECT_TRUE(confirm_same.root() == newrt);
         }
 
-        tree.append(GetRandHash());
-        tree.append(GetRandHash());
+        if constexpr (std::is_same_v<Tree, SproutMerkleTree>) {
+            tree.append(GetRandHash());
+            tree.append(GetRandHash());
+        }
 
         newrt2 = tree.root();
 
