@@ -167,6 +167,7 @@ TEST(test_block, TestSpendInSameBlock)
 TEST(test_block, TestDoubleSpendInSameBlock)
 {
     TestChain chain;
+    chainName = assetchain("TST"); // use non-KMD chain to avoid KMD-specific interest/donation and miner fee effects
     auto notary = std::make_shared<TestWallet>(chain.getNotaryKey(), "notary");
     notary->SetBroadcastTransactions(true);
     auto alice = std::make_shared<TestWallet>("alice");
@@ -255,7 +256,7 @@ TEST(test_block, TestDoubleSpendInSameBlock)
     
     EXPECT_EQ(bob->GetBalance(), CAmount(10000));
     EXPECT_EQ(charlie->GetBalance(), CAmount(0));
-    EXPECT_EQ(alice->GetBalance(), CAmount(85000));
+    EXPECT_EQ(alice->GetBalance(), CAmount(85000));//
     EXPECT_EQ(notary->GetBalance(), expectedNotaryBalance);
 }
 
