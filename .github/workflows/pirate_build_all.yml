@@ -50,6 +50,11 @@ jobs:
     - name: Install Rust (stable)
       uses: dtolnay/rust-toolchain@stable
 
+    - name: Expose Cargo on Windows PATH for all shells
+      run: |
+        echo "$Env:USERPROFILE\.cargo\bin" | Out-File -FilePath $Env:GITHUB_PATH -Encoding utf8 -Append
+        "CARGO_HOME=$Env:USERPROFILE\.cargo" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
+
     - name: Make build script executable
       run: chmod +x zcutil/build.sh
     
@@ -253,6 +258,7 @@ jobs:
       with:
         msystem: MINGW64 
         update: true
+        path-type: inherit
         install: >-
           git make autoconf automake libtool pkg-config mingw-w64-x86_64-toolchain
           mingw-w64-x86_64-boost mingw-w64-x86_64-python3 mingw-w64-x86_64-openssl 
@@ -437,8 +443,9 @@ jobs:
         make --version
         echo "Value of build_DOWNLOAD variable:"
         make -p | grep -E '^build_DOWNLOAD\s*=' 
-        echo "Attempting to run 'make -n HOST=x86_64-w64-mingw64 V=1' (dry run):"
-        make -n HOST=x86_64-w64-mingw64 V=1
+        echo "Inspecting make database safely (no recipe execution):"
+        # Print the computed database and variables without triggering any recipes
+        make -Rr -pn HOST=x86_64-w64-mingw64 | sed -n '1,200p' | cat
         echo "--- End Debugging make command ---"
         cd ..
 
@@ -861,6 +868,7 @@ jobs:
       with:
         msystem: MINGW64 
         update: true
+        path-type: inherit
         install: >-
           git make autoconf automake libtool pkg-config mingw-w64-x86_64-toolchain
           mingw-w64-x86_64-boost mingw-w64-x86_64-python3 mingw-w64-x86_64-openssl 
