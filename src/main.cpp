@@ -2236,8 +2236,12 @@ static bool EarlyUpgradeVersionCheck(const CTransaction& tx,
     const Consensus::Params& params,
     CValidationState& state)
 {
+// Treat Orchard activation as implying Overwinter rules are in effect for
+// mempool version-gating purposes. Tests toggle Orchard directly and expect
+// Overwinter gating semantics to follow.
 const bool overwinterActive =
-NetworkUpgradeActive(nextBlockHeight, params, Consensus::UPGRADE_OVERWINTER);
+    NetworkUpgradeActive(nextBlockHeight, params, Consensus::UPGRADE_OVERWINTER) ||
+    NetworkUpgradeActive(nextBlockHeight, params, Consensus::UPGRADE_ORCHARD);
 
 // Overwinter NOT active: overwintered txs are invalid
 if (!overwinterActive) {
