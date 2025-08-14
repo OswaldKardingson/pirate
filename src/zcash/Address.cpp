@@ -34,6 +34,17 @@ namespace libzcash {
       SaplingPaymentAddress addr = dsk.extsk.ToXFVK().fvk.in_viewing_key().address(dsk.d).value();
       return std::make_pair("z-sapling", addr);
   }
+    std::pair<std::string, PaymentAddress> AddressInfoFromDiversifiedSpendingKey::operator()(const OrchardDiversifiedExtendedSpendingKeyPirate &dsk) const {
+        auto fvkOpt = dsk.extsk.sk.GetFVK();
+        if (fvkOpt == std::nullopt) {
+            throw std::invalid_argument("Cannot derive default address from invalid diversified spending key");
+        }
+        auto addressOpt = fvkOpt.value().GetAddress(dsk.d);
+        if (addressOpt == std::nullopt) {
+            throw std::invalid_argument("Cannot derive default address from invalid diversified spending key");
+        }
+        return std::make_pair("z-orchard", addressOpt.value());
+    }
   std::pair<std::string, PaymentAddress> AddressInfoFromDiversifiedSpendingKey::operator()(const InvalidEncoding&) const {
       throw std::invalid_argument("Cannot derive default address from invalid spending key");
   }
@@ -60,6 +71,13 @@ namespace libzcash {
   std::pair<std::string, PaymentAddress> AddressInfoFromDiversifiedViewingKey::operator()(const SaplingDiversifiedExtendedFullViewingKey &dvk) const {
       SaplingPaymentAddress addr = dvk.extfvk.fvk.in_viewing_key().address(dvk.d).value();
       return std::make_pair("z-sapling", addr);
+  }
+  std::pair<std::string, PaymentAddress> AddressInfoFromDiversifiedViewingKey::operator()(const OrchardDiversifiedExtendedFullViewingKeyPirate &dvk) const {
+      auto addr = dvk.extfvk.fvk.GetAddress(dvk.d);
+      if (addr == std::nullopt) {
+          throw std::invalid_argument("Cannot derive default address from invalid diversified full viewing key");
+      }
+      return std::make_pair("z-orchard", addr.value());
   }
   std::pair<std::string, PaymentAddress> AddressInfoFromDiversifiedViewingKey::operator()(const InvalidEncoding&) const {
       throw std::invalid_argument("Cannot derive address from invalid viewing key");

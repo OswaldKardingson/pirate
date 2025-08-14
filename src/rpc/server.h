@@ -379,6 +379,7 @@ extern UniValue listsinceblock(const UniValue& params, bool fHelp, const CPubKey
 extern UniValue gettransaction(const UniValue& params, bool fHelp, const CPubKey& mypk);
 extern UniValue backupwallet(const UniValue& params, bool fHelp, const CPubKey& mypk);
 extern UniValue keypoolrefill(const UniValue& params, bool fHelp, const CPubKey& mypk);
+extern UniValue getkeypoolsize(const UniValue& params, bool fHelp, const CPubKey& mypk);
 extern UniValue openwallet(const UniValue& params, bool fHelp, const CPubKey& mypk);
 extern UniValue walletpassphrase(const UniValue& params, bool fHelp, const CPubKey& mypk);
 extern UniValue walletpassphrasechange(const UniValue& params, bool fHelp, const CPubKey& mypk);
@@ -474,6 +475,7 @@ extern UniValue z_exportkey(const UniValue& params, bool fHelp, const CPubKey& m
 extern UniValue z_importkey(const UniValue& params, bool fHelp, const CPubKey& mypk); // in rpcdump.cpp
 extern UniValue z_exportviewingkey(const UniValue& params, bool fHelp, const CPubKey& mypk); // in rpcdump.cpp
 extern UniValue z_importviewingkey(const UniValue& params, bool fHelp, const CPubKey& mypk); // in rpcdump.cpp
+extern UniValue z_setaddressbook(const UniValue& params, bool fHelp, const CPubKey& mypk); // in rpcdump.cpp
 extern UniValue z_getnewaddresskey(const UniValue& params, bool fHelp, const CPubKey& mypk); // in rpcwallet.cpp
 extern UniValue z_getnewaddress(const UniValue& params, bool fHelp, const CPubKey& mypk); // in rpcwallet.cpp
 extern UniValue z_setprimaryspendingkey(const UniValue& params, bool fHelp, const CPubKey& mypk); // in rpcwallet.cpp

@@ -19,9 +19,9 @@ public:
 
 typedef std::variant<InvalidEncoding, SproutPaymentAddress, SaplingPaymentAddress, OrchardPaymentAddressPirate> PaymentAddress;
 typedef std::variant<InvalidEncoding, SproutViewingKey, SaplingExtendedFullViewingKey, OrchardExtendedFullViewingKeyPirate> ViewingKey;
-typedef std::variant<InvalidEncoding, SaplingDiversifiedExtendedFullViewingKey> DiversifiedViewingKey;
+typedef std::variant<InvalidEncoding, SaplingDiversifiedExtendedFullViewingKey, OrchardDiversifiedExtendedFullViewingKeyPirate> DiversifiedViewingKey;
 typedef std::variant<InvalidEncoding, SproutSpendingKey, SaplingExtendedSpendingKey, OrchardExtendedSpendingKeyPirate> SpendingKey;
-typedef std::variant<InvalidEncoding, SaplingDiversifiedExtendedSpendingKey> DiversifiedSpendingKey;
+typedef std::variant<InvalidEncoding, SaplingDiversifiedExtendedSpendingKey, OrchardDiversifiedExtendedSpendingKeyPirate> DiversifiedSpendingKey;
 
 class AddressInfoFromSpendingKey : public boost::static_visitor<std::pair<std::string, PaymentAddress>> {
 public:
@@ -34,6 +34,7 @@ public:
 class AddressInfoFromDiversifiedSpendingKey : public boost::static_visitor<std::pair<std::string, PaymentAddress>> {
 public:
     std::pair<std::string, PaymentAddress> operator()(const struct SaplingDiversifiedExtendedSpendingKey&) const;
+    std::pair<std::string, PaymentAddress> operator()(const struct OrchardDiversifiedExtendedSpendingKeyPirate&) const;
     std::pair<std::string, PaymentAddress> operator()(const InvalidEncoding&) const;
 };
 
@@ -48,6 +49,7 @@ public:
 class AddressInfoFromDiversifiedViewingKey : public boost::static_visitor<std::pair<std::string, PaymentAddress>> {
 public:
     std::pair<std::string, PaymentAddress> operator()(const struct SaplingDiversifiedExtendedFullViewingKey&) const;
+    std::pair<std::string, PaymentAddress> operator()(const struct OrchardDiversifiedExtendedFullViewingKeyPirate&) const;
     std::pair<std::string, PaymentAddress> operator()(const InvalidEncoding&) const;
 };
 

@@ -2457,6 +2457,7 @@ public:
     AddDiversifiedViewingKeyToWallet(CWallet *wallet) : m_wallet(wallet) {}
 
     KeyAddResult operator()(const libzcash::SaplingDiversifiedExtendedFullViewingKey &sk) const;
+    KeyAddResult operator()(const libzcash::OrchardDiversifiedExtendedFullViewingKeyPirate &sk) const;
     KeyAddResult operator()(const libzcash::InvalidEncoding& no) const;
 };
 
@@ -2496,6 +2497,7 @@ public:
     AddDiversifiedSpendingKeyToWallet(CWallet *wallet) : m_wallet(wallet) {}
 
     KeyAddResult operator()(const libzcash::SaplingDiversifiedExtendedSpendingKey &sk) const;
+    KeyAddResult operator()(const libzcash::OrchardDiversifiedExtendedSpendingKeyPirate &sk) const;
     KeyAddResult operator()(const libzcash::InvalidEncoding& no) const;
 };
 

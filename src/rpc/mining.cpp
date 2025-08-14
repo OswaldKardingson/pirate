@@ -271,6 +271,10 @@ std::shared_ptr<CBlock> generateBlock(CWallet* wallet, CValidationState* validat
         LOCK(cs_main);
         tipindex = chainActive.Tip();
     }
+
+    // Remove the reserve key from the keypool
+    reservekey.KeepKey();
+
     if (!ProcessNewBlock(1,tipindex->nHeight+1,state, NULL, pblock, true, NULL))
     {
         if (validationState != nullptr)
@@ -358,6 +362,10 @@ UniValue generate(const UniValue& params, bool fHelp, const CPubKey& mypk)
 
         CalcPoW(pblock); // add PoW
         CValidationState state;
+
+        // Remove the reserve key from the keypool
+        reservekey.KeepKey();
+
         if (!ProcessNewBlock(1,chainActive.Tip()->nHeight+1,state, NULL, pblock, true, NULL))
             throw JSONRPCError(RPC_INTERNAL_ERROR, "ProcessNewBlock, block not accepted");
         ++nHeight;

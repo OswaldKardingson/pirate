@@ -13454,6 +13454,53 @@ KeyAddResult AddDiversifiedViewingKeyToWallet::operator()(const libzcash::Saplin
 
 }
 
+KeyAddResult AddDiversifiedViewingKeyToWallet::operator()(const libzcash::OrchardDiversifiedExtendedFullViewingKeyPirate &extdfvk) const {
+    auto extfvk = extdfvk.extfvk;
+
+    // Attempt to derive the diversified viewing key's IVK
+    // This will throw if the diversified key is invalid or cannot derive an IVK
+    auto ivkOpt = extfvk.fvk.GetIVK();
+    if (ivkOpt == std::nullopt) {
+        throw std::invalid_argument("Cannot derive default address from invalid diversified viewing key");
+    }
+    auto ivk = ivkOpt.value();
+    KeyAddResult result = KeyNotAdded;
+
+    // Attempt to derive the default address from the diversified viewing key
+    // This will throw if the diversified key is invalid or cannot derive an address
+    auto addrOpt = extfvk.fvk.GetAddress(extdfvk.d);
+    if (addrOpt == std::nullopt) {
+        throw std::invalid_argument("Cannot derive default address from invalid diversified viewing key");
+    }
+    auto addr = addrOpt.value();
+
+    if (m_wallet->HaveOrchardSpendingKey(extfvk)) {
+        result = SpendingKeyExists;
+    } else if (m_wallet->HaveOrchardFullViewingKey(ivk)) {
+        result = KeyAlreadyExists;
+    } else if (m_wallet->AddOrchardExtendedFullViewingKey(extfvk)) {
+        m_wallet->LoadOrchardWatchOnly(extfvk);
+        result = KeyAdded;
+    } else {
+        return KeyNotAdded;
+    }
+
+    // Attempt to add the incoming viewing key for the diversified address
+    if (m_wallet->AddOrchardIncomingViewingKey(ivk, addr)) {
+        if (result == SpendingKeyExists || result == KeyAlreadyExists) {
+            return KeyExistsAddressAdded;
+        } else {
+            return KeyAddedAddressAdded;
+        }
+    }
+
+    if (result == SpendingKeyExists || result == KeyAlreadyExists) {
+        return KeyExistsAddressNotAdded;
+    }
+
+    return KeyAddedAddressNotAdded;
+}
+
 /**
  * @brief Handle invalid encoding for diversified viewing key addition
  * @param no The invalid encoding object
@@ -13641,6 +13688,57 @@ KeyAddResult AddDiversifiedSpendingKeyToWallet::operator()(const libzcash::Sapli
 
     return KeyAddedAddressNotAdded;
 
+}
+
+/**
+ * @brief Add an Orchard diversified extended spending key to the wallet
+ * @param extdsk The Orchard diversified extended spending key to add
+ * @return KeyAddResult indicating the result of the operation
+ */
+KeyAddResult AddDiversifiedSpendingKeyToWallet::operator()(const libzcash::OrchardDiversifiedExtendedSpendingKeyPirate &extdsk) const {
+    auto extfvkOpt = extdsk.extsk.GetXFVK();
+    if (extfvkOpt == std::nullopt) {
+        return KeyNotAdded;
+    }
+    auto extfvk = extfvkOpt.value();
+
+    auto ivkOpt = extfvk.fvk.GetIVK();
+    if (ivkOpt == std::nullopt) {
+        return KeyNotAdded;
+    }
+    auto ivk = ivkOpt.value();
+
+    auto addrOpt = extfvk.fvk.GetAddress(extdsk.d);
+    if (addrOpt == std::nullopt) {
+        return KeyNotAdded;
+    }
+    auto addr = addrOpt.value();
+
+    KeyAddResult result = KeyNotAdded;
+
+    // Don't throw error in case a key is already there
+    if (m_wallet->HaveOrchardSpendingKey(extfvk)) {
+        result = KeyAlreadyExists;
+    } else {
+        if (!m_wallet->AddOrchardZKey(extdsk.extsk)) {
+            return KeyNotAdded;
+        }
+        result = KeyAdded;
+    }
+
+    if (m_wallet->AddOrchardIncomingViewingKey(ivk, addr)) {
+        if (result == KeyAlreadyExists) {
+            return KeyExistsAddressAdded;
+        } else {
+            return KeyAddedAddressAdded;
+        }
+    }
+
+    if (result == KeyAlreadyExists) {
+        return KeyExistsAddressNotAdded;
+    }
+
+    return KeyAddedAddressNotAdded;
 }
 
 /**
