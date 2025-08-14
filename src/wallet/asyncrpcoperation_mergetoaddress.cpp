@@ -576,9 +576,12 @@ bool AsyncRPCOperation_mergetoaddress::main_impl()
             }
         }
         
-        // Initialize Orchard builder if no notes were selected
-        if (!orchardInitialized) {
-            builder_.InitializeOrchard(false, true, uint256());
+        // If we have any Orchard payment addresses, ensure Orchard is initialized
+        // This is necessary to handle the case where we are sending to an Orchard address
+        if (std::get_if<libzcash::OrchardPaymentAddressPirate>(&toPaymentAddress_) != nullptr) {
+            if (!orchardInitialized) {
+                builder_.InitializeOrchard(false, true, uint256());
+            }
         }
     }
 

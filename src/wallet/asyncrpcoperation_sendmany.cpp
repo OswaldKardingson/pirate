@@ -840,7 +840,9 @@ bool AsyncRPCOperation_sendmany::main_impl()
 
     } else {
         // Initialize Orchard builder without spending (outputs only)
-        builder_.InitializeOrchard(false, true, uint256());
+        if (orchardOutputs_.size() > 0) {
+            builder_.InitializeOrchard(false, true, uint256());
+        }
     }
 
     // Ensure we have a valid OVK at this point
@@ -897,11 +899,14 @@ bool AsyncRPCOperation_sendmany::main_impl()
         }
     }
 
-    // Convert raw Orchard outputs with OVK for encryption
-    if (!builder_.ConvertRawOrchardOutput(ovk)) {
-        throw JSONRPCError(RPC_WALLET_ERROR, strprintf("%s: Converting Raw Orchard Outputs failed.\n", getId()));
+    // When we have Orchard outputs, we need to convert them
+    // to the final format with the OVK for encryption.
+    if (!orchardOutputs_.empty()) {
+        if (!builder_.ConvertRawOrchardOutput(ovk)) {
+            throw JSONRPCError(RPC_WALLET_ERROR, strprintf("%s: Converting Raw Orchard Outputs failed.\n", getId()));
+        }
     }
-
+    
     // =================================================================
     // STEP 9: Build and send the transaction
     // =================================================================
