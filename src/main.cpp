@@ -7121,7 +7121,7 @@ bool static LoadBlockIndexDB()
     {
         if ( ASSETCHAINS_SAPLING <= 0 )
         {
-            fprintf(stderr,"set sapling height, if possible from ht.%d %u\n",(int32_t)pindex->nHeight,(uint32_t)pindex->nTime);
+            fprintf(stdout,"set sapling height, if possible from ht.%d %u\n",(int32_t)pindex->nHeight,(uint32_t)pindex->nTime);
             // Chainparam for regtest activation
             if (Params().NetworkIDString() != "regtest") {
                 komodo_activate_sapling(pindex);
@@ -7129,7 +7129,7 @@ bool static LoadBlockIndexDB()
         }
         if ( ASSETCHAINS_ORCHARD <= 0 )
         {
-            fprintf(stderr,"set orchard height, if possible from ht.%d %u\n",(int32_t)pindex->nHeight,(uint32_t)pindex->nTime);
+            fprintf(stdout,"set orchard height, if possible from ht.%d %u\n",(int32_t)pindex->nHeight,(uint32_t)pindex->nTime);
             // Chainparam for regtest activation
             if (Params().NetworkIDString() != "regtest") {
                 komodo_activate_orchard(pindex);

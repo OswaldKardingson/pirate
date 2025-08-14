@@ -139,6 +139,11 @@ def sync_blocks(rpc_connections, wait=0.125, timeout=600, allow_different_tips=F
                 time.sleep(5)  # Wait longer when building cache
                 #timeout -= 5
                 continue
+            elif "Activating best chain..." in str(e):
+                # This can happen if the node is still processing a block
+                # that was just generated, so we wait and try again.
+                print("Activating best chain, waiting...")
+                time.sleep(5)
             else:
                 raise e
         time.sleep(wait)
