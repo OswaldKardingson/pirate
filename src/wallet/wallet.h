@@ -1468,8 +1468,7 @@ protected:
             }
         } catch (const std::exception &exc) {
             // Unexpected failure
-            LogPrintf("SetBestChain(): Unexpected error during atomic write:\n");
-            LogPrintf("%s\n", exc.what());
+            LogPrintf("SetBestChain(): Unexpected error during atomic write: %s\n", exc.what());
             walletdb.TxnAbort();
             return;
         }

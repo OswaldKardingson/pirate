@@ -6730,8 +6730,7 @@ mapSproutNoteData_t CWallet::FindMySproutNotes(const CTransaction &tx) const
                     // Couldn't decrypt with this decryptor
                 } catch (const std::exception &exc) {
                     // Unexpected failure
-                    LogPrintf("FindMySproutNotes(): Unexpected error while testing decrypt:\n");
-                    LogPrintf("%s\n", exc.what());
+                    LogPrintf("FindMySproutNotes(): Unexpected error while testing decrypt: %s\n", exc.what());
                 }
             }
         }

@@ -38,6 +38,7 @@
 
 #include <boost/foreach.hpp>
 #include <boost/unordered_map.hpp>
+#include <tl/expected.hpp>
 #include "zcash/History.hpp"
 #include "zcash/IncrementalMerkleTree.hpp"
 
@@ -517,6 +518,16 @@ class CTransactionExceptionData
         CTransactionExceptionData() : scriptPubKey(), voutMask() {}
 };
 
+/** The set of shielded requirements that might be unsatisfied. */
+enum class UnsatisfiedShieldedReq {
+    SproutDuplicateNullifier,
+    SproutUnknownAnchor,
+    SaplingDuplicateNullifier,
+    SaplingUnknownAnchor,
+    OrchardDuplicateNullifier,
+    OrchardUnknownAnchor,
+};
+
 /**
  * CCoinsView that adds a memory cache in front of another CCoinsView
  */
@@ -645,9 +656,12 @@ public:
 
     //! Check whether all prevouts of the transaction are present in the UTXO set represented by this view
     bool HaveInputs(const CTransaction& tx) const;
+    
+    //! Check whether all shielded spend requirements (anchors/nullifiers) are satisfied
+    tl::expected<void, UnsatisfiedShieldedReq> CheckShieldedRequirements(const CTransaction& tx) const;
 
     //! Check whether all joinsplit requirements (anchors/nullifiers) are satisfied
-    bool HaveJoinSplitRequirements(const CTransaction& tx, int maxProcessingThreads) const;
+    bool HaveJoinSplitRequirements(const CTransaction& tx) const;
 
     //! Return priority of tx at height nHeight
     double GetPriority(const CTransaction &tx, int nHeight) const;
