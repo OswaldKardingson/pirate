@@ -199,6 +199,22 @@ public:
         return ret;
     }
 
+    std::string operator()(const libzcash::OrchardDiversifiedExtendedFullViewingKeyPirate& extfvk) const
+    {
+        CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
+        ss << extfvk;
+        // ConvertBits requires unsigned char, but CDataStream uses char
+        std::vector<unsigned char> serkey(ss.begin(), ss.end());
+        std::vector<unsigned char> data;
+        // See calculation comment below
+        data.reserve((serkey.size() * 8 + 4) / 5);
+        ConvertBits<8, 5, true>([&](unsigned char c) { data.push_back(c); }, serkey.begin(), serkey.end());
+        std::string ret = bech32::Encode(m_params.Bech32HRP(CChainParams::ORCHARD_DIVERSIFIED_EXTENDED_FVK), data);
+        memory_cleanse(serkey.data(), serkey.size());
+        memory_cleanse(data.data(), data.size());
+        return ret;
+    }
+
     std::string operator()(const libzcash::InvalidEncoding& no) const { return {}; }
 };
 
@@ -280,6 +296,22 @@ public:
         return ret;
     }
 
+    std::string operator()(const libzcash::OrchardDiversifiedExtendedSpendingKeyPirate& zkey) const
+    {
+        CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
+        ss << zkey;
+        // ConvertBits requires unsigned char, but CDataStream uses char
+        std::vector<unsigned char> serkey(ss.begin(), ss.end());
+        std::vector<unsigned char> data;
+        // See calculation comment below
+        data.reserve((serkey.size() * 8 + 4) / 5);
+        ConvertBits<8, 5, true>([&](unsigned char c) { data.push_back(c); }, serkey.begin(), serkey.end());
+        std::string ret = bech32::Encode(m_params.Bech32HRP(CChainParams::ORCHARD_DIVERSIFIED_EXTENDED_SPEND_KEY), data);
+        memory_cleanse(serkey.data(), serkey.size());
+        memory_cleanse(data.data(), data.size());
+        return ret;
+    }
+
     std::string operator()(const libzcash::InvalidEncoding& no) const { return {}; }
 };
 
@@ -295,7 +327,9 @@ const size_t ConvertedSaplingDiversifiedExtendedSpendingKeySize = (SAPLING_ZIP32
 
 const size_t ConvertedOrchardPaymentAddressSize = (libzcash::SerializedOrchardPaymentAddressSize * 8 + 4) / 5;
 const size_t ConvertedOrchardExtendedFullViewingKeySize = (libzcash::SerializedOrchardExtendedFullViewingKeySize * 8 + 4) / 5;
+const size_t ConvertedOrchardDiversifiedExtendedFullViewingKeySize = (libzcash::SerializedOrchardDiversifiedExtendedFullViewingKeySize * 8 + 4) / 5;
 const size_t ConvertedOrchardExtendedSpendingKeySize = (libzcash::SerializedOrchardExtendedSpendingKeySize * 8 + 4) / 5;
+const size_t ConvertedOrchardDiversifiedExtendedSpendingKeySize = (libzcash::SerializedOrchardDiversifiedExtendedSpendingKeySize * 8 + 4) / 5;
 
 } // namespace
 
@@ -618,6 +652,20 @@ libzcash::DiversifiedSpendingKey DecodeDiversifiedSpendingKey(const std::string&
             return ret;
         }
     }
+    if (bech.first == Params().Bech32HRP(CChainParams::ORCHARD_DIVERSIFIED_EXTENDED_SPEND_KEY) &&
+        bech.second.size() == ConvertedOrchardDiversifiedExtendedSpendingKeySize) {
+        // Bech32 decoding
+        data.reserve((bech.second.size() * 5) / 8);
+        if (ConvertBits<5, 8, false>([&](unsigned char c) { data.push_back(c); }, bech.second.begin(), bech.second.end())) {
+            CDataStream ss(data, SER_NETWORK, PROTOCOL_VERSION);
+            libzcash::OrchardDiversifiedExtendedSpendingKeyPirate ret;
+            ss >> ret;
+            memory_cleanse(ss.data(), ss.size());
+            memory_cleanse(data.data(), data.size());
+            memory_cleanse(bech.second.data(), bech.second.size());
+            return ret;
+        }
+    }
     memory_cleanse(data.data(), data.size());
     return libzcash::InvalidEncoding();
 }
@@ -638,6 +686,20 @@ libzcash::DiversifiedViewingKey DecodeDiversifiedViewingKey(const std::string& s
         if (ConvertBits<5, 8, false>([&](unsigned char c) { data.push_back(c); }, bech.second.begin(), bech.second.end())) {
             CDataStream ss(data, SER_NETWORK, PROTOCOL_VERSION);
             libzcash::SaplingDiversifiedExtendedFullViewingKey ret;
+            ss >> ret;
+            memory_cleanse(ss.data(), ss.size());
+            memory_cleanse(data.data(), data.size());
+            memory_cleanse(bech.second.data(), bech.second.size());
+            return ret;
+        }
+    }
+    if (bech.first == Params().Bech32HRP(CChainParams::ORCHARD_DIVERSIFIED_EXTENDED_FVK) &&
+        bech.second.size() == ConvertedOrchardDiversifiedExtendedFullViewingKeySize) {
+        // Bech32 decoding
+        data.reserve((bech.second.size() * 5) / 8);
+        if (ConvertBits<5, 8, false>([&](unsigned char c) { data.push_back(c); }, bech.second.begin(), bech.second.end())) {
+            CDataStream ss(data, SER_NETWORK, PROTOCOL_VERSION);
+            libzcash::OrchardDiversifiedExtendedFullViewingKeyPirate ret;
             ss >> ret;
             memory_cleanse(ss.data(), ss.size());
             memory_cleanse(data.data(), data.size());

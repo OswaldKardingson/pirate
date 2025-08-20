@@ -1468,8 +1468,7 @@ protected:
             }
         } catch (const std::exception &exc) {
             // Unexpected failure
-            LogPrintf("SetBestChain(): Unexpected error during atomic write:\n");
-            LogPrintf("%s\n", exc.what());
+            LogPrintf("SetBestChain(): Unexpected error during atomic write: %s\n", exc.what());
             walletdb.TxnAbort();
             return;
         }
@@ -2457,6 +2456,7 @@ public:
     AddDiversifiedViewingKeyToWallet(CWallet *wallet) : m_wallet(wallet) {}
 
     KeyAddResult operator()(const libzcash::SaplingDiversifiedExtendedFullViewingKey &sk) const;
+    KeyAddResult operator()(const libzcash::OrchardDiversifiedExtendedFullViewingKeyPirate &sk) const;
     KeyAddResult operator()(const libzcash::InvalidEncoding& no) const;
 };
 
@@ -2496,6 +2496,7 @@ public:
     AddDiversifiedSpendingKeyToWallet(CWallet *wallet) : m_wallet(wallet) {}
 
     KeyAddResult operator()(const libzcash::SaplingDiversifiedExtendedSpendingKey &sk) const;
+    KeyAddResult operator()(const libzcash::OrchardDiversifiedExtendedSpendingKeyPirate &sk) const;
     KeyAddResult operator()(const libzcash::InvalidEncoding& no) const;
 };
 

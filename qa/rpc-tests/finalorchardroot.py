@@ -106,8 +106,6 @@ class FinalOrchardRootTest(BitcoinTestFramework):
     def _create_test_addresses(self):
         """Create transparent, Sapling, and Orchard addresses for testing."""
         self.mytaddr = get_coinbase_address(self.nodes[0])
-        self.mysaplingaddr = self.nodes[0].z_getnewaddress('sapling')
-        self.myorchardaddr = self.nodes[0].z_getnewaddress('orchard')
 
     def _verify_initial_tree_states(self):
         """Verify tree states for blocks before Sapling and Orchard activation."""
@@ -177,6 +175,12 @@ class FinalOrchardRootTest(BitcoinTestFramework):
 
     def _test_sapling_transactions_pre_orchard(self):
         """Test Sapling transactions before Orchard activation."""
+        # Create Sapling address
+        self.mysaplingaddr = self.nodes[0].z_getnewaddress('sapling')
+
+        #update taddr
+        self.mytaddr = get_coinbase_address(self.nodes[0])
+
         # Send funds to Sapling address
         result = self.nodes[0].z_shieldcoinbase(self.mytaddr, self.mysaplingaddr, 0, 1)
         mytxid = wait_and_assert_operationid_status(self.nodes[0], result['opid'])
@@ -303,6 +307,12 @@ class FinalOrchardRootTest(BitcoinTestFramework):
 
     def _test_first_orchard_transaction(self):
         """Test the first Orchard transaction and verify tree updates."""
+        # Create Orchard address
+        self.myorchardaddr = self.nodes[0].z_getnewaddress('orchard')
+
+        #update taddr
+        self.mytaddr = get_coinbase_address(self.nodes[0])
+
         # Send funds to Orchard address
         result = self.nodes[0].z_shieldcoinbase(self.mytaddr, self.myorchardaddr, 0, 1)
         mytxid = wait_and_assert_operationid_status(self.nodes[0], result['opid'])
@@ -366,6 +376,10 @@ class FinalOrchardRootTest(BitcoinTestFramework):
 
     def _test_second_sapling_transaction(self):
         """Test second Sapling transaction after Orchard activation."""
+
+        #update taddr
+        self.mytaddr = get_coinbase_address(self.nodes[0])
+
         # Send funds to Sapling address
         result = self.nodes[0].z_shieldcoinbase(self.mytaddr, self.mysaplingaddr, 0, 1)
         mytxid = wait_and_assert_operationid_status(self.nodes[0], result['opid'])
@@ -428,6 +442,10 @@ class FinalOrchardRootTest(BitcoinTestFramework):
 
     def _test_second_orchard_transaction(self):
         """Test second Orchard transaction."""
+
+        #update taddr
+        self.mytaddr = get_coinbase_address(self.nodes[0])
+
         result = self.nodes[0].z_shieldcoinbase(self.mytaddr, self.myorchardaddr, 0, 1)
         mytxid = wait_and_assert_operationid_status(self.nodes[0], result['opid'])
 
@@ -489,6 +507,10 @@ class FinalOrchardRootTest(BitcoinTestFramework):
 
     def _test_third_sapling_transaction(self):
         """Test third Sapling transaction."""
+
+        #update taddr
+        self.mytaddr = get_coinbase_address(self.nodes[0])
+        
         result = self.nodes[0].z_shieldcoinbase(self.mytaddr, self.mysaplingaddr, 0, 1)
         mytxid = wait_and_assert_operationid_status(self.nodes[0], result['opid'])
 

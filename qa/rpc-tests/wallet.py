@@ -9,7 +9,6 @@ from test_framework.authproxy import JSONRPCException
 from test_framework.util import assert_equal, start_nodes, start_node, \
     connect_nodes_bi, sync_blocks, sync_mempools, get_coinbase_address, \
     wait_and_assert_operationid_status
-from test_framework.zip317 import conventional_fee
 
 from decimal import Decimal
 import json
@@ -23,9 +22,6 @@ class WalletTest (BitcoinTestFramework):
 
     def setup_network(self, split=False):
         self.nodes = start_nodes(3, self.options.tmpdir, extra_args=[[
-            '-minrelaytxfee=0',
-            '-allowdeprecated=getnewaddress',
-            '-allowdeprecated=z_getbalance',
         ]] * 3)
         connect_nodes_bi(self.nodes,0,1)
         connect_nodes_bi(self.nodes,1,2)
@@ -42,7 +38,7 @@ class WalletTest (BitcoinTestFramework):
         # Verify initial balance states
         walletinfo = self.nodes[1].getwalletinfo()
         assert_equal(walletinfo['immature_balance'], Decimal('0'))
-        assert_equal(walletinfo['balance'], Decimal('1024.12017230'))
+        assert_equal(walletinfo['balance'], Decimal('1024.12017230'))  # Block 1: 0.12017230 + Blocks 2-5: 4×256 = 1024.12017230
         self.sync_all()
 
         walletinfo = self.nodes[0].getwalletinfo()
@@ -51,14 +47,14 @@ class WalletTest (BitcoinTestFramework):
         self.sync_all()
 
         # Generate mature coinbase outputs on node 0
-        self.nodes[0].generate(101)
+        self.nodes[0].generate(201)
         self.sync_all()
 
-        assert_equal(self.nodes[0].getbalance(), Decimal('25856'))
-        assert_equal(self.nodes[1].getbalance(), Decimal('1024.12017230'))
+        assert_equal(self.nodes[0].getbalance(), Decimal('51456'))  # 201 blocks × 256
+        assert_equal(self.nodes[1].getbalance(), Decimal('1024.12017230'))  # Block 1: 0.12017230 + Blocks 2-5: 4×256
         assert_equal(self.nodes[2].getbalance(), Decimal('0'))
-        assert_equal(self.nodes[0].getbalance("*"), Decimal('25856'))
-        assert_equal(self.nodes[1].getbalance("*"), Decimal('1024.12017230'))
+        assert_equal(self.nodes[0].getbalance("*"), Decimal('51456'))  # 201 blocks × 256
+        assert_equal(self.nodes[1].getbalance("*"), Decimal('1024.12017230'))  # Block 1: 0.12017230 + Blocks 2-5: 4×256
         assert_equal(self.nodes[2].getbalance("*"), Decimal('0'))
 
         
@@ -90,11 +86,10 @@ class WalletTest (BitcoinTestFramework):
         self.test_build_and_submit_transaction()
 
         # Catch an attempt to send a transaction with an absurdly high fee.
-        # Send 1.0 ARRR from an utxo of value 10.0 ARRR but don't specify a change output, so then
-        # the change of 9.0 ARRR becomes the fee, which is considered to be absurdly high because
-        # the fee is more than 4 times the conventional fee.
-        assert(Decimal("9.0") > 4*conventional_fee(1))
-        fee = Decimal(4*conventional_fee(1))
+        # Send 1.23456789 ARRR from a shielded address but specify a high fee.
+        # The fee of 9.0 ARRR (>4 times the standard 0.0001) should be considered high.
+        assert(Decimal("9.0") > 4*Decimal("0.0001"))
+        fee = Decimal('9.0')  # 4 times the standard 0.0001 fee
         recipients = []
         recipients.append({"address": mysaplingzaddr, "amount": Decimal('1.23456789')})
 
@@ -119,11 +114,11 @@ class WalletTest (BitcoinTestFramework):
         """
         print("Testing transaction building and submission workflow...")
         
-        # Get fresh addresses for testing - use z_getnewaddresskey to create new spending keys
-        sapling_from = self.nodes[0].z_getnewaddresskey('sapling')
-        sapling_to = self.nodes[1].z_getnewaddresskey('sapling')
-        orchard_from = self.nodes[0].z_getnewaddresskey('orchard')
-        orchard_to = self.nodes[1].z_getnewaddresskey('orchard')
+        # Get fresh addresses for testing - use z_getnewaddress to create new addresses
+        sapling_from = self.nodes[0].z_getnewaddress('sapling')
+        sapling_to = self.nodes[1].z_getnewaddress('sapling')
+        orchard_from = self.nodes[0].z_getnewaddress('orchard')
+        orchard_to = self.nodes[1].z_getnewaddress('orchard')
         
         # Shield some funds to the test addresses first
         print("Setting up test funds...")

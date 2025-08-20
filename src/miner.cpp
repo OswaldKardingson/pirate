@@ -1052,23 +1052,27 @@ CBlockTemplate* CreateNewBlockWithKey(CReserveKey& reservekey, int32_t nHeight, 
     }
     else
     {
-        if (!GetBoolArg("-disablewallet", false)) {
-            // wallet enabled
-            if (!reservekey.GetReservedKey(pubkey))
+        // First check if mineraddress is configured
+        CTxDestination dest = DecodeDestination(GetArg("-mineraddress", ""));
+        if (IsValidDestination(dest)) {
+            scriptPubKey = GetScriptForDestination(dest);
+        }
+        else if (GetBoolArg("-disablewallet", false)) {
+            // wallet disabled and no valid mineraddress
+            return NULL;
+        }
+        else {
+            // wallet enabled - try to get reserved key
+            if (!reservekey.GetReservedKey(pubkey)) {
                 return NULL;
-            scriptPubKey.clear();
-            scriptPubKey = CScript() << ToByteVector(pubkey) << OP_CHECKSIG;
-        } else {
-            // wallet disabled
-            CTxDestination dest = DecodeDestination(GetArg("-mineraddress", ""));
-            if (IsValidDestination(dest)) {
-                // CKeyID keyID = std::get_if<CKeyID>(dest);
-                // scriptPubKey = CScript() << OP_DUP << OP_HASH160 << ToByteVector(keyID) << OP_EQUALVERIFY << OP_CHECKSIG;
-                scriptPubKey = GetScriptForDestination(dest);
-            } else
-                return NULL;
+            } else {
+                scriptPubKey.clear();
+                scriptPubKey = CScript() << ToByteVector(pubkey) << OP_CHECKSIG;
+            }
         }
     }
+
+
     return CreateNewBlock(pubkey, scriptPubKey, gpucount, isStake);
 }
 

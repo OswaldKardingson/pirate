@@ -114,6 +114,7 @@ static const CRPCConvertParam vRPCConvertParams[] =
     { "verifychain", 0 },
     { "verifychain", 1 },
     { "keypoolrefill", 0 },
+    { "getkeypoolsize", 0 },
     { "getrawmempool", 0 },
     { "estimatefee", 0 },
     { "estimatepriority", 0 },
@@ -184,6 +185,7 @@ static const CRPCConvertParam vRPCConvertParams[] =
     { "kvupdate", 4 },
     { "z_importkey", 2 },
     { "z_importviewingkey", 2 },
+    { "z_setaddressbook", 3 },
     { "z_getpaymentdisclosure", 1},
     { "z_getpaymentdisclosure", 2},
     // crosschain

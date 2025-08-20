@@ -248,9 +248,10 @@ class WalletShieldingCoinbaseTest(BitcoinTestFramework):
         # =================================================================
 
         # Shield coinbase to Sapling: This will succeed with exact amount and no change
-        # We send two coinbase UTXOs totalling 512.0 less a default fee, with no change
+        # We send one coinbase UTXOs totalling 256 less a default fee, with no change
         # (This tx fits within the block unpaid action limit.)
-        shieldvalue = Decimal('512.0') - LEGACY_DEFAULT_FEE
+        mytaddr = get_coinbase_address(self.nodes[0])
+        shieldvalue = Decimal('256.0') - LEGACY_DEFAULT_FEE
         recipients = []
         recipients.append({"address": mysaplingzaddr, "amount": shieldvalue})
         myopid = self.nodes[0].z_sendmany(mytaddr, recipients, 10, LEGACY_DEFAULT_FEE)
@@ -272,9 +273,10 @@ class WalletShieldingCoinbaseTest(BitcoinTestFramework):
         self.sync_all()
 
         # Shield coinbase to Orchard: This will succeed with exact amount and no change
-        # We send two coinbase UTXOs totalling 512.0 less a default fee, with no change
+        # We send two coinbase UTXOs totalling 256.0 less a default fee, with no change
         # (This tx fits within the block unpaid action limit.)
-        shieldvalue = Decimal('512.0') - LEGACY_DEFAULT_FEE
+        mytaddr = get_coinbase_address(self.nodes[0])
+        shieldvalue = Decimal('256.0') - LEGACY_DEFAULT_FEE
         recipients = []
         recipients.append({"address": myorchardzaddr, "amount": shieldvalue})
         myopid = self.nodes[0].z_sendmany(mytaddr, recipients, 10, LEGACY_DEFAULT_FEE)
@@ -291,7 +293,8 @@ class WalletShieldingCoinbaseTest(BitcoinTestFramework):
         
         # Shield coinbase to both Sapling and Orchard addresses simultaneously
         # We send coinbase UTXOs with half the fee for each output
-        shieldvalue = Decimal('512.0') - LEGACY_DEFAULT_FEE/2
+        mytaddr = get_coinbase_address(self.nodes[0])
+        shieldvalue = Decimal('256.0')/2 - LEGACY_DEFAULT_FEE/2
         recipients = []
         recipients.append({"address": mysaplingzaddr, "amount": shieldvalue})
         recipients.append({"address": myorchardzaddr, "amount": shieldvalue})

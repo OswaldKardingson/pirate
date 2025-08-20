@@ -760,23 +760,45 @@ struct CheckTransationResults
     std::string reasonString = "";
 };
 
-//Validate a batch of transactions
-CheckTransationResults ContextualCheckTransactionSingleThreaded(const CTransaction tx, const int nHeight, const int dosLevel, const bool isInitialBlockDownload = false);
-//Validate a batch of transactions
-CheckTransationResults ContextualCheckTransactionShieldedBundles(const std::vector<const CTransaction*> vtx, const CCoinsViewCache *view, const uint32_t consensusBranchId, const bool isInitialBlockDownload = false, const uint32_t threadNumber = 0);
-//Validate a batch of Sapling spend descriptions
-// CheckTransationResults ContextualCheckTransactionSaplingSpendWorker(const std::vector<const SpendDescription*> vSpend, const std::vector<uint256> vSpendSig, const uint32_t threadNumber);
-//Validate a batch of Sapling output descriptions
-// CheckTransationResults ContextualCheckTransactionSaplingOutputWorker(const std::vector<const OutputDescription*> vOutput, const uint32_t threadNumber);
-/** Check a transaction contextually against a set of consensus rules */
-bool ContextualCheckTransactionMultithreaded(int32_t slowflag, const std::vector<const CTransaction*> vptx, const CCoinsViewCache &view, CBlockIndex * const pindexPrev, CValidationState &state, int nHeight, int dosLevel,
-                                bool (*isInitBlockDownload)() = IsInitialBlockDownload,int32_t validateprices=1);
+/// Check a transaction contextually against a set of consensus rules */
+bool ContextualCheckTransaction(const CTransaction tx, CValidationState &state, int nHeight, int dosLevel,
+                                bool (*isInitBlockDownload)() = IsInitialBlockDownload);
 
 
 /** Apply the effects of this transaction on the UTXO set represented by view */
 void UpdateCoins(const CTransaction& tx, CCoinsViewCache& inputs, int nHeight);
 
-/** Transaction validation functions */
+/**
+ * Check whether all shielded inputs of this transaction are valid.
+ *
+ * This checks that:
+ * - The anchors in the transaction exist in the given view.
+ * - The nullifiers in the transaction do not exist in the given view.
+ * - The signatures for the transaction's shielded components are valid.
+ *
+ * This also currently checks the Sapling proofs, due to the way the Rust verification
+ * code is written. Sprout and Orchard proofs are currently checked in CheckTransaction().
+ * Once we have batch proof validation implemented, these will all be accumulated in
+ * CheckTransaction().
+ *
+ * To skip checking signatures, use `Consensus::CheckTxShieldedInputs` instead.
+ *
+ * This does not modify the view to add the nullifiers to the spent set.
+ *
+ * The `isInitBlockDownload` argument is a function parameter to assist with testing.
+ */
+bool ContextualCheckShieldedInputs(
+        const CTransaction& tx,
+        const PrecomputedTransactionData& txdata,
+        CValidationState &state,
+        const CCoinsViewCache &view,
+        std::optional<rust::Box<sapling::BatchValidator>>& saplingAuth,
+        std::optional<rust::Box<orchard::BatchValidator>>& orchardAuth,
+        const Consensus::Params& consensus,
+        uint32_t consensusBranchId,
+        bool isMined,
+        bool (*isInitBlockDownload)() = IsInitialBlockDownload);
+
 
 /** Context-independent validity checks */
 bool CheckTransaction(uint32_t tiptime,const CTransaction& tx, CValidationState& state, ProofVerifier& verifier, int32_t txIndex, int32_t numTxs);
@@ -789,6 +811,23 @@ bool IsStandardTx(const CTransaction& tx, std::string& reason, int nHeight = 0);
 
 namespace Consensus {
 
+    /**
+ * Check whether all shielded inputs of this transaction are valid.
+ *
+ * This checks that:
+ * - The anchors in the transaction exist in the given view.
+ * - The nullifiers in the transaction do not exist in the given view.
+ *
+ * This does not modify the view to add the nullifiers to the spent set.
+ * This does not check proofs or signatures.
+ */
+bool CheckTxShieldedInputs(
+    const CTransaction& tx,
+    CValidationState& state,
+    const CCoinsViewCache& view,
+    int dosLevel,
+    std::string calledFrom);
+    
 /**
  * Check whether all inputs of this transaction are valid (no double spends and amounts)
  * This does not modify the UTXO set. This does not check scripts and sigs.

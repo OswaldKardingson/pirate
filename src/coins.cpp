@@ -1053,9 +1053,10 @@ CAmount CCoinsViewCache::GetTransparentValueIn(int32_t nHeight,int64_t &interest
 
     return nResult;
 }
-
-bool CCoinsViewCache::HaveJoinSplitRequirements(const CTransaction& tx, int maxProcessingThreads) const
+tl::expected<void, UnsatisfiedShieldedReq> CCoinsViewCache::CheckShieldedRequirements(const CTransaction& tx) const
 {
+
+
     boost::unordered_map<uint256, SproutMerkleTree, CCoinsKeyHasher> intermediates;
 
     BOOST_FOREACH(const JSDescription &joinsplit, tx.vjoinsplit)
@@ -1065,7 +1066,10 @@ bool CCoinsViewCache::HaveJoinSplitRequirements(const CTransaction& tx, int maxP
             if (GetNullifier(nullifier, SPROUT)) {
                 // If the nullifier is set, this transaction
                 // double-spends!
-                return false;
+                auto txid = tx.GetHash().ToString();
+                auto nf = nullifier.ToString();
+                LogPrintf("Sprout double-spend detected txid=%s nf=%s\n", txid, nf);
+                return tl::unexpected(UnsatisfiedShieldedReq::SproutDuplicateNullifier);
             }
         }
 
@@ -1074,7 +1078,10 @@ bool CCoinsViewCache::HaveJoinSplitRequirements(const CTransaction& tx, int maxP
         if (it != intermediates.end()) {
             tree = it->second;
         } else if (!GetSproutAnchorAt(joinsplit.anchor, tree)) {
-            return false;
+            auto txid = tx.GetHash().ToString();
+            auto anchor = joinsplit.anchor.ToString();
+            LogPrintf("Transaction uses unknown Sprout anchor txid=%s anchor=%s\n", txid, anchor);
+            return tl::unexpected(UnsatisfiedShieldedReq::SproutUnknownAnchor);
         }
 
         BOOST_FOREACH(const uint256& commitment, joinsplit.commitments)
@@ -1085,47 +1092,50 @@ bool CCoinsViewCache::HaveJoinSplitRequirements(const CTransaction& tx, int maxP
         intermediates.insert(std::make_pair(tree.root(), tree));
     }
 
-    auto now = GetTimeMicros();
-
-
-
     //Add this transaction sapling spend to spend thread batches
     for (const auto& spend : tx.GetSaplingSpends()) {
         auto nullifier = uint256::FromRawBytes(spend.nullifier());
-        auto anchor = uint256::FromRawBytes(spend.anchor());
+        auto rt = uint256::FromRawBytes(spend.anchor());
 
         if (GetNullifier(nullifier, SAPLINGFRONTIER)) {// Prevent double spends
-            return false;
+            auto txid = tx.GetHash().ToString();
+            auto nf = nullifier.ToString();
+            LogPrintf("Sapling double-spend detected txid=%s nf=%s\n", txid, nf);
+            return tl::unexpected(UnsatisfiedShieldedReq::SaplingDuplicateNullifier);
         }
         
         SaplingMerkleFrontier tree;
-        if (!GetSaplingFrontierAnchorAt(anchor, tree)) {
-            return false;
+        if (!GetSaplingFrontierAnchorAt(rt, tree)) {
+            auto txid = tx.GetHash().ToString();
+            auto anchor = rt.ToString();
+            LogPrintf("Transaction uses unknown Sapling anchor txid=%s anchor=%s\n", txid, anchor);
+            return tl::unexpected(UnsatisfiedShieldedReq::SaplingUnknownAnchor);
         }
     }
 
     // Check Orchard bundle Anchor
-    if (tx.GetOrchardBundle().IsPresent()) {
-        std::optional<uint256> root = tx.GetOrchardBundle().GetAnchor();
-        if (root) {
-            OrchardMerkleFrontier tree;
-            if (!GetOrchardFrontierAnchorAt(root.value(), tree)) {
-                return false;
-            }
+    std::optional<uint256> root = tx.GetOrchardBundle().GetAnchor();
+    if (root) {
+        OrchardMerkleFrontier tree;
+        if (!GetOrchardFrontierAnchorAt(root.value(), tree)) {
+            auto txid = tx.GetHash().ToString();
+            auto anchor = root.value().ToString();
+            LogPrintf("Transaction uses unknown Orchard anchor txid=%s anchor=%s\n", txid, anchor);
+            return tl::unexpected(UnsatisfiedShieldedReq::OrchardUnknownAnchor);
         }
     }
 
     //Check Orchard nullifiers
-    for (const auto& action : tx.GetOrchardActions()) {
-        auto nullifier = uint256::FromRawBytes(action.nullifier());
-
-        if (GetNullifier(nullifier, ORCHARDFRONTIER)) {// Prevent double spends
-            return false;
+    for (const uint256 &nullifier : tx.GetOrchardBundle().GetNullifiers()) {
+        if (GetNullifier(nullifier, ORCHARDFRONTIER)) { // Prevent double spends
+            auto txid = tx.GetHash().ToString();
+            auto nf = nullifier.ToString();
+            LogPrint("consensus", "Orchard double-spend detected txid=%s nf=%s\n", txid, nf);
+            return tl::unexpected(UnsatisfiedShieldedReq::OrchardDuplicateNullifier);
         }
     }
-    
 
-    return true;
+    return {};
 }
 
 bool CCoinsViewCache::HaveInputs(const CTransaction& tx) const

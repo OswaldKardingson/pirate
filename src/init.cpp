@@ -1580,7 +1580,7 @@ bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
         if (!lock.try_lock())
             return InitError(strprintf(_("Cannot obtain a lock on data directory %s. Pirate is probably already running."), strDataDir));
     } catch(const boost::interprocess::interprocess_exception& e) {
-        return InitError(strprintf(_("Cannot obtain a lock on data directory %s. Pirate is probably already running.") + " %s.", strDataDir, e.what()));
+        return InitError(strprintf(_("Cannot obtain a lock on data directory %s. Pirate is probably already running. Error: %s"), strDataDir, e.what()));
     }
 
 #ifndef _WIN32

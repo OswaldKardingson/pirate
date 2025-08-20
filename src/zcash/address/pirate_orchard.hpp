@@ -18,8 +18,10 @@ const size_t SerializedOrchardOutgoingKeySize = 32;
 const size_t SerializedOrchardIncomingViewingKeySize = 64;
 const size_t SerializedOrchardFullViewingKeySize = 96;
 const size_t SerializedOrchardExtendedFullViewingKeySize = 137;
+const size_t SerializedOrchardDiversifiedExtendedFullViewingKeySize = 148;
 const size_t SerializedOrchardSpendingKeySize = 32;
 const size_t SerializedOrchardExtendedSpendingKeySize = 73;
+const size_t SerializedOrchardDiversifiedExtendedSpendingKeySize = 84;
 
 typedef std::array<unsigned char, SerializedOrchardPaymentAddressSize> OrchardPaymentAddress_t;
 typedef std::array<unsigned char, SerializedOrchardIncomingViewingKeySize> OrchardIncomingViewingKey_t;

@@ -38,7 +38,7 @@ BASE_SCRIPTS= [
     # Longest test should go first, to favor running tests in parallel
 
     # vv Tests less than 5m vv
-    # 'wallet.py',
+     'wallet.py',
     # 'sprout_sapling_migration.py',
     # 'remove_sprout_shielding.py',
     # 'mempool_packages.py',
@@ -50,19 +50,21 @@ BASE_SCRIPTS= [
     # 'wallet_shieldcoinbase_ua_nu5.py',
     # 'turnstile.py',
     # 'walletbackup.py',
-    # 'zkey_import_export.py',
+     'zkey_import_export.py',
     # 'prioritisetransaction.py',
     # 'wallet_changeaddresses.py',
     # 'wallet_listreceived.py',
     # 'mempool_tx_expiry.py',
      'finalorchardroot.py',
-    # 'wallet_orchard.py',
+     'wallet_orchard.py',
     # 'wallet_overwintertx.py',
     # 'wallet_persistence.py',
     # 'wallet_listnotes.py',
     # 'wallet_listunspent.py',
     # 'wallet_golden_5_6_0.py',
     # 'wallet_tarnished_5_6_0.py',
+     'wallet_dump_import.py',
+
 
     # vv Tests less than 60s vv
     # 'orchard_reorg.py',
@@ -108,7 +110,7 @@ BASE_SCRIPTS= [
     # 'merkle_blocks.py',
     # 'signrawtransactions.py',
     # 'signrawtransaction_offline.py',
-    # 'key_import_export.py',
+     'key_import_export.py',
     # 'nodehandling.py',
     # 'reindex.py',
     # 'addressindex.py',
@@ -117,7 +119,7 @@ BASE_SCRIPTS= [
     # 'decodescript.py',
     # 'blockchain.py',
     # 'disablewallet.py',
-    # 'keypool.py',
+     'keypool.py',
     # 'getblocktemplate.py',
     # 'getmininginfo.py',
     # 'bip65-cltv-p2p.py',

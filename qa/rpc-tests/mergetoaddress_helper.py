@@ -26,12 +26,11 @@ from test_framework.util import (
     initialize_chain_clean, start_node,
     wait_and_assert_operationid_status, LEGACY_DEFAULT_FEE
 )
-from test_framework.zip317 import conventional_fee
 from decimal import Decimal
 import time
 
 # Default fee for shielding transactions
-DEFAULT_FEE = LEGACY_DEFAULT_FEE
+DEFAULT_FEE = Decimal('0.0001')
 
 
 def assert_mergetoaddress_exception(expected_error_msg, merge_to_address_lambda):
@@ -109,11 +108,6 @@ class MergeToAddressHelper:
             - Deprecated RPC methods allowed for compatibility
         """
         args = [
-            '-minrelaytxfee=0',
-            '-debug=zrpcunsafe',
-            '-allowdeprecated=getnewaddress',
-            '-allowdeprecated=z_getnewaddress',
-            '-allowdeprecated=z_getbalance',
         ]
         args += additional_args
         test.nodes = []
@@ -156,26 +150,18 @@ class MergeToAddressHelper:
             [blockhash] = node.generate(1)
             assert_equal(len(node.getblock(blockhash)['tx']), expected_transactions)
 
-        # =================================================================
-        # INITIAL SETUP: Generate test addresses and mine initial blocks
-        # =================================================================
-        
-        mysaplingaddr = test.nodes[0].z_getnewaddress('sapling')
-        myorchardaddr = test.nodes[0].z_getnewaddress('orchard')
-        zerrortestaddr = test.nodes[0].z_getnewaddress('sapling')
-
-        test.nodes[0].generate(5)
-        test.sync_all()
 
         # =================================================================
         # WALLET BALANCE VERIFICATION: Check initial wallet states
         # =================================================================
         
+        test.nodes[0].generate(5)
+        test.sync_all()
         walletinfo = test.nodes[0].getwalletinfo()
 
         # Verify initial balance states
         assert_equal(walletinfo['immature_balance'], Decimal('0'))
-        assert_equal(walletinfo['balance'], Decimal('1024.12017230'))
+        assert_equal(walletinfo['balance'], Decimal('1024.12017230'))  # Block 1: 0.12017230 + Blocks 2-5: 4×256 = 1024.12017230
         test.sync_all()
         
         # Generate additional blocks for mature coinbase outputs
@@ -194,9 +180,17 @@ class MergeToAddressHelper:
         walletinfo3 = test.nodes[2].getwalletinfo()
 
         # Verify expected balance distributions
-        assert_equal(test.nodes[0].getbalance(), Decimal('1024.12017230'))
-        assert_equal(test.nodes[1].getbalance(), Decimal('51456'))
-        assert_equal(test.nodes[2].getbalance(), Decimal('768'))
+        assert_equal(test.nodes[0].getbalance(), Decimal('1024.12017230'))  # Block 1: 0.12017230 + Blocks 2-5: 4×256 = 1024.12017230
+        assert_equal(test.nodes[1].getbalance(), Decimal('51456'))  # 201 blocks × 256
+        assert_equal(test.nodes[2].getbalance(), Decimal('768'))  # 3 blocks × 256
+
+        # =================================================================
+        # ADDRESS CREATION AND FUNDING: Generate and fund addresses
+        # =================================================================
+
+        mysaplingaddr = test.nodes[0].z_getnewaddress('sapling')
+        myorchardaddr = test.nodes[0].z_getnewaddress('orchard')
+        zerrortestaddr = test.nodes[0].z_getnewaddress('sapling')
 
         # =================================================================
         # SHIELDING OPERATIONS: Move coinbase UTXOs to shielded pools
@@ -244,7 +238,7 @@ class MergeToAddressHelper:
             {'address': zorchardaddr1, 'amount': Decimal('100')},
             {'address': zorchardaddr2, 'amount': Decimal('100')},
             {'address': zorchardaddr3, 'amount': Decimal('100')},
-            ], 1, 0)
+            ], 1, Decimal('0.0001'))
         wait_and_assert_operationid_status(test.nodes[0], result)
         time.sleep(1)
         test.sync_all()
@@ -285,29 +279,29 @@ class MergeToAddressHelper:
         print("Merging will fail because transparent limit parameter must be at least 0...")
         assert_mergetoaddress_exception(
             "Limit on maximum number of UTXOs cannot be negative",
-            lambda: test.nodes[0].z_mergetoaddress([zsaplingaddr1, zsaplingaddr2, zsaplingaddr3], mysaplingaddr, Decimal('0.001'), -1))
+            lambda: test.nodes[0].z_mergetoaddress([zsaplingaddr1, zsaplingaddr2, zsaplingaddr3], mysaplingaddr, Decimal('0.0001'), -1))
 
         # Merging will fail because transparent limit parameter is absurdly large
         print("Merging will fail because transparent limit parameter is absurdly large...")
         assert_mergetoaddress_exception(
             "JSON integer out of range",
-            lambda: test.nodes[0].z_mergetoaddress([zsaplingaddr1, zsaplingaddr2, zsaplingaddr3], mysaplingaddr, Decimal('0.001'), 99999999999999))
+            lambda: test.nodes[0].z_mergetoaddress([zsaplingaddr1, zsaplingaddr2, zsaplingaddr3], mysaplingaddr, Decimal('0.0001'), 99999999999999))
 
         # Merging will fail because shielded limit parameter must be at least 0
         print("Merging will fail because shielded limit parameter must be at least 0...")
         assert_mergetoaddress_exception(
             "Limit on maximum number of notes cannot be negative",
-            lambda: test.nodes[0].z_mergetoaddress([zsaplingaddr1, zsaplingaddr2, zsaplingaddr3], mysaplingaddr, Decimal('0.001'), 50, -1))
+            lambda: test.nodes[0].z_mergetoaddress([zsaplingaddr1, zsaplingaddr2, zsaplingaddr3], mysaplingaddr, Decimal('0.0001'), 50, -1))
 
         # Merging will fail because shielded limit parameter is absurdly large
         print("Merging will fail because shielded limit parameter is absurdly large...")
         assert_mergetoaddress_exception(
             "JSON integer out of range",
-            lambda: test.nodes[0].z_mergetoaddress([zsaplingaddr1, zsaplingaddr2, zsaplingaddr3], mysaplingaddr, Decimal('0.001'), 50, 99999999999999))
+            lambda: test.nodes[0].z_mergetoaddress([zsaplingaddr1, zsaplingaddr2, zsaplingaddr3], mysaplingaddr, Decimal('0.0001'), 50, 99999999999999))
 
 
-        # Merge all sapling notes to a sapling z-addr, and set fee to 0
-        result = test.nodes[0].z_mergetoaddress([zsaplingaddr1, zsaplingaddr2, zsaplingaddr3], mysaplingaddr, 0)
+        # Merge all sapling notes to a sapling z-addr, and set fee to 0.0001
+        result = test.nodes[0].z_mergetoaddress([zsaplingaddr1, zsaplingaddr2, zsaplingaddr3], mysaplingaddr, Decimal('0.0001'))
         wait_and_assert_operationid_status(test.nodes[0], result['opid'])
         time.sleep(1)
         test.sync_all()
@@ -317,7 +311,8 @@ class MergeToAddressHelper:
         test.sync_all()
 
         # Confirm balances of destination address and source addresses
-        assert_equal(test.nodes[0].z_getbalance(mysaplingaddr), Decimal('724.12017230'))
+        assert_equal(test.nodes[0].z_getbalance(mysaplingaddr), Decimal('724.1199723'))  # 1024.12017230 - 600 (sent) - 0.0001 (sendmany fee) + 300 (merged) - 0.0001 (merge fee) = 724.1199723
+        assert_equal(test.nodes[0].z_getbalance(myorchardaddr), Decimal('12800'))
         assert_equal(test.nodes[0].z_getbalance(zsaplingaddr1), Decimal('0'))
         assert_equal(test.nodes[0].z_getbalance(zsaplingaddr2), Decimal('0'))
         assert_equal(test.nodes[0].z_getbalance(zsaplingaddr3), Decimal('0'))
@@ -325,8 +320,8 @@ class MergeToAddressHelper:
         assert_equal(test.nodes[0].z_getbalance(zorchardaddr2), Decimal('100'))
         assert_equal(test.nodes[0].z_getbalance(zorchardaddr3), Decimal('100'))
 
-        # Merge all orchard notes to a sapling z-addr, and set fee to 0
-        result = test.nodes[0].z_mergetoaddress([zorchardaddr1, zorchardaddr2, zorchardaddr3], mysaplingaddr, 0)
+        # Merge all orchard notes to a sapling z-addr, and set fee to 0.0001
+        result = test.nodes[0].z_mergetoaddress([zorchardaddr1, zorchardaddr2, zorchardaddr3], mysaplingaddr, Decimal('0.0001'))
         wait_and_assert_operationid_status(test.nodes[0], result['opid'])
         time.sleep(1)
         test.sync_all()
@@ -336,7 +331,8 @@ class MergeToAddressHelper:
         test.sync_all()
 
         # Confirm balances of destination address and source addresses
-        assert_equal(test.nodes[0].z_getbalance(mysaplingaddr), Decimal('1024.12017230'))
+        assert_equal(test.nodes[0].z_getbalance(mysaplingaddr), Decimal('1024.1198723'))  # 724.1199723 + 300 (merged) - 0.0001 (merge fee) = 1024.1198723
+        assert_equal(test.nodes[0].z_getbalance(myorchardaddr), Decimal('12800'))  # unchanged from previous step
         assert_equal(test.nodes[0].z_getbalance(zsaplingaddr1), Decimal('0'))
         assert_equal(test.nodes[0].z_getbalance(zsaplingaddr2), Decimal('0'))
         assert_equal(test.nodes[0].z_getbalance(zsaplingaddr3), Decimal('0'))
@@ -354,7 +350,7 @@ class MergeToAddressHelper:
             {'address': zorchardaddr1, 'amount': Decimal('100')},
             {'address': zorchardaddr2, 'amount': Decimal('100')},
             {'address': zorchardaddr3, 'amount': Decimal('100')},
-            ], 1, 0)
+            ], 1, Decimal('0.0001'))
         wait_and_assert_operationid_status(test.nodes[0], result)
         time.sleep(1)
         test.sync_all()
@@ -364,8 +360,8 @@ class MergeToAddressHelper:
         test.sync_all()
 
         # Confirm balances of destination address and source addresses
-        assert_equal(test.nodes[0].z_getbalance(mysaplingaddr), Decimal('1024.12017230'))
-        assert_equal(test.nodes[0].z_getbalance(myorchardaddr), Decimal('12200'))
+        assert_equal(test.nodes[0].z_getbalance(mysaplingaddr), Decimal('1024.1198723'))  # unchanged from previous step
+        assert_equal(test.nodes[0].z_getbalance(myorchardaddr), Decimal('12199.9999'))  # 12800.0 - 600 (sent) - 0.0001 (sendmany fee) = 12199.9999
         assert_equal(test.nodes[0].z_getbalance(zsaplingaddr1), Decimal('100'))
         assert_equal(test.nodes[0].z_getbalance(zsaplingaddr2), Decimal('100'))
         assert_equal(test.nodes[0].z_getbalance(zsaplingaddr3), Decimal('100'))
@@ -373,8 +369,8 @@ class MergeToAddressHelper:
         assert_equal(test.nodes[0].z_getbalance(zorchardaddr2), Decimal('100'))
         assert_equal(test.nodes[0].z_getbalance(zorchardaddr3), Decimal('100'))
 
-        # Merge all sapling and orchard notes to a sapling z-addr, and set fee to 0
-        result = test.nodes[0].z_mergetoaddress([zsaplingaddr1, zsaplingaddr2, zsaplingaddr3,zorchardaddr1, zorchardaddr2, zorchardaddr3], mysaplingaddr, 0)
+        # Merge all sapling and orchard notes to a sapling z-addr, and set fee to 0.0001
+        result = test.nodes[0].z_mergetoaddress([zsaplingaddr1, zsaplingaddr2, zsaplingaddr3,zorchardaddr1, zorchardaddr2, zorchardaddr3], mysaplingaddr, Decimal('0.0001'))
         wait_and_assert_operationid_status(test.nodes[0], result['opid'])
         time.sleep(1)
         test.sync_all()
@@ -384,8 +380,8 @@ class MergeToAddressHelper:
         test.sync_all()
         
         # Confirm balances of destination address and source addresses
-        assert_equal(test.nodes[0].z_getbalance(mysaplingaddr), Decimal('1624.12017230'))
-        assert_equal(test.nodes[0].z_getbalance(myorchardaddr), Decimal('12200')) 
+        assert_equal(test.nodes[0].z_getbalance(mysaplingaddr), Decimal('1624.1197723'))  # 1024.1198723 + 600 (merged) - 0.0001 (merge fee) = 1624.1197723
+        assert_equal(test.nodes[0].z_getbalance(myorchardaddr), Decimal('12199.9999'))  # unchanged from previous step
         assert_equal(test.nodes[0].z_getbalance(zsaplingaddr1), Decimal('0'))
         assert_equal(test.nodes[0].z_getbalance(zsaplingaddr2), Decimal('0'))
         assert_equal(test.nodes[0].z_getbalance(zsaplingaddr3), Decimal('0'))
@@ -401,7 +397,7 @@ class MergeToAddressHelper:
             {'address': zorchardaddr1, 'amount': Decimal('100')},
             {'address': zorchardaddr2, 'amount': Decimal('100')},
             {'address': zorchardaddr3, 'amount': Decimal('100')},
-            ], 1, 0)
+            ], 1, Decimal('0.0001'))
         wait_and_assert_operationid_status(test.nodes[0], result)
         time.sleep(1)
         test.sync_all()
@@ -411,8 +407,8 @@ class MergeToAddressHelper:
         test.sync_all()
         
         # Verify balances before the final merge operation
-        assert_equal(test.nodes[0].z_getbalance(mysaplingaddr), Decimal('1624.12017230'))
-        assert_equal(test.nodes[0].z_getbalance(myorchardaddr), Decimal('11600'))
+        assert_equal(test.nodes[0].z_getbalance(mysaplingaddr), Decimal('1624.1197723'))  # unchanged from previous step
+        assert_equal(test.nodes[0].z_getbalance(myorchardaddr), Decimal('11599.9998'))  # 12199.9999 - 600 (sent) - 0.0001 (sendmany fee) = 11599.9998
         assert_equal(test.nodes[0].z_getbalance(zsaplingaddr1), Decimal('100'))
         assert_equal(test.nodes[0].z_getbalance(zsaplingaddr2), Decimal('100'))
         assert_equal(test.nodes[0].z_getbalance(zsaplingaddr3), Decimal('100'))
@@ -420,8 +416,8 @@ class MergeToAddressHelper:
         assert_equal(test.nodes[0].z_getbalance(zorchardaddr2), Decimal('100'))
         assert_equal(test.nodes[0].z_getbalance(zorchardaddr3), Decimal('100'))
         
-        # Merge all sapling and orchard notes to an orchard z-addr, and set fee to 0
-        result = test.nodes[0].z_mergetoaddress([zsaplingaddr1, zsaplingaddr2, zsaplingaddr3, zorchardaddr1, zorchardaddr2, zorchardaddr3], myorchardaddr, 0)
+        # Merge all sapling and orchard notes to an orchard z-addr, and set fee to 0.0001
+        result = test.nodes[0].z_mergetoaddress([zsaplingaddr1, zsaplingaddr2, zsaplingaddr3, zorchardaddr1, zorchardaddr2, zorchardaddr3], myorchardaddr, Decimal('0.0001'))
         wait_and_assert_operationid_status(test.nodes[0], result['opid'])
         time.sleep(1)
         test.sync_all()
@@ -431,8 +427,8 @@ class MergeToAddressHelper:
         test.sync_all()
         
         # Confirm final balances after the merge operation
-        assert_equal(test.nodes[0].z_getbalance(mysaplingaddr), Decimal('1624.12017230'))
-        assert_equal(test.nodes[0].z_getbalance(myorchardaddr), Decimal('12200')) 
+        assert_equal(test.nodes[0].z_getbalance(mysaplingaddr), Decimal('1624.1197723'))  # unchanged from previous step
+        assert_equal(test.nodes[0].z_getbalance(myorchardaddr), Decimal('12199.9997'))  # 11599.9998 + 600 (merged) - 0.0001 (merge fee) = 11599.9997
         assert_equal(test.nodes[0].z_getbalance(zsaplingaddr1), Decimal('0'))
         assert_equal(test.nodes[0].z_getbalance(zsaplingaddr2), Decimal('0'))
         assert_equal(test.nodes[0].z_getbalance(zsaplingaddr3), Decimal('0'))

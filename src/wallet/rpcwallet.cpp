@@ -2896,6 +2896,27 @@ UniValue getwalletinfo(const UniValue& params, bool fHelp, const CPubKey& mypk)
     return obj;
 }
 
+UniValue getkeypoolsize(const UniValue& params, bool fHelp, const CPubKey& mypk)
+{
+    if (!EnsureWalletIsAvailable(fHelp))
+        return NullUniValue;
+
+    if (fHelp || params.size() != 0)
+        throw runtime_error(
+            "getkeypoolsize\n"
+            "Returns the number of keys in the keypool.\n"
+            "\nResult:\n"
+            "n      (numeric) The number of keys in the keypool\n"
+            "\nExamples:\n"
+            + HelpExampleCli("getkeypoolsize", "")
+            + HelpExampleRpc("getkeypoolsize", "")
+        );
+
+    LOCK2(cs_main, pwalletMain->cs_wallet);
+    
+    return (int)pwalletMain->GetKeyPoolSize();
+}
+
 UniValue resendwallettransactions(const UniValue& params, bool fHelp, const CPubKey& mypk)
 {
     if (!EnsureWalletIsAvailable(fHelp))
@@ -3553,10 +3574,19 @@ UniValue z_getnewaddresskey(const UniValue& params, bool fHelp, const CPubKey& m
     if (!EnsureWalletIsAvailable(fHelp))
         return NullUniValue;
 
+    // Check protocol activation status
+    int nextBlockHeight = chainActive.Height() + 1;
+    bool saplingActive = NetworkUpgradeActive(nextBlockHeight, Params().GetConsensus(), Consensus::UPGRADE_SAPLING);
+    bool orchardActive = NetworkUpgradeActive(nextBlockHeight, Params().GetConsensus(), Consensus::UPGRADE_ORCHARD);
+
     std::string defaultType;
-    if ( GetTime() < KOMODO_ORCHARD_ACTIVATION )
+    if (!saplingActive) {
+        throw JSONRPCError(RPC_INVALID_REQUEST, "Sapling is not activated yet. Cannot create shielded addresses.");
+    } else if (!orchardActive) {
         defaultType = ADDR_TYPE_SAPLING;
-    else defaultType = ADDR_TYPE_ORCHARD;
+    } else {
+        defaultType = ADDR_TYPE_ORCHARD;
+    }
 
     if (fHelp || params.size() > 1)
         throw runtime_error(
@@ -3586,10 +3616,16 @@ UniValue z_getnewaddresskey(const UniValue& params, bool fHelp, const CPubKey& m
     }
 
     if (addrType == ADDR_TYPE_SAPLING) {
+        if (!saplingActive) {
+            throw JSONRPCError(RPC_INVALID_REQUEST, "Sapling is not activated yet.");
+        }
         auto zAddress = pwalletMain->GenerateNewSaplingZKey();
         pwalletMain->SetZAddressBook(zAddress, "z-sapling", "");
         return EncodePaymentAddress(zAddress);
     } else if (addrType == ADDR_TYPE_ORCHARD) {
+        if (!orchardActive) {
+            throw JSONRPCError(RPC_INVALID_REQUEST, "Orchard is not activated yet. Use Sapling addresses instead.");
+        }
         auto zAddress = pwalletMain->GenerateNewOrchardZKey();
         pwalletMain->SetZAddressBook(zAddress, "orchard", "");
         return EncodePaymentAddress(zAddress);
@@ -3603,10 +3639,19 @@ UniValue z_getnewaddress(const UniValue& params, bool fHelp, const CPubKey& mypk
     if (!EnsureWalletIsAvailable(fHelp))
         return NullUniValue;
 
+    // Check protocol activation status
+    int nextBlockHeight = chainActive.Height() + 1;
+    bool saplingActive = NetworkUpgradeActive(nextBlockHeight, Params().GetConsensus(), Consensus::UPGRADE_SAPLING);
+    bool orchardActive = NetworkUpgradeActive(nextBlockHeight, Params().GetConsensus(), Consensus::UPGRADE_ORCHARD);
+
     std::string defaultType;
-    if ( GetTime() < KOMODO_ORCHARD_ACTIVATION )
+    if (!saplingActive) {
+        throw JSONRPCError(RPC_INVALID_REQUEST, "Sapling is not activated yet. Cannot create shielded addresses.");
+    } else if (!orchardActive) {
         defaultType = ADDR_TYPE_SAPLING;
-    else defaultType = ADDR_TYPE_ORCHARD;
+    } else {
+        defaultType = ADDR_TYPE_ORCHARD;
+    }
 
     if (fHelp || params.size() > 1)
         throw runtime_error(
@@ -3632,10 +3677,16 @@ UniValue z_getnewaddress(const UniValue& params, bool fHelp, const CPubKey& mypk
     }
 
     if (addrType == ADDR_TYPE_SAPLING) {
+        if (!saplingActive) {
+            throw JSONRPCError(RPC_INVALID_REQUEST, "Sapling is not activated yet.");
+        }
         auto zAddress = pwalletMain->GenerateNewSaplingDiversifiedAddress();
         pwalletMain->SetZAddressBook(zAddress, "z-sapling", "");
         return EncodePaymentAddress(zAddress);
     } else if (addrType == ADDR_TYPE_ORCHARD) {
+        if (!orchardActive) {
+            throw JSONRPCError(RPC_INVALID_REQUEST, "Orchard is not activated yet. Use Sapling addresses instead.");
+        }
         auto zAddress = pwalletMain->GenerateNewOrchardDiversifiedAddress();
         pwalletMain->SetZAddressBook(zAddress, "orchard", "");
         return EncodePaymentAddress(zAddress);
@@ -9362,6 +9413,7 @@ static const CRPCCommand commands[] =
     { "wallet",             "importprivkey",            &importprivkey,            true  },
     { "wallet",             "importwallet",             &importwallet,             true  },
     { "wallet",             "importaddress",            &importaddress,            true  },
+    { "wallet",             "getkeypoolsize",           &getkeypoolsize,           false },
     { "wallet",             "keypoolrefill",            &keypoolrefill,            true  },
     { "wallet",             "listaccounts",             &listaccounts,             false },
     { "wallet",             "listaddressgroupings",     &listaddressgroupings,     false },

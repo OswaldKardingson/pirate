@@ -2008,7 +2008,14 @@ UniValue z_buildrawtransaction(const UniValue& params, bool fHelp, const CPubKey
       }
 
       //Create a new orchard bulider before converting the store orchard actions, Enable both Spend and Outputs
-      tb.InitializeOrchard(true, true, primaryAnchor);
+      if (tb.vOrchardSpends.size() > 0 || tb.vOrchardOutputs.size() > 0) {  
+            if (tb.vOrchardSpends.size() > 0 && tb.vOrchardOutputs.size() > 0) {
+                tb.InitializeOrchard(true, true, primaryAnchor);
+            } else {
+                tb.InitializeOrchard(false, true, uint256());
+            }
+      }
+
 
       //Add the stored orchard action to the orchard builder
       if (!tb.ConvertRawOrchardSpend(primaryOrchardKey)) {

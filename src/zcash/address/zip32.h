@@ -275,6 +275,19 @@ struct OrchardExtendedFullViewingKeyPirate {
     }
 };
 
+struct OrchardDiversifiedExtendedFullViewingKeyPirate{
+    OrchardExtendedFullViewingKeyPirate extfvk;
+    diversifier_t d;
+
+    ADD_SERIALIZE_METHODS;
+
+    template <typename Stream, typename Operation>
+    inline void SerializationOp(Stream& s, Operation ser_action) {
+        READWRITE(extfvk);
+        READWRITE(d);
+    }
+};
+
 struct OrchardExtendedSpendingKeyPirate {
     uint8_t depth;
     uint32_t parentFVKTag;
@@ -312,6 +325,20 @@ struct OrchardExtendedSpendingKeyPirate {
             (a.depth == b.depth && a.childIndex == b.childIndex && a.sk < b.sk));
     }
 };
+
+struct OrchardDiversifiedExtendedSpendingKeyPirate{
+    OrchardExtendedSpendingKeyPirate extsk;
+    diversifier_t d;
+
+    ADD_SERIALIZE_METHODS;
+
+    template <typename Stream, typename Operation>
+    inline void SerializationOp(Stream& s, Operation ser_action) {
+        READWRITE(extsk);
+        READWRITE(d);
+    }
+};
+
 
 }
 
