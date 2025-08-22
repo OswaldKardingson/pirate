@@ -492,198 +492,199 @@ QString HardwareWallet::exec(const char* cmd)
 
 bool HardwareWallet::eventFilter(QObject *, QEvent *Event)
 {
-  QString sName;
-  if (Event->type() == QEvent::KeyPress)
-  {
-    QKeyEvent *KeyEvent = (QKeyEvent*)Event;
-    QWidget *oWidget = ui->stackedWidget->currentWidget();
-    sName = oWidget->objectName();
+//   QString sName;
+//   if (Event->type() == QEvent::KeyPress)
+//   {
+//     QKeyEvent *KeyEvent = (QKeyEvent*)Event;
+//     QWidget *oWidget = ui->stackedWidget->currentWidget();
+//     sName = oWidget->objectName();
 
-    if (
-       (sName=="pageVerifyPassword")||
-       (sName=="pageLogin")
-       )
-    {
-      switch(KeyEvent->key())
-      {
-        case Qt::Key_8:
-        case 0x1000013: //Up arrow key
-          btPassword_Up_clicked();
-          return true;
+//     if (
+//        (sName=="pageVerifyPassword")||
+//        (sName=="pageLogin")
+//        )
+//     {
+//       switch(KeyEvent->key())
+//       {
+//         case Qt::Key_8:
+//         case 0x1000013: //Up arrow key
+//           btPassword_Up_clicked();
+//           return true;
 
-        case Qt::Key_2:
-        case 0x1000015: //Down arrow key
-          btPassword_Down_clicked();
-          return true;
+//         case Qt::Key_2:
+//         case 0x1000015: //Down arrow key
+//           btPassword_Down_clicked();
+//           return true;
 
-        case Qt::Key_4:
-        case 0x1000012: //Left arrow key
-          btPassword_Left_clicked();
-          return true;
+//         case Qt::Key_4:
+//         case 0x1000012: //Left arrow key
+//           btPassword_Left_clicked();
+//           return true;
 
-        case Qt::Key_6:
-          case 0x1000014: //Right arrow key
-          btPassword_Right_clicked();
-          return true;
+//         case Qt::Key_6:
+//           case 0x1000014: //Right arrow key
+//           btPassword_Right_clicked();
+//           return true;
 
-        case Qt::Key_5:
-        case 0x100000B:   //Select
-        case Qt::Key_Return:
-        case Qt::Key_Enter:
-          btPassword_Select_clicked();
-          return true;
-      }
-    }
-
-
-    if (sName=="pageWelcomeScreen")
-    {
-      switch(KeyEvent->key())
-      {
-        //Submit the session key if Enter is pressed
-        case Qt::Key_Return:
-        case Qt::Key_Enter:
-          if (ui->leConnect->text().length()>0) //Anything filled in?
-          {
-            btConnect_clicked();
-          }
-          return true;
-      }
-    }
+//         case Qt::Key_5:
+//         case 0x100000B:   //Select
+//         case Qt::Key_Return:
+//         case Qt::Key_Enter:
+//           btPassword_Select_clicked();
+//           return true;
+//       }
+//     }
 
 
-    if (sName=="pageSign")
-    {
-      QWidget *oWidget = ui->stackwidget_Sign->currentWidget();
-      sName = oWidget->objectName();
-      if (sName=="pageSign_OTP")
-      {
-        switch(KeyEvent->key())
-        {
-          //Submit the OTP if Enter is pressed
-          case Qt::Key_Return:
-          case Qt::Key_Enter:
-            if (ui->leSign_OTP->text().length()>0) //Anything filled in?
-            {
-              btSign_OTP_clicked();
-            }
-            return true;
-        }
-      }
-
-      if (sName=="pageSign_Navigate")
-      {
-        switch(KeyEvent->key())
-        {
-          case Qt::Key_4:
-          case 0x1000012: //Left arrow key
-            btSign_Back_clicked();
-            return true;
-
-          case Qt::Key_6:
-          case 0x1000014: //Right arrow key
-            btSign_Next_clicked();
-            return true;
-        }
-      }
-    }
+//     if (sName=="pageWelcomeScreen")
+//     {
+//       switch(KeyEvent->key())
+//       {
+//         //Submit the session key if Enter is pressed
+//         case Qt::Key_Return:
+//         case Qt::Key_Enter:
+//           if (ui->leConnect->text().length()>0) //Anything filled in?
+//           {
+//             btConnect_clicked();
+//           }
+//           return true;
+//       }
+//     }
 
 
-    if (sName=="pageAddressPirate")
-    {
-      QWidget *oWidget = ui->stackwidget_RetrieveAddressPirate->currentWidget();
-      sName = oWidget->objectName();
-      if (sName=="pageRetrieveAddressPirate_MainControl")
-      {
-        switch(KeyEvent->key())
-        {
-          //Submit the OTP if Enter is pressed
-          case Qt::Key_Return:
-          case Qt::Key_Enter:
-            try
-            {
-              //Retrieve the address for the current value of the spinbox
-              //(if the value can be obtained)
-              uint16_t iIndex = (uint16_t)ui->sbRetrieveAddressPirate_Index->value();
-              if (iIndex<=255)
-              {
-                btRetrieveAddressPirate_clicked();
-              }
-            }
-            catch(...)
-            {
-            }
+//     if (sName=="pageSign")
+//     {
+//       QWidget *oWidget = ui->stackwidget_Sign->currentWidget();
+//       sName = oWidget->objectName();
+//       if (sName=="pageSign_OTP")
+//       {
+//         switch(KeyEvent->key())
+//         {
+//           //Submit the OTP if Enter is pressed
+//           case Qt::Key_Return:
+//           case Qt::Key_Enter:
+//             if (ui->leSign_OTP->text().length()>0) //Anything filled in?
+//             {
+//               btSign_OTP_clicked();
+//             }
+//             return true;
+//         }
+//       }
 
-            return true;
-        }
-      }
-      if (sName=="pageRetrieveAddressPirate_OTP")
-      {
-        switch(KeyEvent->key())
-        {
-          //Submit the OTP if Enter is pressed
-          case Qt::Key_Return:
-          case Qt::Key_Enter:
-            if (ui->leRetrieveAddressPirate_OTP->text().length()>0) //Anything filled in?
-            {
-              btSetupOTP_clicked();
-            }
-            return true;
-        }
-      }
-    }
+//       if (sName=="pageSign_Navigate")
+//       {
+//         switch(KeyEvent->key())
+//         {
+//           case Qt::Key_4:
+//           case 0x1000012: //Left arrow key
+//             btSign_Back_clicked();
+//             return true;
 
-    if (sName=="pageSetupMnemonic3")
-    {
-      switch(KeyEvent->key())
-      {
-        case Qt::Key_Return:
-        case Qt::Key_Enter:
-          btSetupMnemonic3_Next_clicked();
-          return true;
-      }
-    }
+//           case Qt::Key_6:
+//           case 0x1000014: //Right arrow key
+//             btSign_Next_clicked();
+//             return true;
+//         }
+//       }
+//     }
 
-    if (sName=="pageSetupMnemonic4")
-    {
-      switch(KeyEvent->key())
-      {
-        case Qt::Key_Return:
-        case Qt::Key_Enter:
-          btSetupMnemonic4_Next_clicked();
-          return true;
-      }
-    }
 
-    if (sName=="pageRestoreMnemonic")
-    {
-      switch(KeyEvent->key())
-      {
-        case 0x1000012: //Left arrow key
-          btRestoreMnemonic_Left_clicked();
-          return true;
+//     if (sName=="pageAddressPirate")
+//     {
+//       QWidget *oWidget = ui->stackwidget_RetrieveAddressPirate->currentWidget();
+//       sName = oWidget->objectName();
+//       if (sName=="pageRetrieveAddressPirate_MainControl")
+//       {
+//         switch(KeyEvent->key())
+//         {
+//           //Submit the OTP if Enter is pressed
+//           case Qt::Key_Return:
+//           case Qt::Key_Enter:
+//             try
+//             {
+//               //Retrieve the address for the current value of the spinbox
+//               //(if the value can be obtained)
+//               uint16_t iIndex = (uint16_t)ui->sbRetrieveAddressPirate_Index->value();
+//               if (iIndex<=255)
+//               {
+//                 btRetrieveAddressPirate_clicked();
+//               }
+//             }
+//             catch(...)
+//             {
+//             }
 
-        case 0x1000014: //Right arrow key
-          btRestoreMnemonic_Right_clicked();
-          return true;
+//             return true;
+//         }
+//       }
+//       if (sName=="pageRetrieveAddressPirate_OTP")
+//       {
+//         switch(KeyEvent->key())
+//         {
+//           //Submit the OTP if Enter is pressed
+//           case Qt::Key_Return:
+//           case Qt::Key_Enter:
+//             if (ui->leRetrieveAddressPirate_OTP->text().length()>0) //Anything filled in?
+//             {
+//               btSetupOTP_clicked();
+//             }
+//             return true;
+//         }
+//       }
+//     }
 
-        case Qt::Key_Return:
-        case Qt::Key_Enter:
-          btRestoreMnemonic_Submit_clicked();
-          return true;
+//     if (sName=="pageSetupMnemonic3")
+//     {
+//       switch(KeyEvent->key())
+//       {
+//         case Qt::Key_Return:
+//         case Qt::Key_Enter:
+//           btSetupMnemonic3_Next_clicked();
+//           return true;
+//       }
+//     }
 
-        case Qt::Key_Plus:
-          btRestoreMnemonic_Next_clicked();
-          return true;
+//     if (sName=="pageSetupMnemonic4")
+//     {
+//       switch(KeyEvent->key())
+//       {
+//         case Qt::Key_Return:
+//         case Qt::Key_Enter:
+//           btSetupMnemonic4_Next_clicked();
+//           return true;
+//       }
+//     }
 
-        case Qt::Key_Minus:
-          btRestoreMnemonic_Previous_clicked();
-          return true;
-      }
-    }
+//     if (sName=="pageRestoreMnemonic")
+//     {
+//       switch(KeyEvent->key())
+//       {
+//         case 0x1000012: //Left arrow key
+//           btRestoreMnemonic_Left_clicked();
+//           return true;
 
-  }
+//         case 0x1000014: //Right arrow key
+//           btRestoreMnemonic_Right_clicked();
+//           return true;
+
+//         case Qt::Key_Return:
+//         case Qt::Key_Enter:
+//           btRestoreMnemonic_Submit_clicked();
+//           return true;
+
+//         case Qt::Key_Plus:
+//           btRestoreMnemonic_Next_clicked();
+//           return true;
+
+//         case Qt::Key_Minus:
+//           btRestoreMnemonic_Previous_clicked();
+//           return true;
+//       }
+//     }
+
+//   }
   return false;
+  
 }
 
 void HardwareWallet::filetx_tick(int iPacketNr, int iPacketsTotal, int iRetries)
