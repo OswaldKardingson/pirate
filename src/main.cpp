@@ -2325,6 +2325,40 @@ bool AcceptToMemoryPool(CTxMemPool& pool, CValidationState &state, const CTransa
             return error("AcceptToMemoryPool: ConnectInputs failed %s", hash.ToString());
         }
 
+        // This will be a single-transaction batch, which will be more efficient
+        // than unbatched if the transaction contains at least one Sapling Spend
+        // or at least two Sapling Outputs.
+        std::optional<rust::Box<sapling::BatchValidator>> saplingAuth = sapling::init_batch_validator(true);
+
+        // This will be a single-transaction batch, which is still more efficient as every
+        // Orchard bundle contains at least two signatures.
+        std::optional<rust::Box<orchard::BatchValidator>> orchardAuth = orchard::init_batch_validator(true);
+
+        // Check shielded input signatures.
+        if (!ContextualCheckShieldedInputs(
+            tx,
+            txdata,
+            state,
+            view,
+            saplingAuth,
+            orchardAuth,
+            Params().GetConsensus(),
+            consensusBranchId,
+            false))
+        {
+            return false;
+        }
+
+        // Check Sapling and Orchard bundle authorizations.
+        // `saplingAuth` and `orchardAuth` are known here to be non-null.
+        if (!saplingAuth.value()->validate()) {
+            return state.DoS(100, false, REJECT_INVALID, "bad-sapling-bundle-authorization");
+        }
+        if (!orchardAuth.value()->validate()) {
+            return state.DoS(100, false, REJECT_INVALID, "bad-orchard-bundle-authorization");
+        }
+
+
         // Check again against just the consensus-critical mandatory script
         // verification flags, in case of bugs in the standard flags that cause
         // transactions to pass as valid when they're actually invalid. For
@@ -3989,10 +4023,6 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
         }
 
         for (const auto& out : tx.vout) {
-            transparentValueDelta += out.nValue;
-        }
-
-        for (const auto& out : tx.vout) {
             if (!out.scriptPubKey.IsUnspendable()) {
                 transparentValueDelta += out.nValue;
             } else {
@@ -4126,7 +4156,19 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
         view.PushHistoryNode(consensusBranchId, historyNode);
     }
 
+    // Ensure Sapling authorizations are valid (if we are checking them)
+    if (saplingAuth.has_value() && !saplingAuth.value()->validate()) {
+        return state.DoS(100,
+            error("ConnectBlock(): a Sapling bundle within the block is invalid"),
+            REJECT_INVALID, "bad-sapling-bundle-authorization");
+    }
 
+    // Ensure Orchard signatures are valid (if we are checking them)
+    if (orchardAuth.has_value() && !orchardAuth.value()->validate()) {
+        return state.DoS(100,
+            error("ConnectBlock(): an Orchard bundle within the block is invalid"),
+            REJECT_INVALID, "bad-orchard-bundle-authorization");
+    }
 
     int64_t nTime1 = GetTimeMicros(); nTimeConnect += nTime1 - nTimeStart;
     LogPrint("bench", "      - Connect %u transactions: %.2fms (%.3fms/tx, %.3fms/txin) [%.2fs]\n", (unsigned)block.vtx.size(), 0.001 * (nTime1 - nTimeStart), 0.001 * (nTime1 - nTimeStart) / block.vtx.size(), nInputs <= 1 ? 0 : 0.001 * (nTime1 - nTimeStart) / (nInputs-1), nTimeConnect * 0.000001);
