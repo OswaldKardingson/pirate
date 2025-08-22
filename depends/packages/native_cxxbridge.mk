@@ -39,11 +39,7 @@ define $(package)_preprocess_cmds
   echo "replace-with = \"vendored-sources\"" >>.cargo/config && \
   echo "[source.vendored-sources]" >>.cargo/config && \
   echo "directory = \"$(CRATE_REGISTRY)\"" >>.cargo/config && \
-  echo "" >> .cargo/config && \
-  echo "# Patches bellman and pairing to use the Pirate Network fork" >> .cargo/config && \
-  echo "[patch.crates-io]" >> .cargo/config && \
-  echo "bellman = { git = \"https://github.com/piratenetwork/librustzcash\", branch = \"master\" }" >> .cargo/config && \
-  echo "pairing = { git = \"https://github.com/piratenetwork/librustzcash\", branch = \"master\" }" >> .cargo/config
+  echo "" >> .cargo/config
 endef
 
 define $(package)_build_cmds
