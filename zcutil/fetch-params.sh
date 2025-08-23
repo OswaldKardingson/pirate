@@ -115,12 +115,13 @@ function fetch_params {
             fi
         done
 
-        "$SHA256CMD" $SHA256ARGS -c <<EOF
-$expectedhash  $dlname
-EOF
-
-        # Check the exit code of the shasum command:
+        # Use a temporary checksum file for portability across macOS (shasum) and Linux (sha256sum)
+        checksum_file="${dlname}.sha256"
+        echo "$expectedhash  $dlname" > "$checksum_file"
+        "$SHA256CMD" $SHA256ARGS -c "$checksum_file"
+        # Capture exit code of checksum verification
         CHECKSUM_RESULT=$?
+        rm -f "$checksum_file"
         if [ $CHECKSUM_RESULT -eq 0 ]; then
             mv -v "$dlname" "$output"
         else
