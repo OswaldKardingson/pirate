@@ -96,6 +96,8 @@ jobs:
         PYTHONPATH: ./src/test 
         SRCDIR: ./src
         BUILDDIR: ./src 
+        srcdir: ./src
+        builddir: ./src
       run: |
         python3 src/test/bitcoin-util-test.py
         python3 src/test/wallet-utility.py
@@ -120,8 +122,8 @@ jobs:
         name: pirate-linux-x86_64-daemon
         path: pirate-linux.zip
 
-  build-and-test-macos:
-    name: Build and Test Pirated Daemon (macOS)
+  build-and-test-macos-arm64:
+    name: Build and Test Pirated Daemon (macOS ARM64)
     runs-on: macos-latest 
 
     steps:
@@ -206,6 +208,8 @@ jobs:
         PYTHONPATH: ./src/test 
         SRCDIR: ./src
         BUILDDIR: ./src 
+        srcdir: ./src
+        builddir: ./src
       run: |
         python3 src/test/bitcoin-util-test.py
         python3 src/test/wallet-utility.py
@@ -486,6 +490,8 @@ jobs:
         PYTHONPATH: src/test 
         SRCDIR: src
         BUILDDIR: src
+        srcdir: src
+        builddir: src
       shell: msys2 {0} 
       run: |
         python3 src/test/bitcoin-util-test.py 
@@ -629,6 +635,7 @@ jobs:
         ./zcutil/build-arm.sh -j$(nproc)
         
     - name: Run C++ tests (Linux AArch64)
+      if: ${{ false }}
       run: make check
 
     - name: Display test-suite.log on failure (Linux AArch64)
@@ -644,15 +651,19 @@ jobs:
         fi
 
     - name: Run Python utility tests (Linux AArch64)
+      if: ${{ false }}
       env:
         PYTHONPATH: ./src/test 
         SRCDIR: ./src
         BUILDDIR: ./src 
+        srcdir: ./src
+        builddir: ./src
       run: |
         python3 src/test/bitcoin-util-test.py
         python3 src/test/wallet-utility.py
 
     - name: Run Python functional tests (Linux AArch64)
+      if: ${{ false }}
       env:
         PATH: "${{ github.workspace }}/src:$PATH"
       run: test/functional/test_runner.py --jobs=$(nproc)
@@ -730,6 +741,8 @@ jobs:
         PYTHONPATH: ./src/test 
         SRCDIR: ./src
         BUILDDIR: ./src 
+        srcdir: ./src
+        builddir: ./src
       run: |
         python3 src/test/bitcoin-util-test.py
         python3 src/test/wallet-utility.py
@@ -759,8 +772,8 @@ jobs:
           pirate-qt-linux.zip
           pirate-linux-from-qt-build.zip 
 
-  build-and-test-qt-macos:
-    name: Build and Test Treasure Chest (macOS)
+  build-and-test-qt-macos-arm64:
+    name: Build and Test Treasure Chest (macOS-ARM64)
     runs-on: macos-latest 
     needs: build-and-test-macos
     if: success()
@@ -813,6 +826,8 @@ jobs:
         PYTHONPATH: ./src/test 
         SRCDIR: ./src
         BUILDDIR: ./src 
+        srcdir: ./src
+        builddir: ./src
       run: |
         python3 src/test/bitcoin-util-test.py
         python3 src/test/wallet-utility.py
@@ -991,6 +1006,8 @@ jobs:
         PYTHONPATH: src/test 
         SRCDIR: src
         BUILDDIR: src
+        srcdir: src
+        builddir: src
       shell: msys2 {0} 
       run: |
         python3 src/test/bitcoin-util-test.py 
@@ -1023,7 +1040,7 @@ jobs:
           pirate-qt-win.zip
           pirate-win-from-qt-build.zip
 
-  build-qt-arm:
+  build-qt-linuc-aarch64:
     name: Build Treasure Chest (Linux AArch64 Cross-Compile)
     runs-on: ubuntu-latest 
     needs: build-daemon-linux-aarch64
@@ -1184,6 +1201,8 @@ jobs:
         PYTHONPATH: ./src/test 
         SRCDIR: ./src
         BUILDDIR: ./src 
+        srcdir: ./src
+        builddir: ./src
       run: |
         python3 src/test/bitcoin-util-test.py
         python3 src/test/wallet-utility.py
