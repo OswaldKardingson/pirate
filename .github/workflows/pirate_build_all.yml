@@ -441,10 +441,10 @@ jobs:
         echo "Attempting to run 'make --version':"
         make --version
         echo "Value of build_DOWNLOAD variable (safe query):"
-        make -Rrqp HOST=x86_64-w64-mingw64 | sed -n 's/^build_DOWNLOAD\s*=.*/&/p' | cat
+        make -Rrqp HOST=x86_64-w64-mingw64 2>/dev/null | sed -n 's/^build_DOWNLOAD\s*=.*/&/p' | cat || true
         echo "Inspecting make database safely (no recipe execution):"
         # Print the computed database and variables without triggering any recipes
-        make -Rrqp HOST=x86_64-w64-mingw64 | sed -n '1,200p' | cat
+        make -Rrqp HOST=x86_64-w64-mingw64 2>/dev/null | sed -n '1,200p' | cat || true
         echo "--- End Debugging make command ---"
         cd ..
 
