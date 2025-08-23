@@ -2,6 +2,10 @@ name: Pirated CI - Build and Test all Platforms
 
 on: [push, pull_request]
 
+env:
+  srcdir: ./src
+  builddir: ./src
+
 jobs:
   build-and-test-linux-x86_64:
     name: Build and Test Pirated Daemon (Linux x86_64)
@@ -96,8 +100,6 @@ jobs:
         PYTHONPATH: ./src/test 
         SRCDIR: ./src
         BUILDDIR: ./src 
-        srcdir: ./src
-        builddir: ./src
       run: |
         python3 src/test/bitcoin-util-test.py
         python3 src/test/wallet-utility.py
@@ -208,8 +210,6 @@ jobs:
         PYTHONPATH: ./src/test 
         SRCDIR: ./src
         BUILDDIR: ./src 
-        srcdir: ./src
-        builddir: ./src
       run: |
         python3 src/test/bitcoin-util-test.py
         python3 src/test/wallet-utility.py
@@ -490,8 +490,6 @@ jobs:
         PYTHONPATH: src/test 
         SRCDIR: src
         BUILDDIR: src
-        srcdir: src
-        builddir: src
       shell: msys2 {0} 
       run: |
         python3 src/test/bitcoin-util-test.py 
@@ -656,8 +654,6 @@ jobs:
         PYTHONPATH: ./src/test 
         SRCDIR: ./src
         BUILDDIR: ./src 
-        srcdir: ./src
-        builddir: ./src
       run: |
         python3 src/test/bitcoin-util-test.py
         python3 src/test/wallet-utility.py
@@ -741,8 +737,6 @@ jobs:
         PYTHONPATH: ./src/test 
         SRCDIR: ./src
         BUILDDIR: ./src 
-        srcdir: ./src
-        builddir: ./src
       run: |
         python3 src/test/bitcoin-util-test.py
         python3 src/test/wallet-utility.py
@@ -775,7 +769,7 @@ jobs:
   build-and-test-qt-macos-arm64:
     name: Build and Test Treasure Chest (macOS-ARM64)
     runs-on: macos-latest 
-    needs: build-and-test-macos
+    needs: build-and-test-macos-arm64
     if: success()
 
     steps:
@@ -826,8 +820,6 @@ jobs:
         PYTHONPATH: ./src/test 
         SRCDIR: ./src
         BUILDDIR: ./src 
-        srcdir: ./src
-        builddir: ./src
       run: |
         python3 src/test/bitcoin-util-test.py
         python3 src/test/wallet-utility.py
@@ -1006,8 +998,6 @@ jobs:
         PYTHONPATH: src/test 
         SRCDIR: src
         BUILDDIR: src
-        srcdir: src
-        builddir: src
       shell: msys2 {0} 
       run: |
         python3 src/test/bitcoin-util-test.py 
@@ -1226,17 +1216,17 @@ jobs:
   combine-macos-universal-daemon:
     name: Combine macOS Universal Daemon
     runs-on: macos-14
-    needs: [build-and-test-macos, build-and-test-macos-intel]
+    needs: [build-and-test-macos-arm64, build-and-test-macos-intel]
     if: always()
     steps:
     - name: Check if both builds succeeded
       id: check_builds
       run: |
-        if [[ "${{ needs.build-and-test-macos.result }}" == "success" && "${{ needs.build-and-test-macos-intel.result }}" == "success" ]]; then
+        if [[ "${{ needs.build-and-test-macos-arm64.result }}" == "success" && "${{ needs.build-and-test-macos-intel.result }}" == "success" ]]; then
           echo "both_success=true" >> $GITHUB_OUTPUT
         else
           echo "both_success=false" >> $GITHUB_OUTPUT
-          echo "ARM64 build result: ${{ needs.build-and-test-macos.result }}"
+          echo "ARM64 build result: ${{ needs.build-and-test-macos-arm64.result }}"
           echo "Intel build result: ${{ needs.build-and-test-macos-intel.result }}"
         fi
 
