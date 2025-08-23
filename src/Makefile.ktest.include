@@ -46,5 +46,4 @@ pirate_ktest_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS) -static
 
 if TARGET_DARWIN
 pirate_ktest_LDFLAGS += -framework Security
-pirate_ktest_LDFLAGS += $(COMMON_FORCE_LOAD_FLAGS)
 endif

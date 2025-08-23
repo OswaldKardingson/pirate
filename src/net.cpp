@@ -50,7 +50,7 @@
 #include <openssl/conf.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
-#include <tls/tlsmanager.cpp>
+#include "tls/tlsmanager.h"
 using namespace tls;
 
 // Dump addresses to peers.dat every 15 minutes (900s)
