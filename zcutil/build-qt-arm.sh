@@ -27,6 +27,13 @@ fi
 set -x
 cd "$(dirname "$(readlink -f "$0")")/.."
 
+# Ensure the Rust stdlib for the cross target is available when building on x86_64
+if command -v rustup >/dev/null 2>&1; then
+    if ! rustup target list --installed | grep -q '^aarch64-unknown-linux-gnu$'; then
+        rustup target add aarch64-unknown-linux-gnu
+    fi
+fi
+
 # If --enable-lcov is the first argument, enable lcov coverage support:
 LCOV_ARG=''
 HARDENING_ARG='--disable-hardening'
