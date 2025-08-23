@@ -294,7 +294,7 @@ jobs:
       run: |
         # Set up MSYS2 environment with cargo
         mkdir -p "$HOME"
-        ln -sf "$(cygpath -u "$USERPROFILE")/.cargo" "$HOME/.cargo"
+        # Skipping symlink; rely on CARGO_HOME and PATH instead
         
         # Set up cargo environment variables for MSYS2
         export CARGO_HOME=$(cygpath -u "$USERPROFILE")/.cargo
@@ -419,7 +419,7 @@ jobs:
       run: |
         # Set up cargo for this step
         mkdir -p "$HOME"
-        ln -sf "$(cygpath -u "$USERPROFILE")/.cargo" "$HOME/.cargo"
+        # Skipping symlink; rely on CARGO_HOME and PATH instead
         export CARGO_HOME=$(cygpath -u "$USERPROFILE")/.cargo
         export PATH="$CARGO_HOME/bin:$PATH"
         
@@ -457,7 +457,7 @@ jobs:
       run: |
         # Set up cargo for this step
         mkdir -p "$HOME"
-        ln -sf "$(cygpath -u "$USERPROFILE")/.cargo" "$HOME/.cargo"
+        # Skipping symlink; rely on CARGO_HOME and PATH instead
         export CARGO_HOME=$(cygpath -u "$USERPROFILE")/.cargo
         export PATH="$CARGO_HOME/bin:$PATH"
         
@@ -1030,7 +1030,7 @@ jobs:
           pirate-qt-win.zip
           pirate-win-from-qt-build.zip
 
-  build-qt-linuc-aarch64:
+  build-qt-linux-aarch64:
     name: Build Treasure Chest (Linux AArch64 Cross-Compile)
     runs-on: ubuntu-latest 
     needs: build-daemon-linux-aarch64
