@@ -1190,9 +1190,7 @@ jobs:
       env:
         PYTHONPATH: ./src/test 
         SRCDIR: ./src
-        BUILDDIR: ./src 
-        srcdir: ./src
-        builddir: ./src
+        BUILDDIR: ./src
       run: |
         python3 src/test/bitcoin-util-test.py
         python3 src/test/wallet-utility.py
