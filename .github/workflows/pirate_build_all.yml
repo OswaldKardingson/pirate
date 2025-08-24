@@ -14,6 +14,13 @@ jobs:
     steps:
     - uses: actions/checkout@v3
 
+    - name: Compute version string (Linux x86_64)
+      run: |
+        MAJOR=$(sed -n 's/^#define CLIENT_VERSION_MAJOR \([0-9][0-9]*\).*/\1/p' src/clientversion.h)
+        MINOR=$(sed -n 's/^#define CLIENT_VERSION_MINOR \([0-9][0-9]*\).*/\1/p' src/clientversion.h)
+        REV=$(sed -n 's/^#define CLIENT_VERSION_REVISION \([0-9][0-9]*\).*/\1/p' src/clientversion.h)
+        echo "VERSION=$MAJOR.$MINOR.$REV" >> $GITHUB_ENV
+
     - name: Show commit hash (Linux x86_64)
       run: git rev-parse HEAD
 
@@ -100,12 +107,24 @@ jobs:
     #     PATH: "${{ github.workspace }}/src:$PATH"
     #   run: test/functional/test_runner.py --jobs=$(nproc)
         
-    - name: Strip and Zip CLI (Linux x86_64)
+    - name: Strip and Package CLI bundle (Linux x86_64)
       run: |
-        if [ -f src/pirate-cli ]; then strip src/pirate-cli || true; fi
+        set -euo pipefail
         . /etc/os-release
         UBUNTU_TAG="Ubuntu$(echo "$VERSION_ID" | tr -d '.')"
-        zip --junk-paths "pirate-cli-${UBUNTU_TAG}-v${VERSION}.zip" src/pirate-cli
+        OUTDIR="pirate-cli-${UBUNTU_TAG}-v${VERSION}"
+        rm -rf "$OUTDIR"
+        mkdir -p "$OUTDIR"
+        # Copy binaries and helper scripts
+        cp src/pirated "$OUTDIR/" \
+           src/pirate-cli "$OUTDIR/" \
+           src/pirate-tx "$OUTDIR/"
+        cp zcutil/fetch-params.sh "$OUTDIR/"
+        # Strip to reduce size
+        strip "$OUTDIR/pirated" || true
+        strip "$OUTDIR/pirate-cli" || true
+        strip "$OUTDIR/pirate-tx" || true
+        zip -r "${OUTDIR}.zip" "$OUTDIR"
         
     - name: Upload CLI artifact (Linux x86_64)
       if: success() || failure()
@@ -207,17 +226,27 @@ jobs:
     #     PATH: "${{ github.workspace }}/src:$PATH"
     #   run: python3 test/functional/test_runner.py --jobs=$(sysctl -n hw.ncpu)
         
-    - name: Strip and Zip CLI (macOS ARM64)
+    - name: Strip and Package CLI bundle (macOS ARM64)
       run: |
-        if [ -f src/pirate-cli ]; then strip src/pirate-cli || true; fi
-        zip --junk-paths "pirate-cli-macos-arm64-v${VERSION}.zip" src/pirate-cli
+        set -euo pipefail
+        OUTDIR="pirate-cli-MacOS-v${VERSION}"
+        rm -rf "$OUTDIR"
+        mkdir -p "$OUTDIR"
+        cp src/pirated "$OUTDIR/" \
+           src/pirate-cli "$OUTDIR/" \
+           src/pirate-tx "$OUTDIR/"
+        cp zcutil/fetch-params.sh "$OUTDIR/"
+        strip "$OUTDIR/pirated" || true
+        strip "$OUTDIR/pirate-cli" || true
+        strip "$OUTDIR/pirate-tx" || true
+        zip -r "${OUTDIR}.zip" "$OUTDIR"
         
     - name: Upload CLI artifact (macOS ARM64)
       if: success() || failure()
       uses: actions/upload-artifact@v4
       with:
         name: pirate-cli-macos-arm64
-        path: pirate-cli-macos-arm64-v*.zip
+        path: pirate-cli-MacOS-v*.zip
 
   build-and-test-windows:
     name: Build and Test Pirated Daemon (Windows)
@@ -473,11 +502,22 @@ jobs:
     #   shell: msys2 {0}
     #   run: python3 test/functional/test_runner.py --jobs=$(nproc)
         
-    - name: Strip and Zip CLI (Windows)
+    - name: Strip and Package CLI bundle (Windows)
       shell: msys2 {0}
       run: |
-        if [ -f src/pirate-cli.exe ]; then strip src/pirate-cli.exe || true; fi
-        zip --junk-paths "pirate-cli-windows-v${VERSION}.zip" src/pirate-cli.exe
+        set -euo pipefail
+        OUTDIR="pirate-cli-windows-v${VERSION}"
+        rm -rf "$OUTDIR"
+        mkdir -p "$OUTDIR"
+        cp src/pirated.exe "$OUTDIR/" \
+           src/pirate-cli.exe "$OUTDIR/" \
+           src/pirate-tx.exe "$OUTDIR/"
+        cp zcutil/wget64.exe "$OUTDIR/"
+        cp zcutil/fetch-params.bat "$OUTDIR/"
+        strip "$OUTDIR/pirated.exe" || true
+        strip "$OUTDIR/pirate-cli.exe" || true
+        strip "$OUTDIR/pirate-tx.exe" || true
+        zip -r "${OUTDIR}.zip" "$OUTDIR"
         
     - name: Upload CLI artifact (Windows)
       if: success() || failure()
@@ -635,10 +675,20 @@ jobs:
         PATH: "${{ github.workspace }}/src:$PATH"
       run: test/functional/test_runner.py --jobs=$(nproc)
         
-    - name: Strip and Zip CLI (AArch64)
+    - name: Strip and Package CLI bundle (AArch64)
       run: |
-        if [ -f src/pirate-cli ]; then aarch64-linux-gnu-strip src/pirate-cli || true; fi
-        zip --junk-paths "pirate-cli-aarch64-v${VERSION}.zip" src/pirate-cli
+        set -euo pipefail
+        OUTDIR="pirate-cli-aarch64-v${VERSION}"
+        rm -rf "$OUTDIR"
+        mkdir -p "$OUTDIR"
+        cp src/pirated "$OUTDIR/" \
+           src/pirate-cli "$OUTDIR/" \
+           src/pirate-tx "$OUTDIR/"
+        cp zcutil/fetch-params.sh "$OUTDIR/"
+        aarch64-linux-gnu-strip "$OUTDIR/pirated" || true
+        aarch64-linux-gnu-strip "$OUTDIR/pirate-cli" || true
+        aarch64-linux-gnu-strip "$OUTDIR/pirate-tx" || true
+        zip -r "${OUTDIR}.zip" "$OUTDIR"
         
     - name: Upload CLI artifact (Linux AArch64)
       if: success() || failure()
@@ -667,7 +717,7 @@ jobs:
           libboost-filesystem-dev libboost-chrono-dev libboost-program-options-dev \
           libboost-test-dev libboost-thread-dev libcurl4-openssl-dev \
           python3-zmq libsodium-dev bison curl \
-          qttools5-dev qt5-default zip
+          qtbase5-dev qttools5-dev qttools5-dev-tools qtchooser qt5-qmake libqt5svg5-dev zip
 
     - name: Install Rust (stable)
       uses: dtolnay/rust-toolchain@stable
