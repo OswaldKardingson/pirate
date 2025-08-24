@@ -100,20 +100,19 @@ jobs:
     #     PATH: "${{ github.workspace }}/src:$PATH"
     #   run: test/functional/test_runner.py --jobs=$(nproc)
         
-    - name: Strip and Zip Binaries (Linux x86_64 Daemon)
+    - name: Strip and Zip CLI (Linux x86_64)
       run: |
-        strip src/pirated
-        strip src/pirate-cli
-        strip src/pirate-tx
-        strip src/wallet/wallet-utility
-        zip --junk-paths pirate-linux.zip src/pirated src/pirate-cli src/pirate-tx src/wallet/wallet-utility
+        if [ -f src/pirate-cli ]; then strip src/pirate-cli || true; fi
+        . /etc/os-release
+        UBUNTU_TAG="Ubuntu$(echo "$VERSION_ID" | tr -d '.')"
+        zip --junk-paths "pirate-cli-${UBUNTU_TAG}-v${VERSION}.zip" src/pirate-cli
         
-    - name: Archive Daemon Binaries (Linux x86_64)
+    - name: Upload CLI artifact (Linux x86_64)
       if: success() || failure()
       uses: actions/upload-artifact@v4
       with:
-        name: pirate-linux-x86_64-daemon
-        path: pirate-linux.zip
+        name: pirate-cli-ubuntu
+        path: pirate-cli-Ubuntu*-v*.zip
 
   build-and-test-macos-arm64:
     name: Build and Test Pirated Daemon (macOS ARM64)
@@ -201,20 +200,17 @@ jobs:
     #     PATH: "${{ github.workspace }}/src:$PATH"
     #   run: python3 test/functional/test_runner.py --jobs=$(sysctl -n hw.ncpu)
         
-    - name: Strip and Zip Binaries (macOS Daemon)
+    - name: Strip and Zip CLI (macOS ARM64)
       run: |
-        strip src/pirated
-        strip src/pirate-cli
-        strip src/pirate-tx
-        strip src/wallet/wallet-utility
-        zip --junk-paths pirate-macos.zip src/pirated src/pirate-cli src/pirate-tx src/wallet/wallet-utility
+        if [ -f src/pirate-cli ]; then strip src/pirate-cli || true; fi
+        zip --junk-paths "pirate-cli-macos-arm64-v${VERSION}.zip" src/pirate-cli
         
-    - name: Archive Daemon Binaries (macOS)
+    - name: Upload CLI artifact (macOS ARM64)
       if: success() || failure()
       uses: actions/upload-artifact@v4
       with:
-        name: pirate-macos-daemon
-        path: pirate-macos.zip
+        name: pirate-cli-macos-arm64
+        path: pirate-cli-macos-arm64-v*.zip
 
   build-and-test-windows:
     name: Build and Test Pirated Daemon (Windows)
@@ -462,21 +458,18 @@ jobs:
     #   shell: msys2 {0}
     #   run: python3 test/functional/test_runner.py --jobs=$(nproc)
         
-    - name: Strip and Zip Binaries (Windows Daemon)
+    - name: Strip and Zip CLI (Windows)
       shell: msys2 {0}
       run: |
-        strip src/pirated.exe
-        strip src/pirate-cli.exe
-        strip src/pirate-tx.exe
-        strip src/wallet/wallet-utility.exe
-        zip --junk-paths pirate-win.zip src/pirated.exe src/pirate-cli.exe src/pirate-tx.exe src/wallet/wallet-utility.exe
+        if [ -f src/pirate-cli.exe ]; then strip src/pirate-cli.exe || true; fi
+        zip --junk-paths "pirate-cli-windows-v${VERSION}.zip" src/pirate-cli.exe
         
-    - name: Archive Daemon Binaries (Windows)
+    - name: Upload CLI artifact (Windows)
       if: success() || failure()
       uses: actions/upload-artifact@v4
       with:
-        name: pirate-win-daemon
-        path: pirate-win.zip
+        name: pirate-cli-windows
+        path: pirate-cli-windows-v*.zip
 
   build-daemon-linux-aarch64:
     name: Build Pirated Daemon (Linux AArch64 Cross-Compile)
@@ -620,19 +613,17 @@ jobs:
         PATH: "${{ github.workspace }}/src:$PATH"
       run: test/functional/test_runner.py --jobs=$(nproc)
         
-    - name: Strip and Zip Binaries (AArch64 Daemon)
+    - name: Strip and Zip CLI (AArch64)
       run: |
-        aarch64-linux-gnu-strip src/pirated
-        aarch64-linux-gnu-strip src/pirate-cli
-        aarch64-linux-gnu-strip src/pirate-tx
-        zip --junk-paths pirate-aarch64.zip src/pirated src/pirate-cli src/pirate-tx
+        if [ -f src/pirate-cli ]; then aarch64-linux-gnu-strip src/pirate-cli || true; fi
+        zip --junk-paths "pirate-cli-aarch64-v${VERSION}.zip" src/pirate-cli
         
-    - name: Archive Daemon Binaries (Linux AArch64)
+    - name: Upload CLI artifact (Linux AArch64)
       if: success() || failure()
       uses: actions/upload-artifact@v4
       with:
-        name: pirate-linux-aarch64-daemon
-        path: pirate-aarch64.zip
+        name: pirate-cli-aarch64
+        path: pirate-cli-aarch64-v*.zip
 
   # --- QT GUI Build and Test Jobs ---
 
@@ -693,25 +684,27 @@ jobs:
     #     PATH: "${{ github.workspace }}/src:$PATH"
     #   run: test/functional/test_runner.py --jobs=$(nproc)
         
-    - name: Strip and Zip Binaries (Linux x86_64 QT)
+    - name: Strip and Zip Qt (Linux x86_64)
       run: |
-        strip pirate-qt-linux
-        # Assuming daemon tools are also built and should be packaged separately for consistency
-        strip src/pirated
-        strip src/pirate-cli
-        strip src/pirate-tx
-        strip src/wallet/wallet-utility
-        zip --junk-paths pirate-qt-linux.zip pirate-qt-linux
-        zip --junk-paths pirate-linux-from-qt-build.zip src/pirated src/pirate-cli src/pirate-tx src/wallet/wallet-utility
+        if [ -f pirate-qt-linux ]; then strip pirate-qt-linux || true; fi
+        . /etc/os-release
+        UBUNTU_TAG="Ubuntu$(echo "$VERSION_ID" | tr -d '.')"
+        zip --junk-paths "pirate-qt-${UBUNTU_TAG}-v${VERSION}.zip" pirate-qt-linux
+
+    - name: Build Debian package (Ubuntu Qt)
+      run: |
+        mkdir -p release
+        cp pirate-qt-linux release/pirate-qt-linux
+        APP_VERSION=${VERSION} zcutil/create-deb-packages.sh
         
-    - name: Archive Treasure Chest and Binaries (Linux x86_64)
+    - name: Upload Qt artifacts (Linux x86_64)
       if: success() || failure()
       uses: actions/upload-artifact@v4
       with:
-        name: pirate-treasure-chest-linux-x86_64
+        name: pirate-qt-ubuntu
         path: |
-          pirate-qt-linux.zip
-          pirate-linux-from-qt-build.zip 
+          pirate-qt-Ubuntu*-v*.zip
+          release/pirate-qt-ubuntu*-v*.deb
 
   build-and-test-qt-macos-arm64:
     name: Build and Test Treasure Chest (macOS-ARM64)
@@ -767,36 +760,24 @@ jobs:
     #     PATH: "${{ github.workspace }}/src:$PATH"
     #   run: python3 test/functional/test_runner.py --jobs=$(sysctl -n hw.ncpu)
         
-    - name: Zip Binaries (macOS QT)
+    - name: Zip Qt (macOS)
       run: |
-        # Assuming makeReleaseMac.sh creates PirateWallet-Qt.app in src/qt/
-        # and daemon tools are in src/ if built by build-qt-mac.sh
-        # Stripping .app bundles is not standard; stripping daemon tools if they exist
-        if [ -f src/pirated ]; then strip src/pirated; fi
-        if [ -f src/pirate-cli ]; then strip src/pirate-cli; fi
-        if [ -f src/pirate-tx ]; then strip src/pirate-tx; fi
-        if [ -f src/wallet/wallet-utility ]; then strip src/wallet/wallet-utility; fi
-        
-        if [ -d src/qt/PirateWallet-Qt.app ]; then 
-          zip -r --junk-paths pirate-qt-macos.zip src/qt/PirateWallet-Qt.app
-        elif [ -f pirate-qt-mac ]; then # Fallback if .app not found, but pirate-qt-mac was created
-          strip pirate-qt-mac
-          zip --junk-paths pirate-qt-macos.zip pirate-qt-mac
+        if [ -f pirate-qt-mac.dmg ]; then
+          mv pirate-qt-mac.dmg "pirate-qt-MacOS-v${VERSION}.dmg"
+        elif [ -f pirate-qt-mac ]; then
+          zip --junk-paths "pirate-qt-MacOS-v${VERSION}.zip" pirate-qt-mac
+        else
+          echo "No macOS Qt artifact found"; exit 1
         fi
         
-        # Zip daemon tools separately if they exist
-        if [ -f src/pirated ] && [ -f src/pirate-cli ]; then
-          zip --junk-paths pirate-macos-from-qt-build.zip src/pirated src/pirate-cli src/pirate-tx src/wallet/wallet-utility
-        fi
-        
-    - name: Archive Treasure Chest and Binaries (macOS)
+    - name: Upload Qt artifact (macOS)
       if: success() || failure()
       uses: actions/upload-artifact@v4
       with:
-        name: pirate-treasure-chest-macos
+        name: pirate-qt-macos
         path: |
-          pirate-qt-macos.zip
-          pirate-macos-from-qt-build.zip
+          pirate-qt-MacOS-v*.dmg
+          pirate-qt-MacOS-v*.zip
 
   build-and-test-qt-windows:
     name: Build and Test Treasure Chest (Windows)
@@ -937,26 +918,22 @@ jobs:
     #   shell: msys2 {0}
     #   run: python3 test/functional/test_runner.py --jobs=$(nproc)
         
-    - name: Strip and Zip Binaries (Windows QT)
+    - name: Strip and Zip Qt (Windows)
       shell: msys2 {0}
       run: |
-        strip pirate-qt-win.exe
-        # Assuming daemon tools are also built and should be packaged separately for consistency
-        strip src/pirated.exe
-        strip src/pirate-cli.exe
-        strip src/pirate-tx.exe
-        strip src/wallet/wallet-utility.exe
-        zip --junk-paths pirate-qt-win.zip pirate-qt-win.exe
-        zip --junk-paths pirate-win-from-qt-build.zip src/pirated.exe src/pirate-cli.exe src/pirate-tx.exe src/wallet/wallet-utility.exe
+        if [ -f pirate-qt-win.exe ]; then
+          strip pirate-qt-win.exe || true
+          zip --junk-paths "pirate-qt-windows-v${VERSION}.zip" pirate-qt-win.exe
+        else
+          echo "pirate-qt-win.exe not found"; exit 1
+        fi
         
-    - name: Archive Treasure Chest and Binaries (Windows)
+    - name: Upload Qt artifact (Windows)
       if: success() || failure()
       uses: actions/upload-artifact@v4
       with:
-        name: pirate-treasure-chest-windows
-        path: |
-          pirate-qt-win.zip
-          pirate-win-from-qt-build.zip
+        name: pirate-qt-windows
+        path: pirate-qt-windows-v*.zip
 
   build-qt-linux-aarch64:
     name: Build Treasure Chest (Linux AArch64 Cross-Compile)
@@ -1036,17 +1013,25 @@ jobs:
         ln -sf "$CARGO_BIN_PATH" depends/aarch64-linux-gnu/native/bin/cargo
         ./zcutil/build-qt-arm.sh -j$(nproc)
         
-    - name: Strip and Zip Binaries (AArch64 QT)
+    - name: Strip and Zip Qt (AArch64)
       run: |
-        aarch64-linux-gnu-strip pirate-qt-arm
-        zip --junk-paths pirate-qt-aarch64.zip pirate-qt-arm
+        aarch64-linux-gnu-strip pirate-qt-arm || true
+        zip --junk-paths "pirate-qt-aarch64-v${VERSION}.zip" pirate-qt-arm
+    
+    - name: Build Debian package (AArch64 Qt)
+      run: |
+        mkdir -p release
+        cp pirate-qt-arm release/pirate-qt-arm
+        APP_VERSION=${VERSION} zcutil/create-deb-packages.sh
         
-    - name: Archive Treasure Chest (Linux AArch64)
+    - name: Upload Qt artifacts (Linux AArch64)
       if: success() || failure()
       uses: actions/upload-artifact@v4
       with:
-        name: pirate-treasure-chest-linux-aarch64
-        path: pirate-qt-aarch64.zip
+        name: pirate-qt-aarch64
+        path: |
+          pirate-qt-aarch64-v*.zip
+          release/pirate-qt-aarch64-v*.deb
 
   build-and-test-macos-intel:
     name: Build and Test Pirated Daemon (macOS Intel)
@@ -1124,77 +1109,25 @@ jobs:
         PATH: "${{ github.workspace }}/src:$PATH"
       run: python3 test/functional/test_runner.py --jobs=$(sysctl -n hw.ncpu)
         
-    - name: Strip and Zip Binaries (macOS Intel Daemon)
+    - name: Compute version string (macOS Intel)
       run: |
-        strip src/pirated src/pirate-cli src/pirate-tx src/wallet/wallet-utility || true
-        zip --junk-paths pirate-macos-intel.zip src/pirated src/pirate-cli src/pirate-tx src/wallet/wallet-utility
+        MAJOR=$(sed -n 's/^#define CLIENT_VERSION_MAJOR \([0-9][0-9]*\).*/\1/p' src/clientversion.h)
+        MINOR=$(sed -n 's/^#define CLIENT_VERSION_MINOR \([0-9][0-9]*\).*/\1/p' src/clientversion.h)
+        REV=$(sed -n 's/^#define CLIENT_VERSION_REVISION \([0-9][0-9]*\).*/\1/p' src/clientversion.h)
+        echo "VERSION=$MAJOR.$MINOR.$REV" >> $GITHUB_ENV
 
-    - name: Upload Intel Artifact
+    - name: Strip and Zip CLI (macOS Intel)
+      run: |
+        if [ -f src/pirate-cli ]; then strip src/pirate-cli || true; fi
+        zip --junk-paths "pirate-cli-macos-intel-v${VERSION}.zip" src/pirate-cli
+
+    - name: Upload CLI artifact (macOS Intel)
+      if: success() || failure()
       uses: actions/upload-artifact@v4
       with:
-        name: pirate-macos-intel-daemon
-        path: pirate-macos-intel.zip
+        name: pirate-cli-macos-intel
+        path: pirate-cli-macos-intel-v*.zip
 
-  combine-macos-universal-daemon:
-    name: Combine macOS Universal Daemon
-    runs-on: macos-14
-    needs: [build-and-test-macos-arm64, build-and-test-macos-intel]
-    if: always()
-    steps:
-    - name: Check if both builds succeeded
-      id: check_builds
-      run: |
-        if [[ "${{ needs.build-and-test-macos-arm64.result }}" == "success" && "${{ needs.build-and-test-macos-intel.result }}" == "success" ]]; then
-          echo "both_success=true" >> $GITHUB_OUTPUT
-        else
-          echo "both_success=false" >> $GITHUB_OUTPUT
-          echo "ARM64 build result: ${{ needs.build-and-test-macos-arm64.result }}"
-          echo "Intel build result: ${{ needs.build-and-test-macos-intel.result }}"
-        fi
-
-    - uses: actions/download-artifact@v4
-      if: steps.check_builds.outputs.both_success == 'true'
-      with:
-        name: pirate-macos-daemon
-        path: arm64
-    - uses: actions/download-artifact@v4
-      if: steps.check_builds.outputs.both_success == 'true'
-      with:
-        name: pirate-macos-intel-daemon
-        path: x86_64
-
-    - name: Unzip artifacts
-      if: steps.check_builds.outputs.both_success == 'true'
-      run: |
-        unzip -q arm64/*.zip -d arm64/bin
-        unzip -q x86_64/*.zip -d x86_64/bin
-
-    - name: Create universal binaries with lipo
-      if: steps.check_builds.outputs.both_success == 'true'
-      run: |
-        mkdir -p universal
-        for f in pirated pirate-cli pirate-tx wallet-utility; do
-          arm_path="arm64/bin/$f"; intel_path="x86_64/bin/$f"
-          lipo -create "$arm_path" "$intel_path" -output "universal/$f"
-        done
-
-    - name: Zip universal binaries
-      if: steps.check_builds.outputs.both_success == 'true'
-      run: |
-        zip --junk-paths pirate-macos-universal.zip universal/pirated universal/pirate-cli universal/pirate-tx universal/wallet-utility
-
-    - name: Upload Universal Artifact
-      if: steps.check_builds.outputs.both_success == 'true'
-      uses: actions/upload-artifact@v4
-      with:
-        name: pirate-macos-universal-daemon
-        path: pirate-macos-universal.zip
-
-    - name: Fail job if prerequisite builds failed
-      if: steps.check_builds.outputs.both_success == 'false'
-      run: |
-        echo "Cannot create universal binary because one or both prerequisite builds failed"
-        exit 1
 
   build-and-test-qt-macos-intel:
     name: Build and Test Treasure Chest (macOS Intel)
@@ -1243,10 +1176,10 @@ jobs:
     - name: Zip Binaries (macOS Intel QT)
       run: |
         # Strip daemon tools if present
-        if [ -f src/pirated ]; then strip src/pirated; fi
-        if [ -f src/pirate-cli ]; then strip src/pirate-cli; fi
-        if [ -f src/pirate-tx ]; then strip src/pirate-tx; fi
-        if [ -f src/wallet/wallet-utility ]; then strip src/wallet/wallet-utility; fi
+        if [ -f src/pirated ]; then strip src/pirated || true; fi
+        if [ -f src/pirate-cli ]; then strip src/pirate-cli || true; fi
+        # remove pirate-tx packaging; not part of releases
+        if [ -f src/wallet/wallet-utility ]; then strip src/wallet/wallet-utility || true; fi
 
         if [ -d src/qt/PirateWallet-Qt.app ]; then 
           zip -r --junk-paths pirate-qt-macos-intel.zip src/qt/PirateWallet-Qt.app
@@ -1255,9 +1188,14 @@ jobs:
           zip --junk-paths pirate-qt-macos-intel.zip pirate-qt-mac
         fi
 
-        # Zip daemon tools separately if they exist
-        if [ -f src/pirated ] && [ -f src/pirate-cli ]; then
-          zip --junk-paths pirate-macos-intel-from-qt-build.zip src/pirated src/pirate-cli src/pirate-tx src/wallet/wallet-utility
+        # Zip daemon tools separately if any exist
+        BINS=(src/pirated src/pirate-cli src/wallet/wallet-utility)
+        EXISTING=()
+        for f in "${BINS[@]}"; do [ -f "$f" ] && EXISTING+=("$f"); done
+        if [ ${#EXISTING[@]} -gt 0 ]; then
+          zip --junk-paths pirate-macos-intel-from-qt-build.zip "${EXISTING[@]}"
+        else
+          echo "No daemon binaries to zip from Qt build"
         fi
 
     - name: Archive Treasure Chest and Binaries (macOS Intel)
