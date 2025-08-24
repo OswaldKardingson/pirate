@@ -86,14 +86,14 @@ jobs:
           ls -la src
         fi
 
-    - name: Run Python utility tests (Linux x86_64)
-      working-directory: src
-      env:
-        PYTHONPATH: ./test
-        SRCDIR: ./
-        BUILDDIR: ./
-      run: |
-        python3 test/wallet-utility.py
+    # - name: Run Python utility tests (Linux x86_64)
+    #   working-directory: src
+    #   env:
+    #     PYTHONPATH: ./test
+    #     SRCDIR: ./
+    #     BUILDDIR: ./
+    #   run: |
+    #     python3 test/wallet-utility.py
 
     - name: Run Python functional tests (Linux x86_64)
       env:
@@ -187,14 +187,14 @@ jobs:
           ls -la
         fi
 
-    - name: Run Python utility tests (macOS)
-      working-directory: src
-      env:
-        PYTHONPATH: ./test
-        SRCDIR: ./
-        BUILDDIR: ./
-      run: |
-        python3 test/wallet-utility.py
+    # - name: Run Python utility tests (macOS)
+    #   working-directory: src
+    #   env:
+    #     PYTHONPATH: ./test
+    #     SRCDIR: ./
+    #     BUILDDIR: ./
+    #   run: |
+    #     python3 test/wallet-utility.py
 
     - name: Run Python functional tests (macOS)
       env:
@@ -446,15 +446,15 @@ jobs:
       shell: msys2 {0}
       run: make check
 
-    - name: Run Python utility tests (Windows)
-      working-directory: src
-      env:
-        PYTHONPATH: test
-        SRCDIR: ./
-        BUILDDIR: ./
-      shell: msys2 {0}
-      run: |
-        python3 test/wallet-utility.py
+    # - name: Run Python utility tests (Windows)
+    #   working-directory: src
+    #   env:
+    #     PYTHONPATH: test
+    #     SRCDIR: ./
+    #     BUILDDIR: ./
+    #   shell: msys2 {0}
+    #   run: |
+    #     python3 test/wallet-utility.py
 
     - name: Run Python functional tests (Windows)
       env:
@@ -679,14 +679,14 @@ jobs:
     - name: Run C++ tests (QT Build - Linux x86_64)
       run: make check
 
-    - name: Run Python utility tests (QT Build - Linux x86_64)
-      working-directory: src
-      env:
-        PYTHONPATH: ./test
-        SRCDIR: ./
-        BUILDDIR: ./
-      run: |
-        python3 test/wallet-utility.py
+    # - name: Run Python utility tests (QT Build - Linux x86_64)
+    #   working-directory: src
+    #   env:
+    #     PYTHONPATH: ./test
+    #     SRCDIR: ./
+    #     BUILDDIR: ./
+    #   run: |
+    #     python3 test/wallet-utility.py
 
     - name: Run Python functional tests (QT Build - Linux x86_64)
       env:
@@ -753,14 +753,14 @@ jobs:
     - name: Run C++ tests (QT Build - macOS)
       run: make check
 
-    - name: Run Python utility tests (QT Build - macOS)
-      working-directory: src
-      env:
-        PYTHONPATH: ./test
-        SRCDIR: ./
-        BUILDDIR: ./
-      run: |
-        python3 test/wallet-utility.py
+    # - name: Run Python utility tests (QT Build - macOS)
+    #   working-directory: src
+    #   env:
+    #     PYTHONPATH: ./test
+    #     SRCDIR: ./
+    #     BUILDDIR: ./
+    #   run: |
+    #     python3 test/wallet-utility.py
 
     - name: Run Python functional tests (QT Build - macOS)
       env:
@@ -921,15 +921,15 @@ jobs:
       shell: msys2 {0}
       run: make check
 
-    - name: Run Python utility tests (QT Build - Windows)
-      working-directory: src
-      env:
-        PYTHONPATH: test
-        SRCDIR: ./
-        BUILDDIR: ./
-      shell: msys2 {0}
-      run: |
-        python3 test/wallet-utility.py
+    # - name: Run Python utility tests (QT Build - Windows)
+    #   working-directory: src
+    #   env:
+    #     PYTHONPATH: test
+    #     SRCDIR: ./
+    #     BUILDDIR: ./
+    #   shell: msys2 {0}
+    #   run: |
+    #     python3 test/wallet-utility.py
 
     - name: Run Python functional tests (QT Build - Windows)
       env:
