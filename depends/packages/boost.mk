@@ -35,45 +35,26 @@ endef
 
 define $(package)_preprocess_cmds
   patch -p1 < $($(package)_patch_dir)/6753-signals2-function-fix.patch && \
-  CXX_CANDIDATES="$($(package)_cxx)"; \
-  case "$(host_os)" in \
-    mingw64|mingw32) CXX_CANDIDATES="x86_64-w64-mingw32-g++ g++ $$CXX_CANDIDATES" ;; \
-  esac; \
-  CXX_BIN=""; \
-  for c in $$CXX_CANDIDATES; do \
-    if command -v "$$c" >/dev/null 2>&1; then CXX_BIN="$$c"; break; fi; \
-  done; \
-  if [ -z "$$CXX_BIN" ]; then CXX_BIN="$($(package)_cxx)"; fi; \
-  if command -v "$$CXX_BIN" >/dev/null 2>&1; then \
+  if [ "$(host_os)" = "mingw64" ] || [ "$(host_os)" = "mingw32" ]; then \
+    CXX_CANDIDATES="$($(package)_cxx) x86_64-w64-mingw32-g++ g++"; \
+    CXX_BIN=""; \
+    for c in $$CXX_CANDIDATES; do \
+      if command -v "$$c" >/dev/null 2>&1; then CXX_BIN="$$c"; break; fi; \
+    done; \
+    if [ -z "$$CXX_BIN" ]; then CXX_BIN="$($(package)_cxx)"; fi; \
     CXX_PATH="$$CXX_BIN"; \
-  else \
-    CXX_PATH="$$(which $$CXX_BIN)"; \
-  fi; \
-  AR_BIN="$($(package)_ar)"; RANLIB_BIN="$(host_RANLIB)"; STRIP_BIN="$(host_STRIP)"; WINDRES_BIN="$(host_WINDRES)"; \
-  for v in AR_BIN RANLIB_BIN STRIP_BIN WINDRES_BIN; do \
-    val="${!v}"; \
-    if [ -n "$$val" ]; then \
-      if command -v "$$val" >/dev/null 2>&1; then \
-        eval ${v}_PATH="$$val"; \
-      else \
-        eval ${v}_PATH="$$(which $$val 2>/dev/null)"; \
-      fi; \
+    AR_PATH="$($(package)_ar)"; RANLIB_PATH="$(host_RANLIB)"; STRIP_PATH="$(host_STRIP)"; WINDRES_PATH="$(host_WINDRES)"; \
+    if command -v cygpath >/dev/null 2>&1; then \
+      CXX_PATH="$$(cygpath -w "$$CXX_PATH" 2>/dev/null || echo "$$CXX_PATH")"; \
+      if [ -n "$$AR_PATH" ]; then AR_PATH="$$(cygpath -w "$$AR_PATH" 2>/dev/null || echo "$$AR_PATH")"; fi; \
+      if [ -n "$$RANLIB_PATH" ]; then RANLIB_PATH="$$(cygpath -w "$$RANLIB_PATH" 2>/dev/null || echo "$$RANLIB_PATH")"; fi; \
+      if [ -n "$$STRIP_PATH" ]; then STRIP_PATH="$$(cygpath -w "$$STRIP_PATH" 2>/dev/null || echo "$$STRIP_PATH")"; fi; \
+      if [ -n "$$WINDRES_PATH" ]; then WINDRES_PATH="$$(cygpath -w "$$WINDRES_PATH" 2>/dev/null || echo "$$WINDRES_PATH")"; fi; \
     fi; \
-  done; \
-  if command -v cygpath >/dev/null 2>&1; then \
-    CXX_PATH_WIN="$$(cygpath -w "$$CXX_PATH" 2>/dev/null || echo "$$CXX_PATH")"; \
-    AR_PATH_WIN="$$(cygpath -w "$$AR_BIN_PATH" 2>/dev/null || echo "$$AR_BIN_PATH")"; \
-    RANLIB_PATH_WIN="$$(cygpath -w "$$RANLIB_BIN_PATH" 2>/dev/null || echo "$$RANLIB_BIN_PATH")"; \
-    STRIP_PATH_WIN="$$(cygpath -w "$$STRIP_BIN_PATH" 2>/dev/null || echo "$$STRIP_BIN_PATH")"; \
-    WINDRES_PATH_WIN="$$(cygpath -w "$$WINDRES_BIN_PATH" 2>/dev/null || echo "$$WINDRES_BIN_PATH")"; \
+    echo "using $($(package)_toolset_$(host_os)) : : $$CXX_PATH : <cflags>\"$($(package)_cflags)\" <cxxflags>\"$($(package)_cxxflags)\" <compileflags>\"$($(package)_cppflags)\" <linkflags>\"$($(package)_ldflags)\" <archiver>\"$$AR_PATH\" <striper>\"$$STRIP_PATH\"  <ranlib>\"$$RANLIB_PATH\" <rc>\"$$WINDRES_PATH\" : ;" > user-config.jam; \
   else \
-    CXX_PATH_WIN="$$CXX_PATH"; \
-    AR_PATH_WIN="$$AR_BIN_PATH"; \
-    RANLIB_PATH_WIN="$$RANLIB_BIN_PATH"; \
-    STRIP_PATH_WIN="$$STRIP_BIN_PATH"; \
-    WINDRES_PATH_WIN="$$WINDRES_BIN_PATH"; \
-  fi; \
-  echo "using $($(package)_toolset_$(host_os)) : : $$CXX_PATH_WIN : <cflags>\"$($(package)_cflags)\" <cxxflags>\"$($(package)_cxxflags)\" <compileflags>\"$($(package)_cppflags)\" <linkflags>\"$($(package)_ldflags)\" <archiver>\"$$AR_PATH_WIN\" <striper>\"$$STRIP_PATH_WIN\"  <ranlib>\"$$RANLIB_PATH_WIN\" <rc>\"$$WINDRES_PATH_WIN\" : ;" > user-config.jam
+    echo "using $($(package)_toolset_$(host_os)) : : $($(package)_cxx) : <cflags>\"$($(package)_cflags)\" <cxxflags>\"$($(package)_cxxflags)\" <compileflags>\"$($(package)_cppflags)\" <linkflags>\"$($(package)_ldflags)\" <archiver>\"$($(package)_ar)\" <striper>\"$(host_STRIP)\"  <ranlib>\"$(host_RANLIB)\" <rc>\"$(host_WINDRES)\" : ;" > user-config.jam; \
+  fi
 endef
 
 define $(package)_config_cmds
