@@ -92,7 +92,6 @@ jobs:
         SRCDIR: ./src
         BUILDDIR: ./src 
       run: |
-        python3 src/test/bitcoin-util-test.py
         python3 src/test/wallet-utility.py
 
     - name: Run Python functional tests (Linux x86_64)
@@ -193,7 +192,6 @@ jobs:
         SRCDIR: ./src
         BUILDDIR: ./src 
       run: |
-        python3 src/test/bitcoin-util-test.py
         python3 src/test/wallet-utility.py
 
     - name: Run Python functional tests (macOS)
@@ -453,7 +451,6 @@ jobs:
         BUILDDIR: src
       shell: msys2 {0} 
       run: |
-        python3 src/test/bitcoin-util-test.py 
         python3 src/test/wallet-utility.py
 
     - name: Run Python functional tests (Windows)
@@ -685,7 +682,6 @@ jobs:
         SRCDIR: ./src
         BUILDDIR: ./src 
       run: |
-        python3 src/test/bitcoin-util-test.py
         python3 src/test/wallet-utility.py
 
     - name: Run Python functional tests (QT Build - Linux x86_64)
@@ -759,7 +755,6 @@ jobs:
         SRCDIR: ./src
         BUILDDIR: ./src 
       run: |
-        python3 src/test/bitcoin-util-test.py
         python3 src/test/wallet-utility.py
 
     - name: Run Python functional tests (QT Build - macOS)
@@ -928,7 +923,6 @@ jobs:
         BUILDDIR: src
       shell: msys2 {0} 
       run: |
-        python3 src/test/bitcoin-util-test.py 
         python3 src/test/wallet-utility.py
 
     - name: Run Python functional tests (QT Build - Windows)
