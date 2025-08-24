@@ -65,16 +65,7 @@ jobs:
         mkdir -p vendored-sources
         touch vendored-sources/.keep
         
-    - name: Fix Cargo config for Linux x86_64
-      run: |
-        # Minimal .cargo/config, patching bellman
-        rm -f .cargo/config
-        echo "# Minimal Cargo config" > .cargo/config
-        echo "# Patches bellman and pairing to use the Pirate Network fork" >> .cargo/config
-        echo "[patch.crates-io]" >> .cargo/config
-        echo "bellman = { git = \"https://github.com/piratenetwork/librustzcash\", branch = \"master\" }" >> .cargo/config
-        echo "pairing = { git = \"https://github.com/piratenetwork/librustzcash\", branch = \"master\" }" >> .cargo/config
-        cat .cargo/config
+    
         
     - name: Build Pirated Daemon (Linux x86_64)
       run: |
@@ -175,16 +166,7 @@ jobs:
         mkdir -p vendored-sources
         touch vendored-sources/.keep
 
-    - name: Fix Cargo config for macOS
-      run: |
-        # Minimal .cargo/config, patching bellman
-        rm -f .cargo/config
-        echo "# Minimal Cargo config for macOS" > .cargo/config
-        echo "# Patches bellman and pairing to use the Pirate Network fork" >> .cargo/config
-        echo "[patch.crates-io]" >> .cargo/config
-        echo "bellman = { git = \"https://github.com/piratenetwork/librustzcash\", branch = \"master\" }" >> .cargo/config
-        echo "pairing = { git = \"https://github.com/piratenetwork/librustzcash\", branch = \"master\" }" >> .cargo/config
-        cat .cargo/config
+    
 
     - name: Build Pirated Daemon (macOS)
       run: |
@@ -359,17 +341,7 @@ jobs:
         mkdir -p vendored-sources
         touch vendored-sources/.keep
         
-    - name: Fix Cargo config for Windows
-      shell: msys2 {0}
-      run: |
-        # Minimal .cargo/config, patching bellman
-        rm -f .cargo/config
-        echo "# Minimal Cargo config" > .cargo/config
-        echo "# Patches bellman and pairing to use the Pirate Network fork" >> .cargo/config
-        echo "[patch.crates-io]" >> .cargo/config
-        echo "bellman = { git = \"https://github.com/piratenetwork/librustzcash\", branch = \"master\" }" >> .cargo/config
-        echo "pairing = { git = \"https://github.com/piratenetwork/librustzcash\", branch = \"master\" }" >> .cargo/config
-        cat .cargo/config
+    
 
     - name: Install build dependencies (Windows)
       shell: msys2 {0}
@@ -579,7 +551,7 @@ jobs:
         mkdir -p vendored-sources
         touch vendored-sources/.keep
 
-    - name: Fix Cargo config for Linux AArch64
+    - name: Configure Cargo target for Linux AArch64
       run: |
         # Minimal .cargo/config for AArch64, patching bellman & setting target
         rm -f .cargo/config
@@ -587,11 +559,6 @@ jobs:
         echo "[target.aarch64-unknown-linux-gnu]" >> .cargo/config
         echo "linker = \"aarch64-linux-gnu-gcc\"" >> .cargo/config
         echo "ar = \"aarch64-linux-gnu-ar\"" >> .cargo/config
-        echo "" >> .cargo/config
-        echo "# Patches bellman and pairing to use the Pirate Network fork" >> .cargo/config
-        echo "[patch.crates-io]" >> .cargo/config
-        echo "bellman = { git = \"https://github.com/piratenetwork/librustzcash\", branch = \"master\" }" >> .cargo/config
-        echo "pairing = { git = \"https://github.com/piratenetwork/librustzcash\", branch = \"master\" }" >> .cargo/config
         cat .cargo/config
 
     - name: Build Pirated Daemon (AArch64 Cross-Compile)
@@ -703,16 +670,7 @@ jobs:
         mkdir -p vendored-sources
         touch vendored-sources/.keep
 
-    - name: Fix Cargo config for Linux x86_64 QT
-      run: |
-        # Minimal .cargo/config, patching bellman
-        rm -f .cargo/config
-        echo "# Minimal Cargo config for Linux x86_64 QT" > .cargo/config
-        echo "# Patches bellman and pairing to use the Pirate Network fork" >> .cargo/config
-        echo "[patch.crates-io]" >> .cargo/config
-        echo "bellman = { git = \"https://github.com/piratenetwork/librustzcash\", branch = \"master\" }" >> .cargo/config
-        echo "pairing = { git = \"https://github.com/piratenetwork/librustzcash\", branch = \"master\" }" >> .cargo/config
-        cat .cargo/config
+    
 
     - name: Build Treasure Chest (Linux x86_64)
       run: |
@@ -785,16 +743,7 @@ jobs:
         mkdir -p vendored-sources
         touch vendored-sources/.keep
 
-    - name: Fix Cargo config for macOS
-      run: |
-        # Minimal .cargo/config, patching bellman
-        rm -f .cargo/config
-        echo "# Minimal Cargo config for macOS QT" > .cargo/config
-        echo "# Patches bellman and pairing to use the Pirate Network fork" >> .cargo/config
-        echo "[patch.crates-io]" >> .cargo/config
-        echo "bellman = { git = \"https://github.com/piratenetwork/librustzcash\", branch = \"master\" }" >> .cargo/config
-        echo "pairing = { git = \"https://github.com/piratenetwork/librustzcash\", branch = \"master\" }" >> .cargo/config
-        cat .cargo/config
+    
 
     - name: Build Treasure Chest (macOS)
       run: |
@@ -943,17 +892,7 @@ jobs:
         mkdir -p vendored-sources
         touch vendored-sources/.keep
         
-    - name: Fix Cargo config for Windows
-      shell: msys2 {0}
-      run: |
-        # Minimal .cargo/config, patching bellman
-        rm -f .cargo/config
-        echo "# Minimal Cargo config" > .cargo/config
-        echo "# Patches bellman and pairing to use the Pirate Network fork" >> .cargo/config
-        echo "[patch.crates-io]" >> .cargo/config
-        echo "bellman = { git = \"https://github.com/piratenetwork/librustzcash\", branch = \"master\" }" >> .cargo/config
-        echo "pairing = { git = \"https://github.com/piratenetwork/librustzcash\", branch = \"master\" }" >> .cargo/config
-        cat .cargo/config
+    
 
     - name: Build Treasure Chest (Windows)
       shell: msys2 {0} 
@@ -1068,7 +1007,7 @@ jobs:
           binutils-aarch64-linux-gnu \
           libc6-dev-arm64-cross
 
-    - name: Fix Cargo config for Linux AArch64 QT
+    - name: Configure Cargo target for Linux AArch64 QT
       run: |
         # Minimal .cargo/config for AArch64 QT, patching bellman & setting target
         mkdir -p .cargo
@@ -1076,10 +1015,6 @@ jobs:
         echo "[target.aarch64-unknown-linux-gnu]" >> .cargo/config
         echo "linker = \"aarch64-linux-gnu-gcc\"" >> .cargo/config
         echo "ar = \"aarch64-linux-gnu-ar\"" >> .cargo/config
-        echo "" >> .cargo/config
-        echo "[patch.crates-io]" >> .cargo/config
-        echo "bellman = { git = \"https://github.com/piratenetwork/librustzcash\", branch = \"master\" }" >> .cargo/config
-        echo "pairing = { git = \"https://github.com/piratenetwork/librustzcash\", branch = \"master\" }" >> .cargo/config
 
     - name: Build Treasure Chest (AArch64 Cross-Compile)
       env:
