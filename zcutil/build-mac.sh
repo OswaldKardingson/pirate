@@ -92,6 +92,9 @@ if [[ $ARCH == 'arm64' ]]; then
     rustup target add aarch64-apple-darwin
 fi
 
+# Ensure no stale vendoring overrides that point to non-existent directories
+rm -f .cargo/config .cargo/config.toml || true
+
 # Build the library
 cd src/rust
 cargo build --release
