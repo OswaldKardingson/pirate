@@ -3,6 +3,13 @@ mingw64_CXX=x86_64-w64-mingw32-g++
 mingw64_CFLAGS=-pipe -std=c17
 mingw64_CXXFLAGS=-pipe -std=c++17
 
+# Add binutils tool names to match MSYS2 triplet ("mingw32" for 64-bit toolchain)
+mingw64_AR=x86_64-w64-mingw32-ar
+mingw64_RANLIB=x86_64-w64-mingw32-ranlib
+mingw64_STRIP=x86_64-w64-mingw32-strip
+mingw64_NM=x86_64-w64-mingw32-nm
+mingw64_WINDRES=x86_64-w64-mingw32-windres
+
 BASE64_TOOL = base64 --decode # Define BASE64_TOOL for MinGW
 
 mingw64_release_CFLAGS=-g -O2
