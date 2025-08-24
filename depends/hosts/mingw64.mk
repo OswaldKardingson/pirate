@@ -1,5 +1,5 @@
-mingw64_CC=x86_64-w64-mingw32-gcc-posix
-mingw64_CXX=x86_64-w64-mingw32-g++-posix
+mingw64_CC=x86_64-w64-mingw32-gcc
+mingw64_CXX=x86_64-w64-mingw32-g++
 mingw64_CFLAGS=-pipe -std=c17
 mingw64_CXXFLAGS=-pipe -std=c++17
 
