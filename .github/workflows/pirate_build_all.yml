@@ -121,6 +121,13 @@ jobs:
     steps:
     - uses: actions/checkout@v3
 
+    - name: Compute version string (macOS ARM64)
+      run: |
+        MAJOR=$(sed -n 's/^#define CLIENT_VERSION_MAJOR \([0-9][0-9]*\).*/\1/p' src/clientversion.h)
+        MINOR=$(sed -n 's/^#define CLIENT_VERSION_MINOR \([0-9][0-9]*\).*/\1/p' src/clientversion.h)
+        REV=$(sed -n 's/^#define CLIENT_VERSION_REVISION \([0-9][0-9]*\).*/\1/p' src/clientversion.h)
+        echo "VERSION=$MAJOR.$MINOR.$REV" >> $GITHUB_ENV
+
     - name: Install dependencies (macOS)
       run: |
         brew install autoconf automake libtool pkg-config boost zeromq libsodium coreutils python3 curl zip dos2unix
@@ -218,6 +225,14 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
+
+    - name: Compute version string (Windows)
+      shell: bash
+      run: |
+        MAJOR=$(sed -n 's/^#define CLIENT_VERSION_MAJOR \([0-9][0-9]*\).*/\1/p' src/clientversion.h)
+        MINOR=$(sed -n 's/^#define CLIENT_VERSION_MINOR \([0-9][0-9]*\).*/\1/p' src/clientversion.h)
+        REV=$(sed -n 's/^#define CLIENT_VERSION_REVISION \([0-9][0-9]*\).*/\1/p' src/clientversion.h)
+        echo "VERSION=$MAJOR.$MINOR.$REV" >> $GITHUB_ENV
 
     - name: Ensure LF line endings for Makefiles and scripts (Windows)
       shell: bash
@@ -477,6 +492,13 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
+
+    - name: Compute version string (Linux AArch64)
+      run: |
+        MAJOR=$(sed -n 's/^#define CLIENT_VERSION_MAJOR \([0-9][0-9]*\).*/\1/p' src/clientversion.h)
+        MINOR=$(sed -n 's/^#define CLIENT_VERSION_MINOR \([0-9][0-9]*\).*/\1/p' src/clientversion.h)
+        REV=$(sed -n 's/^#define CLIENT_VERSION_REVISION \([0-9][0-9]*\).*/\1/p' src/clientversion.h)
+        echo "VERSION=$MAJOR.$MINOR.$REV" >> $GITHUB_ENV
 
     - name: Show commit hash (Linux AArch64)
       run: git rev-parse HEAD
@@ -1032,177 +1054,3 @@ jobs:
         path: |
           pirate-qt-aarch64-v*.zip
           release/pirate-qt-aarch64-v*.deb
-
-  build-and-test-macos-intel:
-    name: Build and Test Pirated Daemon (macOS Intel)
-    runs-on: macos-12 
-    steps:
-    - uses: actions/checkout@v3
-
-    - name: Install dependencies (macOS Intel)
-      run: |
-        brew install autoconf automake libtool pkg-config boost zeromq libsodium coreutils python3 curl zip dos2unix
-
-    - name: Ensure LF line endings for Makefiles and scripts (macOS Intel)
-      shell: bash
-      run: |
-        find . -type f -name '*.mk' -exec dos2unix {} \;
-        find . -type f -name 'Makefile' -exec dos2unix {} \;
-        find . -type f -name '*.sh' -exec dos2unix {} \;
-
-    - name: Install Rust (stable with x86_64-apple-darwin target)
-      uses: dtolnay/rust-toolchain@stable
-      with:
-        targets: x86_64-apple-darwin
-
-    - name: Make build script executable
-      run: chmod +x zcutil/build-mac.sh
-
-    - name: Fetch Zcash Params
-      run: ./zcutil/fetch-params.sh
-
-    - name: Prepare for Rust build
-      run: |
-        mkdir -p vendored-sources
-        touch vendored-sources/.keep
-
-    - name: Fix Cargo config for macOS Intel
-      run: |
-        rm -f .cargo/config
-        echo "# Minimal Cargo config for macOS Intel" > .cargo/config
-        echo "[patch.crates-io]" >> .cargo/config
-        echo "bellman = { git = \"https://github.com/piratenetwork/librustzcash\", branch = \"master\" }" >> .cargo/config
-        echo "pairing = { git = \"https://github.com/piratenetwork/librustzcash\", branch = \"master\" }" >> .cargo/config
-
-    - name: Build Pirated Daemon (macOS Intel)
-      env:
-        HOST: x86_64-apple-darwin
-      run: |
-        ./zcutil/build-mac.sh -j$(sysctl -n hw.ncpu)
-
-    - name: Run C++ tests (macOS Intel)
-      run: make check
-
-    - name: Display test-suite.log on failure (macOS Intel)
-      if: failure()
-      run: |
-        echo "Attempting to display src/test-suite.log..."
-        if [ -f src/test-suite.log ]; then
-          cat src/test-suite.log
-        else
-          echo "src/test-suite.log not found."
-          echo "Listing src directory:"
-          ls -la src
-        fi
-
-    - name: Run Python utility tests (macOS Intel)
-      env:
-        PYTHONPATH: ./src/test 
-        SRCDIR: ./src
-        BUILDDIR: ./src
-      run: |
-        python3 src/test/bitcoin-util-test.py
-        python3 src/test/wallet-utility.py
-
-    - name: Run Python functional tests (macOS Intel)
-      env:
-        PATH: "${{ github.workspace }}/src:$PATH"
-      run: python3 test/functional/test_runner.py --jobs=$(sysctl -n hw.ncpu)
-        
-    - name: Compute version string (macOS Intel)
-      run: |
-        MAJOR=$(sed -n 's/^#define CLIENT_VERSION_MAJOR \([0-9][0-9]*\).*/\1/p' src/clientversion.h)
-        MINOR=$(sed -n 's/^#define CLIENT_VERSION_MINOR \([0-9][0-9]*\).*/\1/p' src/clientversion.h)
-        REV=$(sed -n 's/^#define CLIENT_VERSION_REVISION \([0-9][0-9]*\).*/\1/p' src/clientversion.h)
-        echo "VERSION=$MAJOR.$MINOR.$REV" >> $GITHUB_ENV
-
-    - name: Strip and Zip CLI (macOS Intel)
-      run: |
-        if [ -f src/pirate-cli ]; then strip src/pirate-cli || true; fi
-        zip --junk-paths "pirate-cli-macos-intel-v${VERSION}.zip" src/pirate-cli
-
-    - name: Upload CLI artifact (macOS Intel)
-      if: success() || failure()
-      uses: actions/upload-artifact@v4
-      with:
-        name: pirate-cli-macos-intel
-        path: pirate-cli-macos-intel-v*.zip
-
-
-  build-and-test-qt-macos-intel:
-    name: Build and Test Treasure Chest (macOS Intel)
-    runs-on: macos-12 
-    needs: build-and-test-macos-intel
-    if: success()
-
-    steps:
-    - uses: actions/checkout@v3
-
-    - name: Install QT and other dependencies (macOS Intel)
-      run: |
-        brew install autoconf automake libtool pkg-config boost zeromq libsodium coreutils python3 curl qt@5 zip
-        echo "/usr/local/opt/qt@5/bin" >> $GITHUB_PATH
-
-    - name: Install Rust (stable with x86_64-apple-darwin target)
-      uses: dtolnay/rust-toolchain@stable
-      with:
-        targets: x86_64-apple-darwin
-
-    - name: Make QT build script executable
-      run: chmod +x zcutil/build-qt-mac.sh
-
-    - name: Fetch Zcash Params
-      run: ./zcutil/fetch-params.sh
-
-    - name: Prepare for Rust build
-      run: |
-        mkdir -p vendored-sources
-        touch vendored-sources/.keep
-
-    - name: Fix Cargo config for macOS Intel QT
-      run: |
-        rm -f .cargo/config
-        echo "# Minimal Cargo config for macOS Intel QT" > .cargo/config
-        echo "[patch.crates-io]" >> .cargo/config
-        echo "bellman = { git = \"https://github.com/piratenetwork/librustzcash\", branch = \"master\" }" >> .cargo/config
-        echo "pairing = { git = \"https://github.com/piratenetwork/librustzcash\", branch = \"master\" }" >> .cargo/config
-
-    - name: Build Treasure Chest (macOS Intel)
-      env:
-        HOST: x86_64-apple-darwin
-      run: |
-        ./zcutil/build-qt-mac.sh -j$(sysctl -n hw.ncpu)
-
-    - name: Zip Binaries (macOS Intel QT)
-      run: |
-        # Strip daemon tools if present
-        if [ -f src/pirated ]; then strip src/pirated || true; fi
-        if [ -f src/pirate-cli ]; then strip src/pirate-cli || true; fi
-        # remove pirate-tx packaging; not part of releases
-        if [ -f src/wallet/wallet-utility ]; then strip src/wallet/wallet-utility || true; fi
-
-        if [ -d src/qt/PirateWallet-Qt.app ]; then 
-          zip -r --junk-paths pirate-qt-macos-intel.zip src/qt/PirateWallet-Qt.app
-        elif [ -f pirate-qt-mac ]; then # Fallback binary
-          strip pirate-qt-mac
-          zip --junk-paths pirate-qt-macos-intel.zip pirate-qt-mac
-        fi
-
-        # Zip daemon tools separately if any exist
-        BINS=(src/pirated src/pirate-cli src/wallet/wallet-utility)
-        EXISTING=()
-        for f in "${BINS[@]}"; do [ -f "$f" ] && EXISTING+=("$f"); done
-        if [ ${#EXISTING[@]} -gt 0 ]; then
-          zip --junk-paths pirate-macos-intel-from-qt-build.zip "${EXISTING[@]}"
-        else
-          echo "No daemon binaries to zip from Qt build"
-        fi
-
-    - name: Archive Treasure Chest and Binaries (macOS Intel)
-      if: success() || failure()
-      uses: actions/upload-artifact@v4
-      with:
-        name: pirate-treasure-chest-macos-intel
-        path: |
-          pirate-qt-macos-intel.zip
-          pirate-macos-intel-from-qt-build.zip
