@@ -374,6 +374,7 @@ bool TransactionBuilder::ConvertRawSaplingSpend(libzcash::SaplingExtendedSpendin
     // Consistency check: all anchors must equal the first one
     for (int i = 0; i < vSaplingSpends.size(); i++) {
         if (saplingAnchor != vSaplingSpends[i].anchor) {
+            LogPrintf("TransactionBuilder cannot add Sapling Spend with differing anchor\n");
             return false;
         }
 
