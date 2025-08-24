@@ -21,6 +21,9 @@ _tmp_build_os := $(strip $(build_os))
 ifeq ($(_tmp_build_os),mingw32)
   _file_name_to_use := $($(package)_file_name_windows)
   _sha256_hash_to_use := $($(package)_sha256_hash_windows)
+else ifeq ($(_tmp_build_os),mingw64)
+  _file_name_to_use := $($(package)_file_name_windows)
+  _sha256_hash_to_use := $($(package)_sha256_hash_windows)
 else ifeq ($(_tmp_build_os),linux)
   ifeq ($(strip $(build_arch)),aarch64)
     _file_name_to_use := $($(package)_file_name_aarch64_linux)
@@ -54,6 +57,7 @@ $(package)_sha256_hash = $(strip $(_sha256_hash_to_use))
 # --- Original Rust target mappings and std sha256 hashes (keep these as they are) ---
 $(package)_rust_target_x86_64-pc-linux-gnu=x86_64-unknown-linux-gnu
 $(package)_rust_target_x86_64-w64-mingw32=x86_64-pc-windows-gnu
+$(package)_rust_target_x86_64-w64-mingw64=x86_64-pc-windows-gnu
 $(package)_rust_target_aarch64-apple-darwin=aarch64-apple-darwin
 
 $(package)_rust_std_sha256_hash_aarch64-unknown-linux-gnu=8f42b40c0a0658ee75ce758652c9821fac7db3fbd8d20f7fb2483ec2c57ee0ac
