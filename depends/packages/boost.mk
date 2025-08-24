@@ -38,20 +38,20 @@ define $(package)_preprocess_cmds
   if [ "$(host_os)" = "mingw64" ] || [ "$(host_os)" = "mingw32" ]; then \
     CXX_CANDIDATES="$($(package)_cxx) x86_64-w64-mingw32-g++ g++"; \
     CXX_BIN=""; \
-    for c in $$CXX_CANDIDATES; do \
+    for c in $${CXX_CANDIDATES}; do \
       if command -v "$$c" >/dev/null 2>&1; then CXX_BIN="$$c"; break; fi; \
     done; \
-    if [ -z "$$CXX_BIN" ]; then CXX_BIN="$($(package)_cxx)"; fi; \
-    CXX_PATH="$$CXX_BIN"; \
+    if [ -z "${CXX_BIN}" ]; then CXX_BIN="$($(package)_cxx)"; fi; \
+    CXX_PATH="${CXX_BIN}"; \
     AR_PATH="$($(package)_ar)"; RANLIB_PATH="$(host_RANLIB)"; STRIP_PATH="$(host_STRIP)"; WINDRES_PATH="$(host_WINDRES)"; \
     if command -v cygpath >/dev/null 2>&1; then \
-      CXX_PATH="$$(cygpath -w "$$CXX_PATH" 2>/dev/null || echo "$$CXX_PATH")"; \
-      if [ -n "$$AR_PATH" ]; then AR_PATH="$$(cygpath -w "$$AR_PATH" 2>/dev/null || echo "$$AR_PATH")"; fi; \
-      if [ -n "$$RANLIB_PATH" ]; then RANLIB_PATH="$$(cygpath -w "$$RANLIB_PATH" 2>/dev/null || echo "$$RANLIB_PATH")"; fi; \
-      if [ -n "$$STRIP_PATH" ]; then STRIP_PATH="$$(cygpath -w "$$STRIP_PATH" 2>/dev/null || echo "$$STRIP_PATH")"; fi; \
-      if [ -n "$$WINDRES_PATH" ]; then WINDRES_PATH="$$(cygpath -w "$$WINDRES_PATH" 2>/dev/null || echo "$$WINDRES_PATH")"; fi; \
+      CXX_PATH="$$(cygpath -w "${CXX_PATH}" 2>/dev/null || echo "${CXX_PATH}")"; \
+      if [ -n "${AR_PATH}" ]; then AR_PATH="$$(cygpath -w "${AR_PATH}" 2>/dev/null || echo "${AR_PATH}")"; fi; \
+      if [ -n "${RANLIB_PATH}" ]; then RANLIB_PATH="$$(cygpath -w "${RANLIB_PATH}" 2>/dev/null || echo "${RANLIB_PATH}")"; fi; \
+      if [ -n "${STRIP_PATH}" ]; then STRIP_PATH="$$(cygpath -w "${STRIP_PATH}" 2>/dev/null || echo "${STRIP_PATH}")"; fi; \
+      if [ -n "${WINDRES_PATH}" ]; then WINDRES_PATH="$$(cygpath -w "${WINDRES_PATH}" 2>/dev/null || echo "${WINDRES_PATH}")"; fi; \
     fi; \
-    echo "using $($(package)_toolset_$(host_os)) : : $$CXX_PATH : <cflags>\"$($(package)_cflags)\" <cxxflags>\"$($(package)_cxxflags)\" <compileflags>\"$($(package)_cppflags)\" <linkflags>\"$($(package)_ldflags)\" <archiver>\"$$AR_PATH\" <striper>\"$$STRIP_PATH\"  <ranlib>\"$$RANLIB_PATH\" <rc>\"$$WINDRES_PATH\" : ;" > user-config.jam; \
+    echo "using $($(package)_toolset_$(host_os)) : : $${CXX_PATH} : <cflags>\"$($(package)_cflags)\" <cxxflags>\"$($(package)_cxxflags)\" <compileflags>\"$($(package)_cppflags)\" <linkflags>\"$($(package)_ldflags)\" <archiver>\"$${AR_PATH}\" <striper>\"$${STRIP_PATH}\"  <ranlib>\"$${RANLIB_PATH}\" <rc>\"$${WINDRES_PATH}\" : ;" > user-config.jam; \
   else \
     echo "using $($(package)_toolset_$(host_os)) : : $($(package)_cxx) : <cflags>\"$($(package)_cflags)\" <cxxflags>\"$($(package)_cxxflags)\" <compileflags>\"$($(package)_cppflags)\" <linkflags>\"$($(package)_ldflags)\" <archiver>\"$($(package)_ar)\" <striper>\"$(host_STRIP)\"  <ranlib>\"$(host_RANLIB)\" <rc>\"$(host_WINDRES)\" : ;" > user-config.jam; \
   fi
