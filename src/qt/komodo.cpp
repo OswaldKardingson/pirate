@@ -381,11 +381,9 @@ void KomodoCore::shutdown()
             }
             fShutdown = ShutdownRequested();
         }
-        if ((&threadGroup) != nullptr)
-        {
-            Interrupt(threadGroup);
-            threadGroup.join_all();
-        }
+        // Always interrupt and join the thread group
+        Interrupt(threadGroup);
+        threadGroup.join_all();
 
         Shutdown();
 
