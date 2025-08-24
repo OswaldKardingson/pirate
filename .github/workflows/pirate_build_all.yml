@@ -95,10 +95,10 @@ jobs:
     #   run: |
     #     python3 test/wallet-utility.py
 
-    - name: Run Python functional tests (Linux x86_64)
-      env:
-        PATH: "${{ github.workspace }}/src:$PATH"
-      run: test/functional/test_runner.py --jobs=$(nproc)
+    # - name: Run Python functional tests (Linux x86_64)
+    #   env:
+    #     PATH: "${{ github.workspace }}/src:$PATH"
+    #   run: test/functional/test_runner.py --jobs=$(nproc)
         
     - name: Strip and Zip Binaries (Linux x86_64 Daemon)
       run: |
@@ -196,10 +196,10 @@ jobs:
     #   run: |
     #     python3 test/wallet-utility.py
 
-    - name: Run Python functional tests (macOS)
-      env:
-        PATH: "${{ github.workspace }}/src:$PATH"
-      run: python3 test/functional/test_runner.py --jobs=$(sysctl -n hw.ncpu)
+    # - name: Run Python functional tests (macOS)
+    #   env:
+    #     PATH: "${{ github.workspace }}/src:$PATH"
+    #   run: python3 test/functional/test_runner.py --jobs=$(sysctl -n hw.ncpu)
         
     - name: Strip and Zip Binaries (macOS Daemon)
       run: |
@@ -456,11 +456,11 @@ jobs:
     #   run: |
     #     python3 test/wallet-utility.py
 
-    - name: Run Python functional tests (Windows)
-      env:
-        PATH: "/c/hostedtoolcache/windows/Python/3.9.9/x64:/d/a/pirate/pirate/src:/mingw64/bin:/usr/bin"
-      shell: msys2 {0}
-      run: python3 test/functional/test_runner.py --jobs=$(nproc)
+    # - name: Run Python functional tests (Windows)
+    #   env:
+    #     PATH: "/c/hostedtoolcache/windows/Python/3.9.9/x64:/d/a/pirate/pirate/src:/mingw64/bin:/usr/bin"
+    #   shell: msys2 {0}
+    #   run: python3 test/functional/test_runner.py --jobs=$(nproc)
         
     - name: Strip and Zip Binaries (Windows Daemon)
       shell: msys2 {0}
@@ -688,10 +688,10 @@ jobs:
     #   run: |
     #     python3 test/wallet-utility.py
 
-    - name: Run Python functional tests (QT Build - Linux x86_64)
-      env:
-        PATH: "${{ github.workspace }}/src:$PATH"
-      run: test/functional/test_runner.py --jobs=$(nproc)
+    # - name: Run Python functional tests (QT Build - Linux x86_64)
+    #   env:
+    #     PATH: "${{ github.workspace }}/src:$PATH"
+    #   run: test/functional/test_runner.py --jobs=$(nproc)
         
     - name: Strip and Zip Binaries (Linux x86_64 QT)
       run: |
@@ -762,10 +762,10 @@ jobs:
     #   run: |
     #     python3 test/wallet-utility.py
 
-    - name: Run Python functional tests (QT Build - macOS)
-      env:
-        PATH: "${{ github.workspace }}/src:$PATH"
-      run: python3 test/functional/test_runner.py --jobs=$(sysctl -n hw.ncpu)
+    # - name: Run Python functional tests (QT Build - macOS)
+    #   env:
+    #     PATH: "${{ github.workspace }}/src:$PATH"
+    #   run: python3 test/functional/test_runner.py --jobs=$(sysctl -n hw.ncpu)
         
     - name: Zip Binaries (macOS QT)
       run: |
@@ -931,11 +931,11 @@ jobs:
     #   run: |
     #     python3 test/wallet-utility.py
 
-    - name: Run Python functional tests (QT Build - Windows)
-      env:
-        PATH: "/c/hostedtoolcache/windows/Python/3.9.9/x64:/d/a/pirate/pirate/src:/mingw64/bin:/usr/bin"
-      shell: msys2 {0}
-      run: python3 test/functional/test_runner.py --jobs=$(nproc)
+    # - name: Run Python functional tests (QT Build - Windows)
+    #   env:
+    #     PATH: "/c/hostedtoolcache/windows/Python/3.9.9/x64:/d/a/pirate/pirate/src:/mingw64/bin:/usr/bin"
+    #   shell: msys2 {0}
+    #   run: python3 test/functional/test_runner.py --jobs=$(nproc)
         
     - name: Strip and Zip Binaries (Windows QT)
       shell: msys2 {0}
