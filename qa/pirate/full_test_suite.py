@@ -137,11 +137,8 @@ def ensure_no_dot_so_in_depends():
     return exit_code == 0
 
 def util_test():
-    return subprocess.call(
-        [sys.executable, repofile('src/test/bitcoin-util-test.py')],
-        cwd=repofile('src'),
-        env={'PYTHONPATH': repofile('src/test'), 'srcdir': repofile('src')}
-    ) == 0
+    # Disabled: bitcoin-util tests are Bitcoin/Zcash-specific and not applicable to Pirate.
+    return True
 
 def rust_test():
     arch_dir = get_arch_dir()

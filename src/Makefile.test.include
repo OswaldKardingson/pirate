@@ -6,16 +6,6 @@ TEST_BINARY=test/test_bitcoin$(EXEEXT)
 
 EXTRA_DIST += \
 	test/bctest.py \
-	test/bitcoin-util-test.py \
-	test/data/bitcoin-util-test.json \
-	test/data/blanktx.hex \
-	test/data/tt-delin1-out.hex \
-	test/data/tt-delout1-out.hex \
-	test/data/tt-locktime317000-out.hex \
-	test/data/tx394b54bb.hex \
-	test/data/txcreate1.hex \
-	test/data/txcreate2.hex \
-	test/data/txcreatesign.hex \
 	test/wallet-utility.py \
 	test/data/wallet.dat
 
@@ -146,8 +136,6 @@ bitcoin_test_clean : FORCE
 	rm -f $(CLEAN_BITCOIN_TEST) $(test_test_bitcoin_OBJECTS) $(TEST_BINARY)
 
 check-local:
-	@echo "Running test/bitcoin-util-test.py..."
-	$(AM_V_at)srcdir=$(srcdir) PYTHONPATH=$(builddir)/test $(srcdir)/test/bitcoin-util-test.py
 if ENABLE_WALLET
 	@echo "Running test/wallet-utility.py..."
 	$(AM_V_at)srcdir=$(srcdir) PYTHONPATH=$(builddir)/test $(srcdir)/test/wallet-utility.py
