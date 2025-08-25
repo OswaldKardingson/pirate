@@ -59,6 +59,18 @@ jobs:
         echo "--------------------------------------------------------------------"
 
     - name: Install Rust (stable)
+      id: rustup_linux1
+      uses: dtolnay/rust-toolchain@stable
+      continue-on-error: true
+
+    - name: Retry Rust install (attempt 2)
+      id: rustup_linux2
+      if: steps.rustup_linux1.outcome == 'failure'
+      uses: dtolnay/rust-toolchain@stable
+      continue-on-error: true
+
+    - name: Retry Rust install (attempt 3)
+      if: steps.rustup_linux1.outcome == 'failure' && steps.rustup_linux2.outcome == 'failure'
       uses: dtolnay/rust-toolchain@stable
 
     - name: Make build script executable
@@ -173,6 +185,22 @@ jobs:
         echo "--------------------------------------------------------------------"
 
     - name: Install Rust (stable with aarch64-apple-darwin target)
+      id: rustup_macos1
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: aarch64-apple-darwin
+      continue-on-error: true
+
+    - name: Retry Rust install (attempt 2)
+      id: rustup_macos2
+      if: steps.rustup_macos1.outcome == 'failure'
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: aarch64-apple-darwin
+      continue-on-error: true
+
+    - name: Retry Rust install (attempt 3)
+      if: steps.rustup_macos1.outcome == 'failure' && steps.rustup_macos2.outcome == 'failure'
       uses: dtolnay/rust-toolchain@stable
       with:
         targets: aarch64-apple-darwin
@@ -300,6 +328,18 @@ jobs:
         echo "-----------------------------------------------------------------"
 
     - name: Install Rust (stable)
+      id: rustup_win1
+      uses: dtolnay/rust-toolchain@stable
+      continue-on-error: true
+
+    - name: Retry Rust install (attempt 2)
+      id: rustup_win2
+      if: steps.rustup_win1.outcome == 'failure'
+      uses: dtolnay/rust-toolchain@stable
+      continue-on-error: true
+
+    - name: Retry Rust install (attempt 3)
+      if: steps.rustup_win1.outcome == 'failure' && steps.rustup_win2.outcome == 'failure'
       uses: dtolnay/rust-toolchain@stable
     - name: Expose Cargo on Windows PATH for all shells
       run: |
@@ -568,6 +608,22 @@ jobs:
         echo "--------------------------------------------------------------------"
 
     - name: Install Rust (stable, AArch64 target)
+      id: rustup_linux_arm1
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: aarch64-unknown-linux-gnu
+      continue-on-error: true
+
+    - name: Retry Rust install (attempt 2)
+      id: rustup_linux_arm2
+      if: steps.rustup_linux_arm1.outcome == 'failure'
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: aarch64-unknown-linux-gnu
+      continue-on-error: true
+
+    - name: Retry Rust install (attempt 3)
+      if: steps.rustup_linux_arm1.outcome == 'failure' && steps.rustup_linux_arm2.outcome == 'failure'
       uses: dtolnay/rust-toolchain@stable
       with:
         targets: aarch64-unknown-linux-gnu
@@ -711,6 +767,18 @@ jobs:
           qtbase5-dev qttools5-dev qttools5-dev-tools qtchooser qt5-qmake libqt5svg5-dev zip
 
     - name: Install Rust (stable)
+      id: rustup_linux_qt1
+      uses: dtolnay/rust-toolchain@stable
+      continue-on-error: true
+
+    - name: Retry Rust install (attempt 2)
+      id: rustup_linux_qt2
+      if: steps.rustup_linux_qt1.outcome == 'failure'
+      uses: dtolnay/rust-toolchain@stable
+      continue-on-error: true
+
+    - name: Retry Rust install (attempt 3)
+      if: steps.rustup_linux_qt1.outcome == 'failure' && steps.rustup_linux_qt2.outcome == 'failure'
       uses: dtolnay/rust-toolchain@stable
 
     - name: Make QT build script executable
@@ -784,6 +852,22 @@ jobs:
         echo "/usr/local/opt/qt@5/bin" >> $GITHUB_PATH
 
     - name: Install Rust (stable with aarch64-apple-darwin target)
+      id: rustup_macos_qt1
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: aarch64-apple-darwin
+      continue-on-error: true
+
+    - name: Retry Rust install (attempt 2)
+      id: rustup_macos_qt2
+      if: steps.rustup_macos_qt1.outcome == 'failure'
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: aarch64-apple-darwin
+      continue-on-error: true
+
+    - name: Retry Rust install (attempt 3)
+      if: steps.rustup_macos_qt1.outcome == 'failure' && steps.rustup_macos_qt2.outcome == 'failure'
       uses: dtolnay/rust-toolchain@stable
       with:
         targets: aarch64-apple-darwin
@@ -864,6 +948,18 @@ jobs:
           mingw-w64-x86_64-qt5 zip
 
     - name: Install Rust (stable)
+      id: rustup_win_qt1
+      uses: dtolnay/rust-toolchain@stable
+      continue-on-error: true
+
+    - name: Retry Rust install (attempt 2)
+      id: rustup_win_qt2
+      if: steps.rustup_win_qt1.outcome == 'failure'
+      uses: dtolnay/rust-toolchain@stable
+      continue-on-error: true
+
+    - name: Retry Rust install (attempt 3)
+      if: steps.rustup_win_qt1.outcome == 'failure' && steps.rustup_win_qt2.outcome == 'failure'
       uses: dtolnay/rust-toolchain@stable
 
     - name: Mount Windows Cargo into MSYS2 and Setup for Depends (QT)
@@ -1008,6 +1104,22 @@ jobs:
     - uses: actions/checkout@v3
 
     - name: Install Rust (stable with aarch64-unknown-linux-gnu target)
+      id: rustup_linux_qt_arm1
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: aarch64-unknown-linux-gnu
+      continue-on-error: true
+
+    - name: Retry Rust install (attempt 2)
+      id: rustup_linux_qt_arm2
+      if: steps.rustup_linux_qt_arm1.outcome == 'failure'
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: aarch64-unknown-linux-gnu
+      continue-on-error: true
+
+    - name: Retry Rust install (attempt 3)
+      if: steps.rustup_linux_qt_arm1.outcome == 'failure' && steps.rustup_linux_qt_arm2.outcome == 'failure'
       uses: dtolnay/rust-toolchain@stable
       with:
         targets: aarch64-unknown-linux-gnu
