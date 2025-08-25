@@ -6,7 +6,8 @@ $(package)_file_name=curl-$($(package)_version).tar.xz
 $(package)_sha256_hash=be42766d5664a739c3974ee3dfbbcbe978a4ccb1fe628bb1d9b59ac79e445fb5
 $(package)_config_opts_linux=--disable-shared --enable-static --prefix=$(host_prefix) --host=$(HOST) --with-openssl --without-brotli --without-zstd
 $(package)_config_opts_mingw32=--enable-mingw --disable-shared --enable-static --prefix=$(host_prefix) --host=x86_64-w64-mingw32 --with-openssl --without-brotli
-$(package)_config_opts_mingw64=--disable-shared --enable-static --prefix=$(host_prefix) --host=$(HOST) --with-openssl --without-brotli --without-zstd
+$(package)_config_opts_mingw64=--disable-shared --enable-static --prefix=$(host_prefix) --host=$(HOST) --with-openssl --without-brotli --without-zstd --enable-mingw
+$(package)_config_env_mingw64=LIBS="-lws2_32"
 $(package)_config_opts_darwin=--disable-shared --enable-static --prefix=$(host_prefix) --with-openssl --without-brotli --without-libidn2 --without-zstd --without-nghttp2 --without-librtmp
 $(package)_cflags_darwin=-mmacosx-version-min=$(OSX_MIN_VERSION)
 $(package)_conf_tool=./configure
