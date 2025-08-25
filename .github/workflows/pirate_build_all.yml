@@ -110,15 +110,12 @@ jobs:
     - name: Strip and Package CLI bundle (Linux x86_64)
       run: |
         set -euo pipefail
-        . /etc/os-release
-        UBUNTU_TAG="Ubuntu$(echo "$VERSION_ID" | tr -d '.')"
+        UBUNTU_TAG="Ubuntu$(. /etc/os-release; echo "$VERSION_ID" | tr -d '.')"
         OUTDIR="pirate-cli-${UBUNTU_TAG}-v${VERSION}"
         rm -rf "$OUTDIR"
         mkdir -p "$OUTDIR"
         # Copy binaries and helper scripts
-        cp src/pirated "$OUTDIR/" \
-           src/pirate-cli "$OUTDIR/" \
-           src/pirate-tx "$OUTDIR/"
+        cp src/pirated src/pirate-cli src/pirate-tx "$OUTDIR/"
         cp zcutil/fetch-params.sh "$OUTDIR/"
         # Strip to reduce size
         strip "$OUTDIR/pirated" || true
@@ -232,9 +229,7 @@ jobs:
         OUTDIR="pirate-cli-MacOS-v${VERSION}"
         rm -rf "$OUTDIR"
         mkdir -p "$OUTDIR"
-        cp src/pirated "$OUTDIR/" \
-           src/pirate-cli "$OUTDIR/" \
-           src/pirate-tx "$OUTDIR/"
+        cp src/pirated src/pirate-cli src/pirate-tx "$OUTDIR/"
         cp zcutil/fetch-params.sh "$OUTDIR/"
         strip "$OUTDIR/pirated" || true
         strip "$OUTDIR/pirate-cli" || true
@@ -509,9 +504,7 @@ jobs:
         OUTDIR="pirate-cli-windows-v${VERSION}"
         rm -rf "$OUTDIR"
         mkdir -p "$OUTDIR"
-        cp src/pirated.exe "$OUTDIR/" \
-           src/pirate-cli.exe "$OUTDIR/" \
-           src/pirate-tx.exe "$OUTDIR/"
+        cp src/pirated.exe src/pirate-cli.exe src/pirate-tx.exe "$OUTDIR/"
         cp zcutil/wget64.exe "$OUTDIR/"
         cp zcutil/fetch-params.bat "$OUTDIR/"
         strip "$OUTDIR/pirated.exe" || true
@@ -681,9 +674,7 @@ jobs:
         OUTDIR="pirate-cli-aarch64-v${VERSION}"
         rm -rf "$OUTDIR"
         mkdir -p "$OUTDIR"
-        cp src/pirated "$OUTDIR/" \
-           src/pirate-cli "$OUTDIR/" \
-           src/pirate-tx "$OUTDIR/"
+        cp src/pirated src/pirate-cli src/pirate-tx "$OUTDIR/"
         cp zcutil/fetch-params.sh "$OUTDIR/"
         aarch64-linux-gnu-strip "$OUTDIR/pirated" || true
         aarch64-linux-gnu-strip "$OUTDIR/pirate-cli" || true
