@@ -848,9 +848,14 @@ jobs:
 
     - name: Install QT and other dependencies (macOS)
       run: |
-        brew install autoconf automake libtool pkg-config boost zeromq libsodium coreutils python3 curl qt@5 zip
-        brew install create-dmg md4c tslib vulkan-headers libxkbcommon
-        echo "/usr/local/opt/qt@5/bin" >> $GITHUB_PATH
+        brew install autoconf automake libtool pkg-config boost zeromq libsodium coreutils python3 curl qt@5 zip create-dmg md4c
+        echo "/usr/local/opt/qt@5/bin" >> $GITHUB_PATH || true
+        echo "/opt/homebrew/opt/qt@5/bin" >> $GITHUB_PATH || true
+        # Debug: Show what Qt version we have and where it's installed
+        echo "Qt version info:"
+        if command -v qmake >/dev/null 2>&1; then qmake -v || true; fi
+        ls -la /usr/local/opt/qt@5/ 2>/dev/null || true
+        ls -la /opt/homebrew/opt/qt@5/ 2>/dev/null || true
 
     - name: Install Rust (stable with aarch64-apple-darwin target)
       id: rustup_macos_qt1
