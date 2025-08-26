@@ -26,7 +26,7 @@ endif
 
 ifeq ($(build_os),mingw64)
 define $(package)_set_vars
-  $(package)_config_env=PATH="$(PATH):$(host_prefix)/bin" PKG_CONFIG_LIBDIR="$(host_prefix)/lib/pkgconfig" CPPFLAGS="-I$(host_prefix)/include -DUSE_WINSOCK -D_WIN32_WINNT=0x0600" LDFLAGS="-L$(host_prefix)/lib" CFLAGS="-DUSE_WINSOCK -D_WIN32_WINNT=0x0600"
+  $(package)_config_env=PATH="$(PATH):$(host_prefix)/bin" PKG_CONFIG_LIBDIR="$(host_prefix)/lib/pkgconfig" CPPFLAGS="-I$(host_prefix)/include -DUSE_WINSOCK -D_WIN32_WINNT=0x0600" LDFLAGS="-L$(host_prefix)/lib" CFLAGS="-DUSE_WINSOCK -D_WIN32_WINNT=0x0600" LIBS="-lws2_32"
 endef
 endif
 
