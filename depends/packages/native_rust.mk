@@ -47,12 +47,14 @@ $(package)_sha256_hash = $(strip $(_sha256_hash_to_use))
 # --- Original Rust target mappings and std sha256 hashes (keep these as they are) ---
 $(package)_rust_target_x86_64-pc-linux-gnu=x86_64-unknown-linux-gnu
 $(package)_rust_target_x86_64-w64-mingw32=x86_64-pc-windows-gnu
+$(package)_rust_target_x86_64-w64-mingw64=x86_64-pc-windows-gnu
 
 $(package)_rust_std_sha256_hash_aarch64-unknown-linux-gnu=8f42b40c0a0658ee75ce758652c9821fac7db3fbd8d20f7fb2483ec2c57ee0ac
 $(package)_rust_std_sha256_hash_x86_64-apple-darwin=e44d71250dc5a238da0dc4784dad59d562862653adecd31ea52e0920b85c6a7c
 $(package)_rust_std_sha256_hash_x86_64-pc-windows-gnu=09ded4a4c27c16aff9c9911640b1bdf6e1172237ce540ed4dc3e166e9438f0d7
 $(package)_rust_std_sha256_hash_x86_64-unknown-freebsd=eed4b3f3358a8887b0f6a62e021469878a8990af9b94c2fe87d3c1b0220913bb
 $(package)_rust_std_sha256_hash_x86_64-unknown-linux-gnu=5e7738090baf6dc12c3ed62fb02cf51f80af2403f6df85feae0ebf157e2d8d35
+$(package)_rust_std_sha256_hash_x86_64-w64-mingw64=2ca4a306047c0b8b4029c382910fcbc895badc29680e0332c9df990fd1c70d4f
 # --- End of original Rust target mappings ---
 
 define rust_target
@@ -67,27 +69,26 @@ endef
 # --- Conditional logic for cross-compilation vs native ---
 ifneq ($(canonical_host),$(build))
   $(package)_rust_target=$(call rust_target,$(package),$(canonical_host),$(host_os))
-  $(package)_exact_file_name=rust-std-$($(package)_version)-$($(package)_rust_target).tar.gz
-  $(package)_exact_sha256_hash=$($(package)_rust_std_sha256_hash_$($(package)_rust_target))
+  $(package)_download_file=rust-std-$($(package)_version)-$($(package)_rust_target).tar.gz
+  $(package)_rust_std_sha256_hash=$($(package)_rust_std_sha256_hash_$($(package)_rust_target))
   $(package)_build_subdir=buildos
   $(package)_extra_sources = $($(package)_file_name)
 
   define $(package)_fetch_cmds
-    $(call fetch_file,$(package),$($(package)_download_path),$($(package)_exact_file_name),$($(package)_exact_file_name),$($(package)_exact_sha256_hash)) && \
+    $(call fetch_file,$(package),$($(package)_download_path),$($(package)_download_file),$($(package)_download_file),$($(package)_rust_std_sha256_hash)) && \
     $(call fetch_file,$(package),$($(package)_download_path),$($(package)_extra_sources),$($(package)_extra_sources),$($(package)_sha256_hash))
   endef
 
   define $(package)_extract_cmds
     mkdir -p $($(package)_extract_dir) && \
-    mkdir -p $(canonical_host) && \
-    mkdir -p buildos && \
+    mkdir -p $($(package)_extract_dir)/$(canonical_host) && \
+    mkdir -p $($(package)_extract_dir)/buildos && \
     cd $($(package)_extract_dir) && \
-    echo "$($(package)_exact_sha256_hash)  $($(package)_source_dir)/$($(package)_exact_file_name)" > .$($(package)_exact_file_name).hash && \
+    echo "$($(package)_rust_std_sha256_hash)  $($(package)_source_dir)/$($(package)_download_file)" > .$($(package)_download_file).hash && \
     echo "$($(package)_sha256_hash)  $($(package)_source_dir)/$($(package)_extra_sources)" > .$($(package)_extra_sources).hash && \
-    $(build_SHA256SUM) -c .$($(package)_exact_file_name).hash && \
+    $(build_SHA256SUM) -c .$($(package)_download_file).hash && \
     $(build_SHA256SUM) -c .$($(package)_extra_sources).hash && \
-    cd .. && \
-    tar --strip-components=1 -xf $($(package)_source_dir)/$($(package)_exact_file_name) -C $(canonical_host) && \
+    tar --strip-components=1 -xf $($(package)_source_dir)/$($(package)_download_file) -C $(canonical_host) && \
     tar --strip-components=1 -xf $($(package)_source_dir)/$($(package)_extra_sources) -C buildos
   endef
 
@@ -102,4 +103,26 @@ else # Native build
   define $(package)_stage_cmds # Simpler for native
     bash ./install.sh --destdir=$($(package)_staging_dir) --prefix=$(build_prefix) $($(package)_stage_opts) $($(package)_stage_build_opts)
   endef
+endif
+
+$(package)_pre_configure:
+	# Copy rustc and cargo to a directory that is in PATH
+	mkdir -p $(build_dir)/bin
+	cp $(native_rust_toolchain_dir)/bin/rustc $(build_dir)/bin/
+	cp $(native_rust_toolchain_dir)/bin/cargo $(build_dir)/bin/
+
+	# Install the rust-src component
+	$(native_rust_toolchain_dir)/bin/rustup component add rust-src --toolchain $(native_rust_toolchain)
+
+	# Install required targets
+	$(native_rust_toolchain_dir)/bin/rustup target add --toolchain $(native_rust_toolchain) wasm32-unknown-unknown
+ifeq ($(build_os),linux)
+	$(native_rust_toolchain_dir)/bin/rustup target add --toolchain $(native_rust_toolchain) x86_64-unknown-linux-gnu
+	$(native_rust_toolchain_dir)/bin/rustup target add --toolchain $(native_rust_toolchain) aarch64-linux-gnu
+	$(native_rust_toolchain_dir)/bin/rustup target add --toolchain $(native_rust_toolchain) arm-linux-gnueabihf
+else ifeq ($(build_os),darwin)
+	$(native_rust_toolchain_dir)/bin/rustup target add --toolchain $(native_rust_toolchain) x86_64-apple-darwin
+	$(native_rust_toolchain_dir)/bin/rustup target add --toolchain $(native_rust_toolchain) aarch64-apple-darwin
+else ifeq ($(build_os),mingw32)
+	$(native_rust_toolchain_dir)/bin/rustup target add --toolchain $(native_rust_toolchain) x86_64-w64-mingw64
 endif
