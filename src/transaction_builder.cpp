@@ -366,6 +366,11 @@ bool TransactionBuilder::ConvertRawSaplingSpend(libzcash::SaplingExtendedSpendin
         throw std::runtime_error("TransactionBuilder cannot add Sapling spend to pre-Sapling transaction");
     }
 
+    //Exit early if there are no Sapling spends to process
+    if (vSaplingSpends.size() == 0) {
+        return true;
+    }
+
     CDataStream ssExtSk(SER_NETWORK, PROTOCOL_VERSION);
     ssExtSk << extsk;
 
@@ -446,6 +451,11 @@ bool TransactionBuilder::ConvertRawSaplingOutput(uint256 ovk)
         throw std::runtime_error("TransactionBuilder cannot add Sapling output to pre-Sapling transaction");
     }
 
+    //Exit early if there are no Sapling outputs to process
+    if (vSaplingOutputs.size() == 0) {
+        return true;
+    }
+
     for (int i = 0; i < vSaplingOutputs.size(); i++) {
         saplingBuilder->add_recipient(ovk.GetRawBytes(), vSaplingOutputs[i].addr.GetRawBytes(), vSaplingOutputs[i].value, vSaplingOutputs[i].memo);
         valueBalanceSapling -= vSaplingOutputs[i].value;
@@ -500,6 +510,12 @@ bool TransactionBuilder::AddOrchardSpendRaw(
 
 bool TransactionBuilder::ConvertRawOrchardSpend(libzcash::OrchardExtendedSpendingKeyPirate extsk)
 {
+    //Exit early if there are no Orchard spends to process
+    if (vOrchardSpends.size() == 0) {
+        return true;
+    }
+
+    // Sanity check: cannot add Orchard Spend to pre-Orchard transaction
     if (!orchardBuilder.has_value()) {
         // Try to give a useful error.
         if (mtx.nVersion < ORCHARD_MIN_TX_VERSION) {
@@ -589,6 +605,11 @@ bool TransactionBuilder::AddOrchardOutputRaw(
 
 bool TransactionBuilder::ConvertRawOrchardOutput(uint256 ovk)
 {
+    // If there are no Orchard outputs to process, return early
+    if (vOrchardOutputs.size() == 0) {
+        return true;
+    }
+
     // Sanity check: cannot add Sapling output to pre-Sapling transaction
     if (!orchardBuilder.has_value()) {
         // Try to give a useful error.
