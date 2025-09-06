@@ -5,6 +5,14 @@
 #include "message_framing.h"
 #include "hardwarewallet/libraries/crc16.h"
 
+// Cross-platform sleep functionality
+#ifdef WIN32
+#include <windows.h>
+#define usleep(x) Sleep((x)/1000)
+#else
+#include <unistd.h>
+#endif
+
 //--[ GLOBALS ]----------------------------------------------------------------
 
 

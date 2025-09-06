@@ -386,8 +386,9 @@ KOMODO_QT_BASE_CPP = \
   qt/utilitydialog.cpp \
   qt/hardwarewallet/libraries/crc16.c \
   qt/hardwarewallet/libraries/md5sum.cpp \
-  qt/hardwarewallet/libraries/SerialPort_posix.cpp \
   qt/hardwarewallet/communication/comms_filetx.cpp 
+
+KOMODO_QT_POSIX_CPP = qt/hardwarewallet/libraries/SerialPort_posix.cpp
 
 KOMODO_QT_WINDOWS_CPP = qt/winshutdownmonitor.cpp
 
@@ -438,6 +439,8 @@ reset:=$(shell tput sgr0)
 KOMODO_QT_CPP = $(KOMODO_QT_BASE_CPP)
 if TARGET_WINDOWS
 KOMODO_QT_CPP += $(KOMODO_QT_WINDOWS_CPP)
+else
+KOMODO_QT_CPP += $(KOMODO_QT_POSIX_CPP)
 endif
 if ENABLE_WALLET
 KOMODO_QT_CPP += $(KOMODO_QT_WALLET_CPP)
