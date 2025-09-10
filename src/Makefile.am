@@ -393,11 +393,14 @@ BITCOIN_CORE_H = \
 	wallet/wallet_fees.h \
   wallet/wallet_ismine.h \
   wallet/walletdb.h \
-  wallet/witness.h \
-  zmq/zmqabstractnotifier.h \
+  wallet/witness.h 
+
+if ENABLE_ZMQ
+  BITCOIN_CORE_H += zmq/zmqabstractnotifier.h \
   zmq/zmqconfig.h \
   zmq/zmqnotificationinterface.h \
   zmq/zmqpublishnotifier.h
+endif
 
 	LIBTLS_H = \
 	    tls/utiltls.h
@@ -702,11 +705,14 @@ pirated_LDADD = \
   $(LIBBITCOIN_COMMON) \
   $(LIBUNIVALUE) \
   $(LIBBITCOIN_UTIL) \
-  $(LIBBITCOIN_ZMQ) \
   $(LIBBITCOIN_CRYPTO)
 
 if ENABLE_WALLET
 pirated_LDADD += $(LIBBITCOIN_WALLET)
+endif
+
+if ENABLE_ZMQ
+pirated_LDADD += $(LIBBITCOIN_ZMQ)
 endif
 
 pirated_LDADD += \
@@ -725,11 +731,14 @@ pirated_LDADD += \
   $(CRYPTO_LIBS) \
   $(EVENT_PTHREADS_LIBS) \
   $(EVENT_LIBS) \
-  $(ZMQ_LIBS) \
   $(LIBBITCOIN_CRYPTO) \
   $(LIBZCASH_LIBS) \
   $(LIBSECP256K1) \
   $(LIBCRYPTOCONDITIONS)
+
+if ENABLE_ZMQ
+pirated_LDADD += $(ZMQ_LIBS)
+endif
 
 # if TARGET_DARWIN
 # pirated_LDADD += libcc.dylib $(LIBSECP256K1)
