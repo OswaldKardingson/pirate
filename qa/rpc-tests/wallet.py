@@ -22,6 +22,7 @@ class WalletTest (BitcoinTestFramework):
 
     def setup_network(self, split=False):
         self.nodes = start_nodes(3, self.options.tmpdir, extra_args=[[
+            "--printtoconsole=1",
         ]] * 3)
         connect_nodes_bi(self.nodes,0,1)
         connect_nodes_bi(self.nodes,1,2)
@@ -38,7 +39,7 @@ class WalletTest (BitcoinTestFramework):
         # Verify initial balance states
         walletinfo = self.nodes[1].getwalletinfo()
         assert_equal(walletinfo['immature_balance'], Decimal('0'))
-        assert_equal(walletinfo['balance'], Decimal('1024.12017230'))  # Block 1: 0.12017230 + Blocks 2-5: 4×256 = 1024.12017230
+        assert_equal(walletinfo['balance'], Decimal('1024.12017230'))  # Block 1: 0.12017230 + Blocks 2-5: 4x256 = 1024.12017230
         self.sync_all()
 
         walletinfo = self.nodes[0].getwalletinfo()
@@ -50,11 +51,11 @@ class WalletTest (BitcoinTestFramework):
         self.nodes[0].generate(201)
         self.sync_all()
 
-        assert_equal(self.nodes[0].getbalance(), Decimal('51456'))  # 201 blocks × 256
-        assert_equal(self.nodes[1].getbalance(), Decimal('1024.12017230'))  # Block 1: 0.12017230 + Blocks 2-5: 4×256
+        assert_equal(self.nodes[0].getbalance(), Decimal('51456'))  # 201 blocks x 256
+        assert_equal(self.nodes[1].getbalance(), Decimal('1024.12017230'))  # Block 1: 0.12017230 + Blocks 2-5: 4x256
         assert_equal(self.nodes[2].getbalance(), Decimal('0'))
-        assert_equal(self.nodes[0].getbalance("*"), Decimal('51456'))  # 201 blocks × 256
-        assert_equal(self.nodes[1].getbalance("*"), Decimal('1024.12017230'))  # Block 1: 0.12017230 + Blocks 2-5: 4×256
+        assert_equal(self.nodes[0].getbalance("*"), Decimal('51456'))  # 201 blocks x 256
+        assert_equal(self.nodes[1].getbalance("*"), Decimal('1024.12017230'))  # Block 1: 0.12017230 + Blocks 2-5: 4x256
         assert_equal(self.nodes[2].getbalance("*"), Decimal('0'))
 
         
@@ -68,22 +69,22 @@ class WalletTest (BitcoinTestFramework):
 
         # Shield the coinbase to Sapling address
         print("Shielding coinbase UTXOs to Sapling address...")
-        result = self.nodes[1].z_shieldcoinbase("*", mysaplingzaddr, 0)
-        wait_and_assert_operationid_status(self.nodes[1], result['opid'])
+        result = self.nodes[0].z_shieldcoinbase("*", mysaplingzaddr, 0)
+        wait_and_assert_operationid_status(self.nodes[0], result['opid'])
         self.sync_all()
         self.nodes[1].generate(2)
         self.sync_all()
 
         # Shield the coinbase to Orchard address
         print("Shielding coinbase UTXOs to Orchard address...")
-        result = self.nodes[1].z_shieldcoinbase("*", myorchardzaddr, 0)
-        wait_and_assert_operationid_status(self.nodes[1], result['opid'])
+        result = self.nodes[0].z_shieldcoinbase("*", myorchardzaddr, 0)
+        wait_and_assert_operationid_status(self.nodes[0], result['opid'])
         self.sync_all()
-        self.nodes[0].generate(2)
+        self.nodes[1].generate(2)
         self.sync_all()
 
         # Test z_createbuildinstructions, z_buildrawtransaction, and z_submittransaction
-        self.test_build_and_submit_transaction()
+        self.test_build_and_submit_transaction(mysaplingzaddr, myorchardzaddr)
 
         # Catch an attempt to send a transaction with an absurdly high fee.
         # Send 1.23456789 ARRR from a shielded address but specify a high fee.
@@ -100,7 +101,7 @@ class WalletTest (BitcoinTestFramework):
         except JSONRPCException as e:
             print("Expected error caught:", str(e))
 
-    def test_build_and_submit_transaction(self):
+    def test_build_and_submit_transaction(self, existing_sapling_addr, existing_orchard_addr):
         """
         Test z_createbuildinstructions, z_buildrawtransaction, and sendrawtransaction
         
@@ -114,10 +115,11 @@ class WalletTest (BitcoinTestFramework):
         """
         print("Testing transaction building and submission workflow...")
         
-        # Get fresh addresses for testing - use z_getnewaddress to create new addresses
-        sapling_from = self.nodes[0].z_getnewaddress('sapling')
+        # Use the addresses that already have funds from the earlier shielding operations
+        # Get fresh addresses for testing - reuse addresses that already have funds
+        sapling_from = existing_sapling_addr
         sapling_to = self.nodes[1].z_getnewaddress('sapling')
-        orchard_from = self.nodes[0].z_getnewaddress('orchard')
+        orchard_from = existing_orchard_addr
         orchard_to = self.nodes[1].z_getnewaddress('orchard')
         
         # Shield some funds to the test addresses first
@@ -127,14 +129,14 @@ class WalletTest (BitcoinTestFramework):
         shield_result = self.nodes[0].z_shieldcoinbase("*", sapling_from, 0)
         wait_and_assert_operationid_status(self.nodes[0], shield_result['opid'])
         self.sync_all()
-        self.nodes[0].generate(1)
+        self.nodes[1].generate(1)
         self.sync_all()
         
         # Shield coinbase to orchard address  
         shield_result = self.nodes[0].z_shieldcoinbase("*", orchard_from, 0)
         wait_and_assert_operationid_status(self.nodes[0], shield_result['opid'])
         self.sync_all()
-        self.nodes[0].generate(1)
+        self.nodes[1].generate(1)
         self.sync_all()
         
         # Test 1: Sapling to Sapling transaction
@@ -165,7 +167,7 @@ class WalletTest (BitcoinTestFramework):
         
         # Verify transaction was accepted
         self.sync_all()
-        self.nodes[0].generate(1)
+        self.nodes[1].generate(1)
         self.sync_all()
         
         # Verify recipient received funds
@@ -178,7 +180,7 @@ class WalletTest (BitcoinTestFramework):
         
         orchard_recipients = [{"address": orchard_to, "amount": Decimal('5.0')}]
         build_instructions_hex = self.nodes[0].z_createbuildinstructions(
-            orchard_from, orchard_recipients, 1, Decimal('0.0001')
+            orchard_from, orchard_recipients, 0, Decimal('0.0001')  # Use 0 confirmations
         )
         
         assert isinstance(build_instructions_hex, str)
@@ -195,7 +197,7 @@ class WalletTest (BitcoinTestFramework):
         print(f"Orchard transaction submitted with txid: {submit_txid}")
         
         self.sync_all()
-        self.nodes[0].generate(1)
+        self.nodes[1].generate(1)
         self.sync_all()
         
         orchard_balance = self.nodes[1].z_getbalance(orchard_to)
@@ -205,8 +207,8 @@ class WalletTest (BitcoinTestFramework):
         # Test 3: Multiple recipients transaction
         print("Test 3: Building transaction with multiple recipients...")
         
-        recipient1 = self.nodes[1].z_getnewaddresskey('sapling')
-        recipient2 = self.nodes[2].z_getnewaddresskey('sapling')
+        recipient1 = self.nodes[1].z_getnewaddress('sapling')
+        recipient2 = self.nodes[2].z_getnewaddress('sapling')
         
         multi_recipients = [
             {"address": recipient1, "amount": Decimal('2.0')},
@@ -224,7 +226,7 @@ class WalletTest (BitcoinTestFramework):
         submit_txid = self.nodes[0].sendrawtransaction(raw_tx_hex)
         
         self.sync_all()
-        self.nodes[0].generate(1)
+        self.nodes[1].generate(1)
         self.sync_all()
         
         # Verify both recipients received funds
@@ -263,7 +265,7 @@ class WalletTest (BitcoinTestFramework):
         # Test 5: Transaction with memo
         print("Test 5: Testing transaction with memo...")
         
-        memo_recipient = self.nodes[1].z_getnewaddresskey('sapling')
+        memo_recipient = self.nodes[1].z_getnewaddress('sapling')
         memo_recipients = [{"address": memo_recipient, "amount": Decimal('1.0'), "memo": "48656c6c6f20576f726c64"}]  # "Hello World" in hex
         
         build_instructions_hex = self.nodes[0].z_createbuildinstructions(
