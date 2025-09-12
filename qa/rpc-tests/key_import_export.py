@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # Copyright (c) 2017 The Zcash developers
+# Copyright (c) 2017-2025 The Pirate developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or https://www.opensource.org/licenses/mit-license.php .
 

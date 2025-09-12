@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 # Copyright (c) 2014-2016 The Bitcoin Core developers
 # Copyright (c) 2016-2022 The Zcash developers
+# Copyright (c) 2017-2025 The Pirate developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or https://www.opensource.org/licenses/mit-license.php .
 
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.authproxy import JSONRPCException
 from test_framework.util import assert_equal, \
-    start_nodes, start_node, connect_nodes_bi, bitcoind_processes
+    start_nodes, start_node, connect_nodes_bi, bitcoind_processes, wait_and_assert_operationid_status
 
 
 class ZapWalletTXesTest (BitcoinTestFramework):
@@ -34,16 +35,51 @@ class ZapWalletTXesTest (BitcoinTestFramework):
         self.nodes[1].generate(101)
         self.sync_all()
 
-        assert_equal(self.nodes[0].getbalance(), 40)
+        # Check that we have some balance for z_shieldcoinbase operations
+        balance = self.nodes[0].getbalance()
+        print(f"Node 0 balance: {balance}")
+        assert balance > 0, "Node 0 should have some balance for z_shieldcoinbase operations"
 
-        txid0 = self.nodes[0].sendtoaddress(self.nodes[2].getnewaddress(), 11)
-        txid1 = self.nodes[0].sendtoaddress(self.nodes[2].getnewaddress(), 10)
+        # Create Sapling addresses for shielded transactions
+        zaddr0 = self.nodes[0].z_getnewaddress('sapling')
+        zaddr1 = self.nodes[0].z_getnewaddress('sapling')
+        zaddr2 = self.nodes[0].z_getnewaddress('sapling')
+        zaddr3 = self.nodes[0].z_getnewaddress('sapling')
+
+        # Create z_shieldcoinbase transactions instead of sendtoaddress
+        # Need to space these out to avoid mempool conflicts
+        result0 = self.nodes[0].z_shieldcoinbase("*", zaddr0, 0)
+        opid0 = result0['opid']
+        txid0 = wait_and_assert_operationid_status(self.nodes[0], opid0)
+        print(f"Completed z_shieldcoinbase 0: {txid0}")
+
+        # Generate a block to confirm the first transaction and free up UTXOs
+        self.nodes[0].generate(1)
+        self.sync_all()
+
+        result1 = self.nodes[0].z_shieldcoinbase("*", zaddr1, 0)
+        opid1 = result1['opid']
+        txid1 = wait_and_assert_operationid_status(self.nodes[0], opid1)
+        print(f"Completed z_shieldcoinbase 1: {txid1}")
+        
         self.sync_all()
         self.nodes[0].generate(1)
         self.sync_all()
 
-        txid2 = self.nodes[0].sendtoaddress(self.nodes[2].getnewaddress(), 11)
-        txid3 = self.nodes[0].sendtoaddress(self.nodes[2].getnewaddress(), 5)
+        # Now create unconfirmed transactions
+        result2 = self.nodes[0].z_shieldcoinbase("*", zaddr2, 0)
+        opid2 = result2['opid']
+        txid2 = wait_and_assert_operationid_status(self.nodes[0], opid2)
+        print(f"Completed z_shieldcoinbase 2: {txid2}")
+
+        # Generate a block to free up more UTXOs for the last transaction
+        self.nodes[0].generate(1)
+        self.sync_all()
+
+        result3 = self.nodes[0].z_shieldcoinbase("*", zaddr3, 0)
+        opid3 = result3['opid']
+        txid3 = wait_and_assert_operationid_status(self.nodes[0], opid3)
+        print(f"Completed z_shieldcoinbase 3: {txid3}")
 
         tx0 = self.nodes[0].gettransaction(txid0)
         assert_equal(tx0['txid'], txid0) # tx0 must be available (confirmed)

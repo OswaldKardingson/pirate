@@ -49,7 +49,6 @@ BASE_SCRIPTS= [
     # 'wallet_shieldcoinbase_ua_sapling.py',
     # 'wallet_shieldcoinbase_ua_nu5.py',
     # 'turnstile.py',
-    # 'walletbackup.py',
      'zkey_import_export.py',
     # 'prioritisetransaction.py',
     # 'wallet_changeaddresses.py',
@@ -105,7 +104,7 @@ BASE_SCRIPTS= [
     # 'mempool_nu_activation.py',
     # 'httpbasics.py',
     # 'multi_rpc.py',
-    # 'zapwallettxes.py',
+    'zapwallettxes.py',
     # 'proxy_test.py',
     # 'merkle_blocks.py',
     # 'signrawtransactions.py',
@@ -148,7 +147,7 @@ BASE_SCRIPTS= [
     # 'wallet_parsing_amounts.py',
     # 'wallet_broadcast.py',
     # 'wallet_z_sendmany.py',
-    # 'wallet_zero_value.py',
+    'wallet_zero_value.py',
     # 'threeofthreerestore.py',
     # 'show_help.py',
     # 'errors.py',
@@ -157,7 +156,7 @@ BASE_SCRIPTS= [
 ZMQ_SCRIPTS = [
     # ZMQ test can only be run if bitcoin was built with zmq-enabled.
     # call rpc_tests.py with --nozmq to explicitly exclude these tests.
-    # "zmq_test.py"
+    "zmq_test.py"
     ]
 
 EXTENDED_SCRIPTS = [
