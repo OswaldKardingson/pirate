@@ -13,6 +13,14 @@
 #include "hardwarewallet/libraries/crc16.h"
 #include <string.h>
 
+// Cross-platform sleep functionality
+#ifdef WIN32
+#include <windows.h>
+#define usleep(x) Sleep((x)/1000)
+#else
+#include <unistd.h>
+#endif
+
 #include <QFileDialog> // Executing the QFileDialog causes a sig32
                        // to trigger in gdb when the application exits.
                        // Suppress the event by adding "handle SIG32 pass nostop noprint"

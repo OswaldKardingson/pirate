@@ -232,15 +232,12 @@ static const CRPCConvertParam vRPCConvertParams[] =
     { "getsaplingblocks", 1},
     { "getsaplingblocks", 2},
 
-    { "z_createbuildinstructions", 0 },
     { "z_createbuildinstructions", 1 },
     { "z_createbuildinstructions", 2 },
     { "z_createbuildinstructions", 3 },
 
     { "z_createbuildinstructionscoincontrol", 0 },
-    { "z_createbuildinstructionscoincontrol", 1 },
-    { "z_createbuildinstructionscoincontrol", 2 },
-    { "z_createbuildinstructionscoincontrol", 3 }
+    { "z_createbuildinstructionscoincontrol", 1 }
 };
 
 class CRPCConvertTable

@@ -619,9 +619,13 @@ QString ZAddressTableModel::addRow(const QString &type, const QString &label, co
         {
             strAddress = EncodePaymentAddress(wallet->GenerateNewSproutZKey());
         }
-        else
+        else if ( GetTime() < KOMODO_ORCHARD_ACTIVATION )
         {
             strAddress = EncodePaymentAddress(wallet->GenerateNewSaplingZKey());
+        }
+        else
+        {
+            strAddress = EncodePaymentAddress(wallet->GenerateNewOrchardZKey());
         }
     }
     else

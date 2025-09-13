@@ -117,6 +117,7 @@ RUST_ENV_VARS = \
   CXXFLAGS="$(CXXFLAGS)" \
   TERM=dumb
 RUST_BUILD_OPTS =  --release --target $(RUST_TARGET) --manifest-path $(top_srcdir)/Cargo.toml
+RUST_VENDORED_SOURCES = $(top_srcdir)/depends/$(host)/vendored-sources
 
 rust_verbose = $(rust_verbose_@AM_V@)
 rust_verbose_ = $(rust_verbose_@AM_DEFAULT_V@)
@@ -394,11 +395,14 @@ BITCOIN_CORE_H = \
 	wallet/wallet_fees.h \
   wallet/wallet_ismine.h \
   wallet/walletdb.h \
-  wallet/witness.h \
-  zmq/zmqabstractnotifier.h \
+  wallet/witness.h 
+
+if ENABLE_ZMQ
+  BITCOIN_CORE_H += zmq/zmqabstractnotifier.h \
   zmq/zmqconfig.h \
   zmq/zmqnotificationinterface.h \
   zmq/zmqpublishnotifier.h
+endif
 
 	LIBTLS_H = \
 	    tls/utiltls.h
@@ -703,9 +707,17 @@ pirated_LDADD = \
   $(LIBBITCOIN_COMMON) \
   $(LIBUNIVALUE) \
   $(LIBBITCOIN_UTIL) \
-  $(LIBBITCOIN_ZMQ) \
-  $(LIBBITCOIN_CRYPTO) \
-  $(LIBBITCOIN_SERVER_LDADD) \
+  $(LIBBITCOIN_CRYPTO)
+
+if ENABLE_WALLET
+pirated_LDADD += $(LIBBITCOIN_WALLET)
+endif
+
+if ENABLE_ZMQ
+pirated_LDADD += $(LIBBITCOIN_ZMQ)
+endif
+
+pirated_LDADD += \
   $(LIBZCASH) \
 	$(LIBTLS) \
 	$(LIBRUSTZCASH) \
@@ -716,18 +728,18 @@ pirated_LDADD = \
 	$(LIBCRYPTOCONDITIONS) \
 	$(LIBCJSON) \
   $(BOOST_LIBS) \
+  $(BDB_LIBS) \
+  $(SSL_LIBS) \
+  $(CRYPTO_LIBS) \
+  $(EVENT_PTHREADS_LIBS) \
+  $(EVENT_LIBS) \
+  $(LIBBITCOIN_CRYPTO) \
   $(LIBZCASH_LIBS) \
   $(LIBSECP256K1) \
-	$(LIBCRYPTOCONDITIONS) \
-	$(SSL_LIBS) \
-	$(CRYPTO_LIBS) \
-	$(EVENT_PTHREADS_LIBS) \
-	$(EVENT_LIBS) \
-  $(LIBBITCOIN_CRYPTO) \
-	$(ZMQ_LIBS)
+  $(LIBCRYPTOCONDITIONS)
 
-if ENABLE_WALLET
-pirated_LDADD += $(LIBBITCOIN_WALLET) $(BDB_LIBS)
+if ENABLE_ZMQ
+pirated_LDADD += $(ZMQ_LIBS)
 endif
 
 # if TARGET_DARWIN

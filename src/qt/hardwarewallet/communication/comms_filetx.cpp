@@ -7,6 +7,14 @@
 #include "comms_filetx.h"
 #include "comms_filetx_i.h"
 
+// Cross-platform sleep functionality
+#ifdef WIN32
+#include <windows.h>
+#define usleep(x) Sleep((x)/1000)
+#else
+#include <unistd.h>
+#endif
+
 
 //--[ MACROS ]-----------------------------------------------------------------
 int socketfd;

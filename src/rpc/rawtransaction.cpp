@@ -1884,7 +1884,7 @@ UniValue z_buildrawtransaction(const UniValue& params, bool fHelp, const CPubKey
 
   string strHexTb = params[0].get_str();
   if (!IsHex(strHexTb)) {
-      return false;
+      throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "Invalid hex string");
   }
 
   CTransaction tx;
@@ -1970,6 +1970,7 @@ UniValue z_buildrawtransaction(const UniValue& params, bool fHelp, const CPubKey
   }
 
   //Orchard
+  bool orchardInitialized = false;
   if (tb.vOrchardSpends.size() > 0) {
       LogPrintf("Adding Orchard Spends\n");
       libzcash::OrchardExtendedSpendingKeyPirate primaryOrchardKey;
@@ -2008,14 +2009,8 @@ UniValue z_buildrawtransaction(const UniValue& params, bool fHelp, const CPubKey
       }
 
       //Create a new orchard bulider before converting the store orchard actions, Enable both Spend and Outputs
-      if (tb.vOrchardSpends.size() > 0 || tb.vOrchardOutputs.size() > 0) {  
-            if (tb.vOrchardSpends.size() > 0 && tb.vOrchardOutputs.size() > 0) {
-                tb.InitializeOrchard(true, true, primaryAnchor);
-            } else {
-                tb.InitializeOrchard(false, true, uint256());
-            }
-      }
-
+      tb.InitializeOrchard(true, true, primaryAnchor);
+      orchardInitialized = true;
 
       //Add the stored orchard action to the orchard builder
       if (!tb.ConvertRawOrchardSpend(primaryOrchardKey)) {
@@ -2044,6 +2039,12 @@ UniValue z_buildrawtransaction(const UniValue& params, bool fHelp, const CPubKey
 
   //Add the stored outputs to the sapling builder
   tb.ConvertRawSaplingOutput(ovk);
+
+  //Initialize the orchard builder if there are orchard outputs and the orchard builder has not already been initialized
+  //This can happen when there are no orchard spends but there are orchard outputs
+  if(orchardInitialized == false && tb.vOrchardOutputs.size() > 0) {
+      tb.InitializeOrchard(false, true, uint256());
+  }
 
   //Add the stored outputs to the orchard builder
   tb.ConvertRawOrchardOutput(ovk);

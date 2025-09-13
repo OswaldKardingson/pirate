@@ -18,7 +18,9 @@ rustflags = [
   "-C", "link-arg=dynamic_lookup",
 ]
 
+
+
 # Added by Makefile.am for vendored offline build:
 
 [source.vendored-sources]
-directory = "depends/rust-vendor"
+directory = "depends/x86_64-w64-mingw32/vendored-sources"

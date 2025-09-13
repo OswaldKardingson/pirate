@@ -15,9 +15,11 @@ extern "C"
 /*--[ INCLUDE FILES ]--------------------------------------------------------*/
 #include <stdio.h> 
 #include <string.h>
+#ifndef WIN32
 #include <unistd.h>
 #include <fcntl.h> 
 #include <errno.h> 
+#endif
 
 #include "hardwarewallet/BaseTypes.h"
 #include <stdio.h>
@@ -84,6 +86,31 @@ extern "C"
                      int16_t iCount);
   int16_t SP_Read (uint8_t * pcSerialPortHandle, uint8_t * pBuffer,
                     int16_t iCount);
+
+#ifdef _WIN32
+/* Windows stub implementations for serial port functions */
+/* These return error codes to gracefully handle hardware wallet operations */
+inline int8_t SP_OpenPort(SerialSettings_s * spSerialSettings, uint8_t * pcSerialPortHandle) {
+    return -1; /* Return error - not supported on Windows */
+}
+
+inline int8_t SP_ClosePort(uint8_t * pcSerialPortHandle) {
+    return -1; /* Return error - not supported on Windows */
+}
+
+inline int8_t SP_IsOpen(uint8_t * pcSerialPortHandle, uint32_t * status) {
+    if (status) *status = 0; /* Port is never open on Windows */
+    return -1; /* Return error - not supported on Windows */
+}
+
+inline int16_t SP_Write(uint8_t * pcSerialPortHandle, uint8_t * pBuffer, int16_t iCount) {
+    return -1; /* Return error - not supported on Windows */
+}
+
+inline int16_t SP_Read(uint8_t * pcSerialPortHandle, uint8_t * pBuffer, int16_t iCount) {
+    return -1; /* Return error - not supported on Windows */
+}
+#endif
 
 #ifdef __cplusplus
 }

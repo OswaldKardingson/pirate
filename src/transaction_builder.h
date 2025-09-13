@@ -459,8 +459,10 @@ public:
         READWRITE(strNetworkID);
         READWRITE(nHeight);
         READWRITE(mtx);
+        READWRITE(saplingAnchor);
         READWRITE(vSaplingSpends);
         READWRITE(vSaplingOutputs);
+        READWRITE(orchardAnchor);
         READWRITE(vOrchardSpends);
         READWRITE(vOrchardOutputs);
         READWRITE(fee);
