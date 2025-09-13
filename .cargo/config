@@ -1,6 +1,3 @@
-[source.crates-io]
-replace-with = "vendored-sources"
-
 # Patches bellman and pairing to use the Pirate Network fork
 # [patch.crates-io]
 # bellman = { git = "https://github.com/piratenetwork/librustzcash", rev = "a32cd7289e07391c5d27a1068899dcea95aa3b98", package = "bellman" }
@@ -18,9 +15,13 @@ rustflags = [
   "-C", "link-arg=dynamic_lookup",
 ]
 
+# Configure target-specific options for Windows 64-bit
+[target.x86_64-pc-windows-gnu]
+linker = "x86_64-w64-mingw32-gcc"
+ar = "x86_64-w64-mingw32-ar"
 
+# Configure target-specific options for Windows 32-bit
+[target.i686-pc-windows-gnu]
+linker = "i686-w64-mingw32-gcc"
+ar = "i686-w64-mingw32-ar"
 
-# Added by Makefile.am for vendored offline build:
-
-[source.vendored-sources]
-directory = "depends/x86_64-w64-mingw32/vendored-sources"

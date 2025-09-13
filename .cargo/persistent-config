@@ -15,4 +15,14 @@ rustflags = [
   "-C", "link-arg=dynamic_lookup",
 ]
 
+# Configure target-specific options for Windows 64-bit
+[target.x86_64-pc-windows-gnu]
+linker = "x86_64-w64-mingw32-gcc"
+ar = "x86_64-w64-mingw32-ar"
+
+# Configure target-specific options for Windows 32-bit
+[target.i686-pc-windows-gnu]
+linker = "i686-w64-mingw32-gcc"
+ar = "i686-w64-mingw32-ar"
+
 
