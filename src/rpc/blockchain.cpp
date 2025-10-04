@@ -362,9 +362,8 @@ UniValue blockToJSON(const CBlock& block, const CBlockIndex* blockindex, bool tx
     result.pushKV("authdataroot", blockindex->hashAuthDataRoot.GetHex());
     result.pushKV("finalsaplingroot", blockindex->hashFinalSaplingRoot.GetHex());
     if (orchardActive) {
-        //auto finalOrchardRootBytes = blockindex->hashFinalOrchardRoot;
-        //result.pushKV("finalorchardroot", HexStr(finalOrchardRootBytes.begin(), finalOrchardRootBytes.end()));
-        result.pushKV("finalorchardroot", blockindex->hashFinalOrchardRoot.GetHex());
+        auto finalOrchardRootBytes = blockindex->hashFinalOrchardRoot;
+        result.pushKV("finalorchardroot", HexStr(finalOrchardRootBytes.begin(), finalOrchardRootBytes.end()));
     }
     result.pushKV("chainhistoryroot", blockindex->hashChainHistoryRoot.GetHex());
     UniValue txs(UniValue::VARR);
@@ -2195,7 +2194,7 @@ UniValue z_gettreestate(const UniValue& params, bool fHelp, const CPubKey& mypk)
         UniValue orchard_result(UniValue::VOBJ);
         UniValue orchard_commitments(UniValue::VOBJ);
         orchard_result.pushKV("active", orchardActive);
-        orchard_commitments.pushKV("finalRoot", pindex->hashFinalOrchardRoot.GetHex());
+        orchard_commitments.pushKV("finalRoot", HexStr(pindex->hashFinalOrchardRoot.begin(), pindex->hashFinalOrchardRoot.end()));
         bool need_skiphash = false;
         OrchardMerkleFrontier tree;
         if (pcoinsTip->GetOrchardFrontierAnchorAt(pindex->hashFinalOrchardRoot, tree)) {
