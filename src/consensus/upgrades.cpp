@@ -107,7 +107,7 @@ int CurrentEpoch(int nHeight, const Consensus::Params& params) {
     return Consensus::BASE_SPROUT;
 }
 
-#define NSPV_BRANCHID 0x76b809bb
+//#define NSPV_BRANCHID 0x76b809bb
 extern int32_t KOMODO_NSPV;
 #ifndef KOMODO_NSPV_SUPERLITE
 #define KOMODO_NSPV_SUPERLITE (KOMODO_NSPV > 0)
@@ -115,8 +115,8 @@ extern int32_t KOMODO_NSPV;
 
 uint32_t CurrentEpochBranchId(int nHeight, const Consensus::Params& params)
 {
-    if ( KOMODO_NSPV_SUPERLITE )
-        return(NSPV_BRANCHID);
+    // Always return the correct branch ID for the current epoch
+    // NSPV mode should still respect network upgrade consensus rules
     return NetworkUpgradeInfo[CurrentEpoch(nHeight, params)].nBranchId;
 }
 
