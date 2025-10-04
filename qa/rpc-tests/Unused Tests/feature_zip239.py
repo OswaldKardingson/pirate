@@ -45,14 +45,8 @@ class Zip239Test(BitcoinTestFramework):
 
     def setup_nodes(self):
         return start_nodes(self.num_nodes, self.options.tmpdir, extra_args=[[
-            # Enable Canopy at height 205
-            nuparams(BLOSSOM_BRANCH_ID, 205),
-            nuparams(HEARTWOOD_BRANCH_ID, 205),
-            nuparams(CANOPY_BRANCH_ID, 205),
-            nuparams(NU5_BRANCH_ID, 210),
-            "-preferredtxversion=5",
-            "-allowdeprecated=getnewaddress",
-            "-allowdeprecated=z_getbalance",
+            # Enable Orchard at height 205
+            nuparams(ORCHARD_BRANCH_ID, 210),
         ]] * self.num_nodes)
 
     def cinv_for(self, txid, authDigest=None):
