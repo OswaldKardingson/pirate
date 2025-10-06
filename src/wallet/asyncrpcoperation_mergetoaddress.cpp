@@ -1,5 +1,5 @@
 // Copyright (c) 2017 The Zcash developers
-// Copyright (c) 2022-2025 Pirate developers
+// Copyright (c) 2022-2025 The Pirate Network developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -656,11 +656,12 @@ bool AsyncRPCOperation_mergetoaddress::main_impl()
         }
 
         // Add the appropriate shielded output based on address type
+        auto memo = libzcash::Memo::FromBytes(memoArray);
         if (saplingPaymentAddress != nullptr) {
-            builder_.AddSaplingOutputRaw(*saplingPaymentAddress, sendAmount, memoArray);
+            builder_.AddSaplingOutputRaw(*saplingPaymentAddress, sendAmount, memo);
             builder_.ConvertRawSaplingOutput(outgoingViewingKey.value());
         } else if (orchardPaymentAddress != nullptr) {
-            builder_.AddOrchardOutputRaw(*orchardPaymentAddress, sendAmount, memoArray);
+            builder_.AddOrchardOutputRaw(*orchardPaymentAddress, sendAmount, memo);
             builder_.ConvertRawOrchardOutput(outgoingViewingKey.value());
         } else {
             throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, 

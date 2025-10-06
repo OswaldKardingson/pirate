@@ -1,5 +1,5 @@
 // Copyright (c) 2016 The Zcash developers
-// Copyright (c) 2022-2025 Pirate developers
+// Copyright (c) 2022-2025 The Pirate Network developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -865,11 +865,15 @@ bool AsyncRPCOperation_sendmany::main_impl()
         assert(std::get_if<libzcash::SaplingPaymentAddress>(&decodedAddress) != nullptr);
         auto saplingPaymentAddress = *(std::get_if<libzcash::SaplingPaymentAddress>(&decodedAddress));
 
-        // Convert hex memo to byte array
-        auto memoArray = get_memo_from_hex_string(hexMemo);
+        // Convert hex memo to Memo object or nullopt
+        std::optional<libzcash::Memo> memo = std::nullopt;
+        if (!hexMemo.empty()) {
+            auto memoArray = get_memo_from_hex_string(hexMemo);
+            memo = libzcash::Memo(memoArray);
+        }
 
         // Add the raw Sapling output to the transaction builder
-        if (!builder_.AddSaplingOutputRaw(saplingPaymentAddress, outputValue, memoArray)) {
+        if (!builder_.AddSaplingOutputRaw(saplingPaymentAddress, outputValue, memo)) {
             throw JSONRPCError(RPC_WALLET_ERROR, strprintf("%s: Adding Raw Sapling Output failed. Stopping.\n", getId()));
         }
     }
@@ -890,11 +894,15 @@ bool AsyncRPCOperation_sendmany::main_impl()
         assert(std::get_if<libzcash::OrchardPaymentAddressPirate>(&decodedAddress) != nullptr);
         auto orchardPaymentAddress = *(std::get_if<libzcash::OrchardPaymentAddressPirate>(&decodedAddress));
 
-        // Convert hex memo to byte array
-        auto memoArray = get_memo_from_hex_string(hexMemo);
+        // Convert hex memo to Memo object or nullopt
+        std::optional<libzcash::Memo> memo = std::nullopt;
+        if (!hexMemo.empty()) {
+            auto memoArray = get_memo_from_hex_string(hexMemo);
+            memo = libzcash::Memo(memoArray);
+        }
 
         // Add the raw Orchard output to the transaction builder
-        if (!builder_.AddOrchardOutputRaw(orchardPaymentAddress, outputValue, memoArray)) {
+        if (!builder_.AddOrchardOutputRaw(orchardPaymentAddress, outputValue, memo)) {
             throw JSONRPCError(RPC_WALLET_ERROR, strprintf("%s: Adding Raw Orchard Output failed. Stopping.\n", getId()));
         }
     }

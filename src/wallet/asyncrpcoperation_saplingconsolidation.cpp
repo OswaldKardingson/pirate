@@ -1,4 +1,4 @@
-// Copyright (c) 2022-2025 Pirate developers
+// Copyright (c) 2022-2025 The Pirate Network developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -321,7 +321,7 @@ bool AsyncRPCOperation_saplingconsolidation::main_impl()
 
                 // Set transaction fee and add output
                 transactionBuilder.SetFee(transactionFee);
-                transactionBuilder.AddSaplingOutputRaw(address, outputAmount, {{0}});
+                transactionBuilder.AddSaplingOutputRaw(address, outputAmount, std::nullopt);
                 transactionBuilder.ConvertRawSaplingOutput(extendedSpendingKey.expsk.ovk);
 
                 // Build and commit the transaction

@@ -1,4 +1,4 @@
-// Copyright (c) 2022-2025 Pirate developers
+// Copyright (c) 2022-2025 The Pirate Network developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -343,7 +343,7 @@ bool AsyncRPCOperation_orchardconsolidation::main_impl()
                 // Set transaction fee and add Orchard output action
                 transactionBuilder.SetFee(transactionFee);
                 
-                transactionBuilder.AddOrchardOutputRaw(address, outputAmount, {{0}});
+                transactionBuilder.AddOrchardOutputRaw(address, outputAmount, std::nullopt);
                 
                 // Convert raw Orchard output using outgoing viewing key from extended spending key
                 auto orchardFvk = orchardSpendingKey.sk.GetFVK();

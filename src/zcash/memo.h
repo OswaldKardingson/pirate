@@ -1,4 +1,5 @@
 // Copyright (c) 2022-2023 The Zcash developers
+// Copyright (c) 2024-2025 The Pirate Network developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or https://www.opensource.org/licenses/mit-license.php .
 
@@ -60,10 +61,6 @@ private:
 
     static constexpr const Bytes noMemo{0xf6};
 
-    /// This constructor trusts that the Memo is a valid memo, and constructs one even if it’s the
-    /// `noMemo` value.
-    explicit Memo(Bytes value): value_(value) {}
-
 public:
     enum class ConversionError {
         MemoTooLong,
@@ -77,6 +74,13 @@ public:
     enum class InterpretationError {
         InvalidUTF8,
     };
+
+    /// Default constructor for serialization
+    Memo() : value_({}) {}
+
+    /// This constructor trusts that the Memo is a valid memo, and constructs one even if it's the
+    /// `noMemo` value.
+    explicit Memo(Bytes value): value_(value) {}
 
     /// Creates a memo from arbitrary data, which will always be prefixed by `0xFF`. This can _not_
     /// be use to create an arbitrary memo (e.g., this will never have a UTF-8 representation or be
@@ -106,6 +110,25 @@ public:
     /// Interprets the memo according to https://zips.z.cash/zip-0302#specification. The
     /// uninterpreted contents can be accessed via `ToBytes` and `ToHex`.
     tl::expected<Contents, InterpretationError> Interpret() const;
+
+    // Serialization methods for Bitcoin Core serialization system
+    template<typename Stream>
+    void Serialize(Stream& s) const {
+        const auto& bytes = ToBytes();
+        s.write((char*)bytes.data(), bytes.size());
+    }
+
+    template<typename Stream>
+    void Unserialize(Stream& s) {
+        Bytes bytes;
+        s.read((char*)bytes.data(), bytes.size());
+        auto memo = FromBytes(bytes);
+        if (memo.has_value()) {
+            value_ = memo.value().value_;
+        } else {
+            value_ = noMemo;
+        }
+    }
 };
 }
 

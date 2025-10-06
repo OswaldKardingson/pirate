@@ -1,4 +1,5 @@
 // Copyright (c) 2022-2023 The Zcash developers
+// Copyright (c) 2024-2025 The Pirate Network developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or https://www.opensource.org/licenses/mit-license.php .
 

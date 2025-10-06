@@ -1,4 +1,5 @@
 // Copyright (c) 2018 The Zcash developers
+// Copyright (c) 2024-2025 The Pirate Network developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -77,7 +78,7 @@ public:
         const std::optional<uint256>& ovk,
         const libzcash::OrchardPaymentAddressPirate& to,
         CAmount value,
-        const std::array<unsigned char, ZC_MEMO_SIZE> memo);
+        const std::optional<libzcash::Memo>& memo = std::nullopt);
 
     /// Returns `true` if any spends or outputs have been added to this builder. This can
     /// be used to avoid calling `Build()` and creating a dummy Orchard bundle.
@@ -225,17 +226,15 @@ class SaplingOutputDescriptionInfo
 public:
     libzcash::SaplingPaymentAddress addr;
     CAmount value;
-    std::array<unsigned char, ZC_MEMO_SIZE> memo;
+    std::optional<libzcash::Memo> memo;
 
-    SaplingOutputDescriptionInfo() {}
+    SaplingOutputDescriptionInfo() : memo(std::nullopt) {}
     SaplingOutputDescriptionInfo(
         libzcash::SaplingPaymentAddress addrIn,
         CAmount valueIn,
-        std::array<unsigned char, ZC_MEMO_SIZE> memoIn)
+        const std::optional<libzcash::Memo>& memoIn = std::nullopt)
+    : addr(addrIn), value(valueIn), memo(memoIn)
     {
-        addr = addrIn;
-        value = valueIn;
-        memo = memoIn;
     }
 
     ADD_SERIALIZE_METHODS;
@@ -254,17 +253,15 @@ class OrchardOutputDescriptionInfo
 public:
     libzcash::OrchardPaymentAddressPirate addr;
     CAmount value;
-    std::array<unsigned char, ZC_MEMO_SIZE> memo;
+    std::optional<libzcash::Memo> memo;
 
-    OrchardOutputDescriptionInfo() {}
+    OrchardOutputDescriptionInfo() : memo(std::nullopt) {}
     OrchardOutputDescriptionInfo(
         libzcash::OrchardPaymentAddressPirate addrIn,
         CAmount valueIn,
-        std::array<unsigned char, ZC_MEMO_SIZE> memoIn)
+        const std::optional<libzcash::Memo>& memoIn = std::nullopt)
+    : addr(addrIn), value(valueIn), memo(memoIn)
     {
-        addr = addrIn;
-        value = valueIn;
-        memo = memoIn;
     }
 
     ADD_SERIALIZE_METHODS;
@@ -400,7 +397,7 @@ public:
     bool AddSaplingOutputRaw(
         libzcash::SaplingPaymentAddress to,
         CAmount value,
-        std::array<unsigned char, ZC_MEMO_SIZE> memo = {{0}});
+        const std::optional<libzcash::Memo>& memo = std::nullopt);
 
     bool ConvertRawSaplingOutput(uint256 ovk);
 
@@ -425,7 +422,7 @@ public:
     bool AddOrchardOutputRaw(
         libzcash::OrchardPaymentAddressPirate to,
         CAmount value,
-        std::array<unsigned char, ZC_MEMO_SIZE> memo = {{0}});
+        const std::optional<libzcash::Memo>& memo = std::nullopt);
 
     bool ConvertRawOrchardOutput(uint256 ovk);
 

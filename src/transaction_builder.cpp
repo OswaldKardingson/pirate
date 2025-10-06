@@ -1,4 +1,5 @@
 // Copyright (c) 2018 The Zcash developers
+// Copyright (c) 2024-2025 The Pirate Network developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -105,7 +106,7 @@ bool Builder::AddOutput(
     const std::optional<uint256>& ovk,
     const libzcash::OrchardPaymentAddressPirate& to,
     CAmount value,
-    const std::array<unsigned char, ZC_MEMO_SIZE> memo)
+    const std::optional<libzcash::Memo>& memo)
 {
     if (!inner) {
         throw std::logic_error("orchard::Builder has already been used");
@@ -116,7 +117,7 @@ bool Builder::AddOutput(
             ovk.has_value() ? ovk->begin() : nullptr,
             to.ToBytes().data(),
             value,
-            memo.begin())) {
+            memo.has_value() ? memo.value().ToBytes().data() : nullptr)) {
         return false;
     }
 
@@ -280,20 +281,22 @@ uint16_t TransactionBuilder::CalculateChecksum()
     CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
     ss << *this;
 
-    //Determine size of the unsigned char* array
-    size_t s = sizeof(ss);
+    //Determine size of the serialized data
+    size_t s = ss.size();
 
     //Set begining value
     uint16_t crc = 0xFFFF;
 
     //Calculate the checksum without the bytes allocated for the checksum
-    for (size_t i = 0; i < s - 2; ++i) {
-        crc ^= ss[i];
-        for (int j = 0; j < 8; ++j) {
-            if (crc & 0x0001)
-                crc = (crc >> 1) ^ 0x8408; // CCITT polynomial
-            else
-                crc >>= 1;
+    if (s >= 2) {
+        for (size_t i = 0; i < s - 2; ++i) {
+            crc ^= ss[i];
+            for (int j = 0; j < 8; ++j) {
+                if (crc & 0x0001)
+                    crc = (crc >> 1) ^ 0x8408; // CCITT polynomial
+                else
+                    crc >>= 1;
+            }
         }
     }
 
@@ -415,8 +418,6 @@ bool TransactionBuilder::ConvertRawSaplingSpend(libzcash::SaplingExtendedSpendin
         }
 
         valueBalanceSapling += vSaplingSpends[i].value;
-        LogPrintf("Adding sapling spend value %i\n", vSaplingSpends[i].value);
-        LogPrintf("Total sapling value balance%i\n", valueBalanceSapling);
     }
 
     std::optional<CTransaction> maybe_tx = CTransaction(mtx);
@@ -432,7 +433,7 @@ bool TransactionBuilder::ConvertRawSaplingSpend(libzcash::SaplingExtendedSpendin
 bool TransactionBuilder::AddSaplingOutputRaw(
     libzcash::SaplingPaymentAddress to,
     CAmount value,
-    std::array<unsigned char, ZC_MEMO_SIZE> memo)
+    const std::optional<libzcash::Memo>& memo)
 {
     // Sanity check: cannot add Sapling output to pre-Sapling transaction
     if (mtx.nVersion < SAPLING_TX_VERSION) {
@@ -457,10 +458,9 @@ bool TransactionBuilder::ConvertRawSaplingOutput(uint256 ovk)
     }
 
     for (int i = 0; i < vSaplingOutputs.size(); i++) {
-        saplingBuilder->add_recipient(ovk.GetRawBytes(), vSaplingOutputs[i].addr.GetRawBytes(), vSaplingOutputs[i].value, vSaplingOutputs[i].memo);
+        auto memoBytes = libzcash::Memo::ToBytes(vSaplingOutputs[i].memo);
+        saplingBuilder->add_recipient(ovk.GetRawBytes(), vSaplingOutputs[i].addr.GetRawBytes(), vSaplingOutputs[i].value, memoBytes);
         valueBalanceSapling -= vSaplingOutputs[i].value;
-        LogPrintf("Adding sapling spend value %i\n", vSaplingOutputs[i].value);
-        LogPrintf("Total sapling value balance %i\n", valueBalanceSapling);
     }
 
     // reset Output Vector
@@ -591,7 +591,7 @@ bool TransactionBuilder::ConvertRawOrchardSpend(libzcash::OrchardExtendedSpendin
 bool TransactionBuilder::AddOrchardOutputRaw(
     libzcash::OrchardPaymentAddressPirate to,
     CAmount value,
-    std::array<unsigned char, ZC_MEMO_SIZE> memo)
+    const std::optional<libzcash::Memo>& memo)
 {
     // Try to give a useful error.
     if (mtx.nVersion < ORCHARD_MIN_TX_VERSION) {
@@ -626,8 +626,6 @@ bool TransactionBuilder::ConvertRawOrchardOutput(uint256 ovk)
         }
 
         valueBalanceOrchard -= vOrchardOutputs[i].value;
-        LogPrintf("Adding orchard output value %i\n", vOrchardOutputs[i].value);
-        LogPrintf("Adding total orchard value %i\n", valueBalanceOrchard);
     }
 
     // reset Output Vector
@@ -741,21 +739,21 @@ TransactionBuilderResult TransactionBuilder::Build()
     if (change > 0) {
         // Send change to the specified change address.
         if (orchardChangeAddr) {
-            AddOrchardOutputRaw(orchardChangeAddr->second, change, {{0}});
+            AddOrchardOutputRaw(orchardChangeAddr->second, change, std::nullopt);
             ConvertRawOrchardOutput(orchardChangeAddr->first);
         } else if (saplingChangeAddr) {
-            AddSaplingOutputRaw(saplingChangeAddr->second, change, {{0}});
+            AddSaplingOutputRaw(saplingChangeAddr->second, change, std::nullopt);
             ConvertRawSaplingOutput(saplingChangeAddr->first);
         } else if (tChangeAddr) {
             assert(AddTransparentOutput(tChangeAddr.value(), change));
 
         // If no change address was set, use the first Sapling or Orchard address
         } else if (firstOrchardSpendAddr) {
-            AddOrchardOutputRaw(firstOrchardSpendAddr->second, change, {{0}});
+            AddOrchardOutputRaw(firstOrchardSpendAddr->second, change, std::nullopt);
             ConvertRawOrchardOutput(firstOrchardSpendAddr->first);
 
         } else if (firstSaplingSpendAddr) {
-            AddSaplingOutputRaw(firstSaplingSpendAddr->second, change, {{0}});
+            AddSaplingOutputRaw(firstSaplingSpendAddr->second, change, std::nullopt);
             ConvertRawSaplingOutput(firstSaplingSpendAddr->first);
         
         } else {
@@ -771,6 +769,10 @@ TransactionBuilderResult TransactionBuilder::Build()
         maybeSaplingBundle = sapling::build_bundle(std::move(saplingBuilder), nHeight);
     } catch (rust::Error e) {
         return TransactionBuilderResult("Failed to build Sapling bundle: " + std::string(e.what()));
+    }
+    
+    if (!maybeSaplingBundle.has_value()) {
+        return TransactionBuilderResult("Failed to build Sapling bundle: no bundle returned");
     }
     auto saplingBundle = std::move(maybeSaplingBundle.value());
 
@@ -823,6 +825,8 @@ TransactionBuilderResult TransactionBuilder::Build()
             auto randomKey = libzcash::OrchardSpendingKeyPirate().random();
             if (randomKey != std::nullopt) {
                 orchardSpendingKeys.push_back(randomKey.value());
+            } else {
+                return TransactionBuilderResult("Failed to generate random Orchard spending key");
             }
         }
         auto authorizedBundle = orchardBundle.value().ProveAndSign(

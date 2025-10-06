@@ -1,5 +1,6 @@
 // Copyright (c) 2010 Satoshi Nakamoto
 // Copyright (c) 2009-2015 The Bitcoin Core developers
+// Copyright (c) 2024-2025 The Pirate Network developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -1290,15 +1291,15 @@ UniValue decoderawtransaction(const UniValue& params, bool fHelp, const CPubKey&
             output.push_back(Pair("value", ValueFromAmount(CAmount(tb.vSaplingOutputs[i].value))));
             output.push_back(Pair("valueZat", tb.vSaplingOutputs[i].value));;
 
-            auto memo = tb.vSaplingOutputs[i].memo;
-            output.push_back(Pair("memo", HexStr(memo)));
-            if (memo[0] <= 0xf4) {
+            auto memoBytes = tb.vSaplingOutputs[i].memo.has_value() ? tb.vSaplingOutputs[i].memo.value().ToBytes() : libzcash::Memo::ToBytes(std::nullopt);
+            output.push_back(Pair("memo", HexStr(memoBytes)));
+            if (memoBytes[0] <= 0xf4) {
                 // Trim off trailing zeroes
                 auto end = std::find_if(
-                    memo.rbegin(),
-                    memo.rend(),
+                    memoBytes.rbegin(),
+                    memoBytes.rend(),
                     [](unsigned char v) { return v != 0; });
-                std::string memoStr(memo.begin(), end.base());
+                std::string memoStr(memoBytes.begin(), end.base());
                 if (utf8::is_valid(memoStr)) {
                     output.push_back(Pair("memoStr",memoStr));
                 } else {
@@ -1316,15 +1317,15 @@ UniValue decoderawtransaction(const UniValue& params, bool fHelp, const CPubKey&
             output.push_back(Pair("value", ValueFromAmount(CAmount(tb.vOrchardOutputs[i].value))));
             output.push_back(Pair("valueZat", tb.vOrchardOutputs[i].value));;
 
-            auto memo = tb.vOrchardOutputs[i].memo;
-            output.push_back(Pair("memo", HexStr(memo)));
-            if (memo[0] <= 0xf4) {
+            auto memoBytes = tb.vOrchardOutputs[i].memo.has_value() ? tb.vOrchardOutputs[i].memo.value().ToBytes() : libzcash::Memo::ToBytes(std::nullopt);
+            output.push_back(Pair("memo", HexStr(memoBytes)));
+            if (memoBytes[0] <= 0xf4) {
                 // Trim off trailing zeroes
                 auto end = std::find_if(
-                    memo.rbegin(),
-                    memo.rend(),
+                    memoBytes.rbegin(),
+                    memoBytes.rend(),
                     [](unsigned char v) { return v != 0; });
-                std::string memoStr(memo.begin(), end.base());
+                std::string memoStr(memoBytes.begin(), end.base());
                 if (utf8::is_valid(memoStr)) {
                     output.push_back(Pair("memoStr",memoStr));
                 } else {
@@ -2174,7 +2175,7 @@ UniValue z_createbuildinstructions(const UniValue& params, bool fHelp, const CPu
           }
 
           //get memo
-          std::array<unsigned char, ZC_MEMO_SIZE> hexMemo = {{0xF6}};
+          std::optional<libzcash::Memo> hexMemo = std::nullopt;
           UniValue memoValue = find_value(o, "memo");
           string memo;
           if (!memoValue.isNull()) {
@@ -2199,10 +2200,10 @@ UniValue z_createbuildinstructions(const UniValue& params, bool fHelp, const CPu
                   throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Memo size of %d is too big, maximum allowed is %d", rawMemo.size(), ZC_MEMO_SIZE));
               }
 
-              // copy vector into boost array
-              int lenMemo = rawMemo.size();
-              for (int i = 0; i < ZC_MEMO_SIZE && i < lenMemo; i++) {
-                  hexMemo[i] = rawMemo[i];
+              // Convert to Memo class
+              auto memoResult = libzcash::Memo::FromBytes(rawMemo);
+              if (memoResult.has_value()) {
+                  hexMemo = memoResult.value();
               }
           }
 
@@ -2498,7 +2499,7 @@ UniValue z_createbuildinstructionscoincontrol(const UniValue& params, bool fHelp
           throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, amount must be positive");
 
       //get memo
-      std::array<unsigned char, ZC_MEMO_SIZE> hexMemo = {{0xF6}};
+      std::optional<libzcash::Memo> hexMemo = std::nullopt;
       UniValue memoValue = find_value(o, "memo");
       string memo;
       if (!memoValue.isNull()) {
@@ -2526,10 +2527,10 @@ UniValue z_createbuildinstructionscoincontrol(const UniValue& params, bool fHelp
               throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Memo size of %d is too big, maximum allowed is %d", rawMemo.size(), ZC_MEMO_SIZE));
           }
 
-          // copy vector into boost array
-          int lenMemo = rawMemo.size();
-          for (int i = 0; i < ZC_MEMO_SIZE && i < lenMemo; i++) {
-              hexMemo[i] = rawMemo[i];
+          // Convert to Memo class
+          auto memoResult = libzcash::Memo::FromBytes(rawMemo);
+          if (memoResult.has_value()) {
+              hexMemo = memoResult.value();
           }
       }
 

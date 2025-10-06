@@ -1,4 +1,4 @@
-// Copyright (c) 2022-2025 Pirate developers
+// Copyright (c) 2022-2025 The Pirate Network developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -397,10 +397,10 @@ bool AsyncRPCOperation_sweeptoaddress::main_impl()
         
         // Add output to the single destination address
         if (hasSaplingTarget) {
-            saplingBuilder.AddSaplingOutputRaw(saplingSweepAddress, saplingAmountToSend - saplingFee, {{0}});
+            saplingBuilder.AddSaplingOutputRaw(saplingSweepAddress, saplingAmountToSend - saplingFee, std::nullopt);
             saplingBuilder.ConvertRawSaplingOutput(saplingExtsk.expsk.ovk);
         } else if (hasOrchardTarget) {
-            saplingBuilder.AddOrchardOutputRaw(orchardSweepAddress, saplingAmountToSend - saplingFee, {{0}});
+            saplingBuilder.AddOrchardOutputRaw(orchardSweepAddress, saplingAmountToSend - saplingFee, std::nullopt);
             saplingBuilder.InitializeOrchard(false,true,uint256());
             saplingBuilder.ConvertRawOrchardOutput(saplingExtsk.expsk.ovk);
         } else {
@@ -533,10 +533,10 @@ bool AsyncRPCOperation_sweeptoaddress::main_impl()
 
         // Add output to the single destination address
         if (hasOrchardTarget) {
-            orchardBuilder.AddOrchardOutputRaw(orchardSweepAddress, orchardAmountToSend - orchardFee, {{0}});
+            orchardBuilder.AddOrchardOutputRaw(orchardSweepAddress, orchardAmountToSend - orchardFee, std::nullopt);
             orchardBuilder.ConvertRawOrchardOutput(orchardOvk);
         } else if (hasSaplingTarget) { 
-            orchardBuilder.AddSaplingOutputRaw(saplingSweepAddress, orchardAmountToSend - orchardFee, {{0}});
+            orchardBuilder.AddSaplingOutputRaw(saplingSweepAddress, orchardAmountToSend - orchardFee, std::nullopt);
             orchardBuilder.ConvertRawSaplingOutput(orchardOvk);
         } else {
             LogPrint("zrpcunsafe", "%s: No target address specified for Orchard sweep. Skipping.\n", getId());
