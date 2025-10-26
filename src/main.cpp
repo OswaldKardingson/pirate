@@ -494,6 +494,8 @@ namespace {
 
     /** Check whether the last unknown block a peer advertized is not yet known. */
     void ProcessBlockAvailability(NodeId nodeid) {
+        AssertLockHeld(cs_main);
+        
         CNodeState *state = State(nodeid);
         assert(state != NULL);
 
@@ -549,6 +551,8 @@ namespace {
     /** Update pindexLastCommonBlock and add not-in-flight missing successors to vBlocks, until it has
      *  at most count entries. */
     void FindNextBlocksToDownload(NodeId nodeid, unsigned int count, std::vector<CBlockIndex*>& vBlocks, NodeId& nodeStaller) {
+        AssertLockHeld(cs_main);
+        
         if (count == 0)
             return;
 
@@ -4752,6 +4756,7 @@ static int64_t nTimePostConnect = 0;
  */
 bool ConnectTip(CValidationState &state, CBlockIndex *pindexNew, CBlock *pblock)
 {
+    AssertLockHeld(cs_main);
     assert(pindexNew->pprev == chainActive.Tip());
     // Read block from disk.
     int64_t nTime1 = GetTimeMicros();
@@ -5283,6 +5288,8 @@ bool ReconsiderBlock(CValidationState& state, CBlockIndex *pindex) {
 
 CBlockIndex* AddToBlockIndex(const CBlockHeader& block)
 {
+    AssertLockHeld(cs_main);
+    
     // Check for duplicate
     uint256 hash = block.GetHash();
     BlockMap::iterator it = mapBlockIndex.find(hash);
@@ -6704,6 +6711,8 @@ boost::filesystem::path GetBlockPosFilename(const CDiskBlockPos &pos, const char
 
 CBlockIndex * InsertBlockIndex(uint256 hash)
 {
+    AssertLockHeld(cs_main);
+    
     if (hash.IsNull())
         return NULL;
 
@@ -9345,7 +9354,10 @@ bool SendMessages(CNode* pto, bool fSendTrickle)
         if (!pto->fDisconnect && !pto->fClient && (fFetch || !IsInitialBlockDownload()) && state.nBlocksInFlight < MAX_BLOCKS_IN_TRANSIT_PER_PEER) {
             vector<CBlockIndex*> vToDownload;
             NodeId staller = -1;
-            FindNextBlocksToDownload(pto->GetId(), MAX_BLOCKS_IN_TRANSIT_PER_PEER - state.nBlocksInFlight, vToDownload, staller);
+            {
+                LOCK(cs_main);
+                FindNextBlocksToDownload(pto->GetId(), MAX_BLOCKS_IN_TRANSIT_PER_PEER - state.nBlocksInFlight, vToDownload, staller);
+            }
             BOOST_FOREACH(CBlockIndex *pindex, vToDownload) {
                 vGetData.push_back(CInv(MSG_BLOCK, pindex->GetBlockHash()));
                 MarkBlockAsInFlight(pto->GetId(), pindex->GetBlockHash(), consensusParams, pindex);
