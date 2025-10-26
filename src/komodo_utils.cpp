@@ -430,7 +430,7 @@ uint16_t _komodo_userpass(char *username,char *password,FILE *fp)
 void komodo_statefname(char *fname, const char *symbol, const char *str)
 {
     int32_t n,len;
-    snprintf(fname, MAX_STATEFNAME, "%s",GetDataDir(false).string().c_str());
+    snprintf(fname, MAX_STATEFNAME, "%s",GetDataDir(true).string().c_str());
     if ( (n= (int32_t)chainName.symbol().size()) != 0 )
     {
         len = (int32_t)strlen(fname);
@@ -1535,14 +1535,11 @@ void komodo_args(char *argv0)
             ASSETCHAINS_P2PPORT = tmpport;
 
         char* dirname = nullptr;
-        while ( (dirname= (char *)GetDataDir(false).string().c_str()) == 0 || dirname[0] == 0 )
+        if ( (dirname= (char *)GetDataDir(false).string().c_str()) == 0 || dirname[0] == 0 )
         {
-            fprintf(stderr,"waiting for datadir (%s)\n",dirname);
-#ifndef _WIN32
-            sleep(3);
-#else
-            boost::this_thread::sleep(boost::posix_time::milliseconds(3000));
-#endif
+            fprintf(stdout,"Shutting down - cannot continue without valid datadir\n");
+            StartShutdown();
+            return; // Exit the function to prevent further execution
         }
         if ( !chainName.isKMD() )
         {

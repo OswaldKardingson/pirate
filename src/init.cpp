@@ -1567,9 +1567,10 @@ bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
 
     std::string strDataDir = GetDataDir().string();
 #ifdef ENABLE_WALLET
-    // Wallet file must be a plain filename without a directory
-    if (strWalletFile != std::filesystem::path(strWalletFile).stem().string() + std::filesystem::path(strWalletFile).extension().string())
-        return InitError(strprintf(_("Wallet %s resides outside data directory %s"), strWalletFile, strDataDir));
+    // Wallet file must be in the datadir for security
+    if (strWalletFile != std::filesystem::path(strWalletFile).filename().string()) {
+        return InitError(_("Wallet file can only be specified as a filename, not a path"));
+    }
 #endif
     // Make sure only a single Bitcoin process is using the data directory.
     boost::filesystem::path pathLockFile = GetDataDir() / ".lock";
