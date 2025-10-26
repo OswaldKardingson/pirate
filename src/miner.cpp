@@ -968,13 +968,6 @@ CBlockTemplate* CreateNewBlock(const CPubKey _pk, const CScript& _scriptPubKeyIn
     return pblocktemplate.release();
 }
 
-//////////////////////////////////////////////////////////////////////////////
-//
-// Internal miner
-//
-
-#ifdef ENABLE_MINING
-
 void IncrementExtraNonce(CBlock* pblock, CBlockIndex* pindexPrev, unsigned int& nExtraNonce)
 {
     // Update nExtraNonce
@@ -1012,6 +1005,7 @@ void IncrementExtraNonce(CBlock* pblock, CBlockIndex* pindexPrev, unsigned int& 
     }
 }
 
+#ifdef ENABLE_MINING
 #ifdef ENABLE_WALLET
 //////////////////////////////////////////////////////////////////////////////
 //
@@ -1364,7 +1358,7 @@ void static BitcoinMiner()
 #endif
             if ( ptr == 0 )
             {
-                if ( 0 && !GetBoolArg("-gen",false))
+                if ( !GetBoolArg("-gen",false))
                 {
                     miningTimer.stop();
                     c.disconnect();
