@@ -4241,7 +4241,21 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
             pindex->nStatus |= BLOCK_ACTIVATES_UPGRADE;
             pindex->nCachedBranchId = CurrentEpochBranchId(pindex->nHeight, chainparams.GetConsensus());
         } else if (pindex->pprev) {
-            pindex->nCachedBranchId = pindex->pprev->nCachedBranchId;
+            // Check if parent has nCachedBranchId set
+            if (pindex->pprev->nCachedBranchId) {
+                pindex->nCachedBranchId = pindex->pprev->nCachedBranchId;
+            } else {
+                // Parent doesn't have nCachedBranchId - this shouldn't happen normally
+                // but if parent is genesis (height 0), set to SPROUT_BRANCH_ID
+                if (pindex->pprev->nHeight == 0) {
+                    pindex->nCachedBranchId = SPROUT_BRANCH_ID;
+                } else {
+                    return state.DoS(100, error("ConnectBlock(): parent block missing nCachedBranchId"));
+                }
+            }
+        } else {
+            // This should never happen - genesis block doesn't go through ConnectBlock
+            return state.DoS(100, error("ConnectBlock(): failed to resolve correct nCachedBranchId"));
         }
 
         pindex->RaiseValidity(BLOCK_VALID_SCRIPTS);
