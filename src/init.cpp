@@ -1591,7 +1591,7 @@ bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
     if (GetBoolArg("-shrinkdebugfile", !fDebug))
         ShrinkDebugFile();
     LogPrintf("\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n");
-    LogPrintf("Komodo version %s (%s)\n", FormatFullVersion(), CLIENT_DATE);
+    LogPrintf("Pirate version %s (%s)\n", FormatFullVersion(), CLIENT_DATE);
 
     if (fPrintToDebugLog)
         OpenDebugLog();
