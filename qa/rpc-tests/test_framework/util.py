@@ -182,26 +182,65 @@ def sync_mempools(rpc_connections, wait=0.5, timeout=120):
 
 bitcoind_processes = {}
 
-def initialize_datadir(dirname, n, clock_offset=0):
+def initialize_datadir(dirname, n, clock_offset=0, addnodes=None, p2p_port_override=None, rpc_port_override=None):
+    """
+    Initialize a node's data directory with proper configuration.
+    
+    Args:
+        dirname: Base directory for node data
+        n: Node number (used for port assignment when ports not overridden)
+        clock_offset: Clock offset in seconds (default: 0)
+        addnodes: List of full address strings to connect to (default: None)
+                 Should be in format "127.0.0.1:port" with predetermined ports
+                 If None and n > 0, connects to node 0 using p2p_port(0)
+        p2p_port_override: Predetermined P2P port for this node (default: None)
+                          Only valid when addnodes is provided
+        rpc_port_override: Predetermined RPC port for this node (default: None)
+                          Only valid when addnodes is provided
+    """
+    # Port overrides only allowed when addnodes is provided
+    if (p2p_port_override is not None or rpc_port_override is not None) and addnodes is None:
+        raise ValueError("Port overrides can only be used when addnodes is provided")
+    
     datadir = os.path.join(dirname, "node"+str(n))
     if not os.path.isdir(datadir):
         os.makedirs(datadir)
     rpc_u, rpc_p = rpc_auth_pair(n)
+    
+    # Use predetermined ports if provided (only when addnodes is used), otherwise calculate them
+    if addnodes is not None:
+        node_p2p_port = p2p_port_override if p2p_port_override is not None else p2p_port(n)
+        node_rpc_port = rpc_port_override if rpc_port_override is not None else rpc_port(n)
+    else:
+        # Default behavior: always use calculated ports
+        node_p2p_port = p2p_port(n)
+        node_rpc_port = rpc_port(n)
+    
     with open(os.path.join(datadir, "PIRATETST.conf"), 'w', encoding='utf8') as f:
         f.write("showmetrics=0\n")
         f.write("rpcuser=" + rpc_u + "\n")
         f.write("rpcpassword=" + rpc_p + "\n")
-        f.write("port="+str(p2p_port(n))+"\n")
-        f.write("rpcport="+str(rpc_port(n))+"\n")
+        f.write("port="+str(node_p2p_port)+"\n")
+        f.write("rpcport="+str(node_rpc_port)+"\n")
         f.write("listenonion=0\n")
-        if n > 0:
-            f.write("addnode=127.0.0.1:"+str(p2p_port(0))+"\n")
-        if clock_offset != 0: 
-            f.write('clockoffset='+str(clock_offset)+'\n')
+        f.write("allowlocaladdnode=1\n")
         f.write("addressindex=1\n")
         f.write("spentindex=1\n")
         f.write("timestampindex=1\n")
-        f.write("debug=net\n") 
+        f.write("debug=net\n")
+        
+        # Handle addnode connections
+        if addnodes is not None:
+            # Use custom addnode list - accept as full addresses (already calculated)
+            for addnode_addr in addnodes:
+                f.write("addnode="+str(addnode_addr)+"\n")
+        elif n > 0:
+            # Default behavior: connect to node 0
+            f.write("addnode=127.0.0.1:"+str(p2p_port(0))+"\n")
+            
+        if clock_offset != 0: 
+            f.write('clockoffset='+str(clock_offset)+'\n')
+
     return datadir
 
 def rpc_auth_pair(n):
@@ -491,15 +530,16 @@ def _rpchost_to_args(rpchost):
         rv += ['-rpcport=' + rpcport]
     return rv
 
-def start_node(i, dirname, extra_args=None, rpchost=None, timewait=None, binary=None, stderr=None):
+def start_node(i, dirname, extra_args=None, rpchost=None, timewait=None, binary=None, stderr=None, use_gdb=False):
     """
     Start a bitcoind and return RPC connection to it
     """
     datadir = os.path.join(dirname, "node"+str(i))
     if binary is None:
         binary = pirated_binary()
-    args = [ binary]
-    args.extend([
+    
+    # Build the command arguments for the daemon
+    daemon_args = [
         '-regtest=1',
         '-datadir='+datadir,
         '-keypool=100',
@@ -507,8 +547,100 @@ def start_node(i, dirname, extra_args=None, rpchost=None, timewait=None, binary=
         '-rest',
         #'-nuparams=5ba81b19:1', # Overwinter
         #'-nuparams=76b809bb:1', # Sapling
-    ])
-    if extra_args is not None: args.extend(extra_args)
+    ]
+    if extra_args is not None: 
+        daemon_args.extend(extra_args)
+    
+    # Choose between gdb and direct execution
+    if use_gdb:
+        # Create persistent log directory for GDB logs
+        gdb_logs_dir = os.path.join(os.getcwd(), "gdb_logs")
+        os.makedirs(gdb_logs_dir, exist_ok=True)
+        
+        # Create a gdb script for better debugging
+        gdb_script = os.path.join(datadir, f"node{i}_gdb.script")
+        gdb_log = os.path.join(gdb_logs_dir, f"node{i}_gdb.log")
+        gdb_core_dir = os.path.join(gdb_logs_dir, f"node{i}_cores")
+        
+        os.makedirs(datadir, exist_ok=True)
+        os.makedirs(gdb_core_dir, exist_ok=True)
+        
+        with open(gdb_script, 'w') as f:
+            f.write("set confirm off\n")
+            f.write("set pagination off\n")
+            f.write("set print pretty on\n")
+            f.write("set logging file " + gdb_log + "\n")
+            f.write("set logging on\n")
+            f.write("handle SIGPIPE nostop noprint pass\n")  # Ignore broken pipe signals
+            # Catch assertion failures and treat them as crashes
+            f.write("handle SIGABRT stop print\n")  # Stop on assertion failures (SIGABRT)
+            f.write("catch signal SIGABRT\n")  # Catch SIGABRT signals
+            f.write("break abort\n")  # Break on abort() calls
+            f.write("break __assert_fail\n")  # Break on assertion failures (glibc)
+            f.write("break __assertion_failed\n")  # Break on assertion failures (some systems)
+            # Create command to execute when assertion breakpoints are hit
+            f.write("commands\n")
+            f.write("  echo \\n*** ASSERTION FAILURE DETECTED ***\\n\n")
+            f.write("  echo Function call that triggered the assertion:\\n\n")
+            f.write("  bt 10\n")
+            f.write("  echo \\n*** Full stack trace ***\\n\n")
+            f.write("  bt full\n")
+            f.write("  echo \\n*** Assertion details ***\\n\n")
+            f.write("  info frame\n")
+            f.write("  info locals\n")
+            f.write("  info args\n")
+            f.write("  echo \\n*** Generating core dump for assertion failure ***\\n\n")
+            f.write("  shell cd " + gdb_core_dir + "\n")
+            f.write("  generate-core-file\n")
+            f.write("  echo *** Assertion core dump saved to " + gdb_core_dir + " ***\\n\n")
+            f.write("  echo *** EXITING DUE TO ASSERTION FAILURE ***\\n\n")
+            f.write("  quit 1\n")
+            f.write("end\n")
+            f.write("echo *** Starting GDB session for node " + str(i) + " ***\\n\n")
+            f.write("echo Binary: " + binary + "\\n\n")
+            f.write("echo Arguments: " + " ".join(daemon_args) + "\\n\n")
+            f.write("echo Timestamp: ")
+            f.write("shell date\n")
+            f.write("echo \\n*** Running process ***\\n\n")
+            f.write("run\n")
+            f.write("echo \\n*** Process finished with exit code: \n")
+            f.write("if $_exitcode == 0\n")
+            f.write("  echo *** NORMAL EXIT - No crash detected ***\\n\n")
+            f.write("else\n")
+            f.write("  echo *** ABNORMAL EXIT - Process crashed with code: \n")
+            f.write("  print $_exitcode\n")
+            f.write("  echo \\n*** CRASH DETECTED - Generating backtrace ***\\n\n")
+            f.write("  bt full\n")
+            f.write("  echo \\n*** Printing registers ***\\n\n")
+            f.write("  info registers\n")
+            f.write("  echo \\n*** Examining stack frame ***\\n\n")
+            f.write("  info frame\n")
+            f.write("  echo \\n*** Local variables ***\\n\n")
+            f.write("  info locals\n")
+            f.write("  echo \\n*** Function arguments ***\\n\n")
+            f.write("  info args\n")
+            f.write("  echo \\n*** Generating core dump ***\\n\n")
+            f.write("  shell cd " + gdb_core_dir + "\n")
+            f.write("  generate-core-file\n")
+            f.write("  echo *** Core dump saved to " + gdb_core_dir + " ***\\n\n")
+            f.write("end\n")
+            f.write("echo *** GDB session completed ***\\n\n")
+            f.write("shell date\n")
+            f.write("quit\n")
+        
+        # Run under gdb with the script and redirect output
+        args = ['gdb', '--batch', '--command', gdb_script, '--args', binary]
+        args.extend(daemon_args)
+        print(f"Starting node {i} under GDB")
+        print(f"  GDB script: {gdb_script}")
+        print(f"  GDB log: {gdb_log}")
+        print(f"  Core dumps: {gdb_core_dir}")
+        print(f"  Command: gdb --batch --command {gdb_script} --args {binary} {' '.join(daemon_args)}")
+    else:
+        # Direct execution (original behavior)
+        args = [binary]
+        args.extend(daemon_args)
+    
     bitcoind_processes[i] = subprocess.Popen(args, stderr=stderr)
     if os.getenv("PYTHON_DEBUG", ""):
         print("start_node: bitcoind started, waiting for RPC to come up")
@@ -542,7 +674,7 @@ def assert_start_raises_init_error(i, dirname, extra_args=None, expected_msg=Non
                 assert_msg = "%s should have exited with expected error %r" % (pirated_binary(), expected_msg)
             raise AssertionError(assert_msg)
 
-def start_nodes(num_nodes, dirname, extra_args=None, rpchost=None, binary=None):
+def start_nodes(num_nodes, dirname, extra_args=None, rpchost=None, binary=None, use_gdb=False):
     """
     Start multiple bitcoinds, return RPC connections to them
     """
@@ -551,7 +683,7 @@ def start_nodes(num_nodes, dirname, extra_args=None, rpchost=None, binary=None):
     rpcs = []
     try:
         for i in range(num_nodes):
-            rpcs.append(start_node(i, dirname, extra_args[i], rpchost, binary=binary[i]))
+            rpcs.append(start_node(i, dirname, extra_args[i], rpchost, binary=binary[i], use_gdb=use_gdb))
     except: # If one node failed to start, stop the others
         stop_nodes(rpcs)
         raise
@@ -565,15 +697,49 @@ def check_node(i):
     return bitcoind_processes[i].returncode
 
 def stop_node(node, i):
+    # Be defensive: node may be None if start failed or returned nothing
+    if node is None:
+        # If the process exists, wait for it and remove from tracking
+        if i in bitcoind_processes and bitcoind_processes[i] is not None:
+            try:
+                bitcoind_processes[i].wait()
+            except Exception:
+                pass
+            try:
+                del bitcoind_processes[i]
+            except KeyError:
+                pass
+        return
     try:
         node.stop()
     except http.client.CannotSendRequest as e:
         print("WARN: Unable to stop node: " + repr(e))
-    bitcoind_processes[i].wait()
-    del bitcoind_processes[i]
+    # Wait for the process to exit and remove from tracking if present
+    if i in bitcoind_processes and bitcoind_processes[i] is not None:
+        try:
+            bitcoind_processes[i].wait()
+        except Exception:
+            pass
+        try:
+            del bitcoind_processes[i]
+        except KeyError:
+            pass
 
 def stop_nodes(nodes):
-    for node in nodes:
+    # Defensive: skip None entries (nodes that failed to start)
+    for idx, node in enumerate(list(nodes)):
+        if node is None:
+            # If a process with this index exists, wait for it and drop it
+            if idx in bitcoind_processes and bitcoind_processes[idx] is not None:
+                try:
+                    bitcoind_processes[idx].wait()
+                except Exception:
+                    pass
+                try:
+                    del bitcoind_processes[idx]
+                except KeyError:
+                    pass
+            continue
         try:
             node.stop()
         except http.client.CannotSendRequest as e:
@@ -592,7 +758,14 @@ def wait_bitcoinds():
 
 def connect_nodes(from_connection, node_num):
     ip_port = "127.0.0.1:"+str(p2p_port(node_num))
-    from_connection.addnode(ip_port, "onetry")
+    try:
+        from_connection.addnode(ip_port, "add")
+    except JSONRPCException as e:
+        # Ignore "Node already added" error - this is normal networking behavior
+        if "Node already added" in str(e):
+            pass
+        else:
+            raise e
     # poll until version handshake complete to avoid race conditions
     # with transaction relaying
     while any(peer['version'] == 0 for peer in from_connection.getpeerinfo()):
@@ -780,3 +953,109 @@ def nustr(branch_id):
 
 def nuparams(branch_id, height):
     return '-nuparams=%s:%d' % (nustr(branch_id), height)
+
+def generate_with_delay(node, num_blocks, delay=1.0):
+    """
+    Generate blocks with a delay between each block.
+    
+    Args:
+        node: The RPC connection to the node
+        num_blocks (int): Number of blocks to generate
+        delay (float): Delay in seconds between blocks (default: 1.0)
+        
+    Returns:
+        list: List of generated block hashes
+    """
+    block_hashes = []
+    for i in range(num_blocks):
+        if i > 0:  # No delay before the first block
+            time.sleep(delay)
+        hashes = node.generate(1)
+        block_hashes.extend(hashes)
+    return block_hashes
+
+def check_gdb_logs(num_nodes):
+    """
+    Check and display GDB logs after test completion
+    """
+    import glob
+    
+    gdb_logs_dir = os.path.join(os.getcwd(), "gdb_logs")
+    if not os.path.exists(gdb_logs_dir):
+        print("No GDB logs directory found")
+        return
+    
+    print(f"\n=== GDB LOGS SUMMARY ===")
+    print(f"GDB logs directory: {gdb_logs_dir}")
+    
+    crashes_found = 0
+    normal_exits = 0
+    
+    for i in range(num_nodes):
+        gdb_log = os.path.join(gdb_logs_dir, f"node{i}_gdb.log")
+        gdb_core_dir = os.path.join(gdb_logs_dir, f"node{i}_cores")
+        
+        if os.path.exists(gdb_log):
+            print(f"\nNode {i} GDB log: {gdb_log}")
+            
+            # Read and analyze the log
+            try:
+                with open(gdb_log, 'r') as f:
+                    log_content = f.read()
+                
+                if "NORMAL EXIT - No crash detected" in log_content:
+                    print(f"  ✓ Node {i}: Normal exit - no crashes")
+                    normal_exits += 1
+                elif "ABNORMAL EXIT - Process crashed" in log_content:
+                    print(f"  ✗ Node {i}: CRASH DETECTED!")
+                    crashes_found += 1
+                    
+                    # Show relevant crash information
+                    lines = log_content.split('\n')
+                    in_backtrace = False
+                    backtrace_lines = []
+                    
+                    for line in lines:
+                        if "Generating backtrace" in line:
+                            in_backtrace = True
+                            continue
+                        elif "Printing registers" in line:
+                            in_backtrace = False
+                            break
+                        elif in_backtrace and line.strip():
+                            backtrace_lines.append(line)
+                            if len(backtrace_lines) >= 10:  # Limit to first 10 lines
+                                break
+                    
+                    if backtrace_lines:
+                        print(f"    Crash backtrace (first 10 lines):")
+                        for bt_line in backtrace_lines:
+                            print(f"      {bt_line}")
+                    
+                    # Check for core dumps
+                    if os.path.exists(gdb_core_dir):
+                        core_files = glob.glob(os.path.join(gdb_core_dir, "core*"))
+                        if core_files:
+                            print(f"    Core dumps generated: {len(core_files)} files in {gdb_core_dir}")
+                        else:
+                            print(f"    No core dumps found in {gdb_core_dir}")
+                else:
+                    print(f"  ? Node {i}: Indeterminate status (check log manually)")
+                    
+            except Exception as e:
+                print(f"  ! Node {i}: Error reading log - {e}")
+        else:
+            print(f"  - Node {i}: No GDB log found")
+    
+    # Summary
+    print(f"\n=== GDB ANALYSIS SUMMARY ===")
+    print(f"Normal exits: {normal_exits}")
+    print(f"Crashes detected: {crashes_found}")
+    
+    if crashes_found > 0:
+        print(f"⚠️  WARNING: {crashes_found} node(s) crashed during execution!")
+        print(f"   Check the individual log files in {gdb_logs_dir} for details")
+    else:
+        print("✅ All nodes exited normally - no crashes detected")
+    
+    return crashes_found == 0

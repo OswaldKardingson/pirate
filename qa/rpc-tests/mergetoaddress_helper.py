@@ -24,7 +24,8 @@ from test_framework.authproxy import JSONRPCException
 from test_framework.util import (
     assert_equal, connect_nodes_bi, fail,
     initialize_chain_clean, start_node,
-    wait_and_assert_operationid_status, LEGACY_DEFAULT_FEE
+    wait_and_assert_operationid_status, LEGACY_DEFAULT_FEE,
+    generate_with_delay
 )
 from decimal import Decimal
 import time
@@ -147,7 +148,7 @@ class MergeToAddressHelper:
                 node: The node to generate the block on
                 expected_transactions (int): Expected number of transactions in the block
             """
-            [blockhash] = node.generate(1)
+            [blockhash] = generate_with_delay(node, 1)
             assert_equal(len(node.getblock(blockhash)['tx']), expected_transactions)
 
 
@@ -155,7 +156,7 @@ class MergeToAddressHelper:
         # WALLET BALANCE VERIFICATION: Check initial wallet states
         # =================================================================
         
-        test.nodes[0].generate(5)
+        generate_with_delay(test.nodes[0], 5)
         test.sync_all()
         walletinfo = test.nodes[0].getwalletinfo()
 
@@ -165,13 +166,13 @@ class MergeToAddressHelper:
         test.sync_all()
         
         # Generate additional blocks for mature coinbase outputs
-        test.nodes[2].generate(1)
+        generate_with_delay(test.nodes[2], 1)
         test.nodes[2].getnewaddress()
-        test.nodes[2].generate(1)
+        generate_with_delay(test.nodes[2], 1)
         test.nodes[2].getnewaddress()
-        test.nodes[2].generate(1)
+        generate_with_delay(test.nodes[2], 1)
         test.sync_all()
-        test.nodes[1].generate(201)
+        generate_with_delay(test.nodes[1], 201)
         test.sync_all()
 
         # Re-verify wallet balances after maturation
