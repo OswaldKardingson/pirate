@@ -232,7 +232,7 @@ void komodo_stateupdate(int32_t height,uint8_t notarypubs[][33],uint8_t numnotar
             else
             {
                 // unable to use faststateinit, so try again only slower
-                fprintf(stderr,"komodo_faststateinit retval.-1\n");
+                fprintf(stdout,"komodo_faststateinit retval.-1\n");
                 while (!ShutdownRequested() && komodo_parsestatefile(sp,fp,symbol,dest) >= 0)
                     ;
             }

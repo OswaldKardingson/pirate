@@ -899,7 +899,7 @@ bool TestWallet::CommitTransaction(CWalletTx& wtxNew, CReserveKey& reservekey, C
             // Broadcast
             if (!::AcceptToMemoryPool(mempool, state, wtxNew, false, nullptr))
             {
-                fprintf(stderr,"commit failed\n");
+                fprintf(stdout,"commit failed\n");
                 // This must not fail. The transaction has already been signed and recorded.
                 LogPrintf("CommitTransaction(): Error: Transaction not valid\n");
                 return false;

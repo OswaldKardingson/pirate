@@ -1996,7 +1996,7 @@ UniValue getchaintips(const UniValue& params, bool fHelp, const CPubKey& mypk)
         n++;
         setTips.insert(item.second);
     }
-    fprintf(stderr,"iterations getchaintips %d\n",n);
+    fprintf(stdout,"iterations getchaintips %d\n",n);
     n = 0;
     BOOST_FOREACH(const PAIRTYPE(const uint256, CBlockIndex*)& item, mapBlockIndex)
     {
@@ -2007,7 +2007,7 @@ UniValue getchaintips(const UniValue& params, bool fHelp, const CPubKey& mypk)
         if (pprev)
             setTips.erase(pprev);
     }
-    fprintf(stderr,"iterations getchaintips %d\n",n);
+    fprintf(stdout,"iterations getchaintips %d\n",n);
     //pthread_mutex_unlock(&mutex);
 
     // Always report the currently active tip.

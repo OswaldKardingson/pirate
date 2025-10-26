@@ -2024,7 +2024,7 @@ bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
             pblocktree->ReadFlag("addressindex", checkval);
             if ( checkval != fAddressIndex && fAddressIndex != 0 ) {
                 pblocktree->WriteFlag("addressindex", fAddressIndex);
-                fprintf(stderr,"set addressindex, will reindex. could take a while.\n");
+                LogPrintf("Set addressindex, will reindex. could take a while.\n");
                 fReindex = true;
             }
 
@@ -2032,7 +2032,7 @@ bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
             pblocktree->ReadFlag("spentindex", checkval);
             if ( checkval != fSpentIndex && fSpentIndex != 0 ) {
                 pblocktree->WriteFlag("spentindex", fSpentIndex);
-                fprintf(stderr,"set spentindex, will reindex. could take a while.\n");
+                LogPrintf("Set spentindex, will reindex. could take a while.\n");
                 fReindex = true;
             }
 
