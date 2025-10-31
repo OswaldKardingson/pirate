@@ -25,14 +25,16 @@ class GetrawtransactionTest(BitcoinTestFramework):
         self.cache_behavior = 'clean'
 
     def setup_network(self):
-        # -insightexplorer causes spentindex to be enabled (fSpentIndex = true)
 
         self.nodes = start_nodes(self.num_nodes, self.options.tmpdir, extra_args=[[
             '-debug',
             '-txindex',
-            '-experimentalfeatures',
-            '-insightexplorer',
-            '-allowdeprecated=getnewaddress',
+            '-addressindex',
+            '-spendindex',
+            '-timestampindex',
+            '-ac_private=0',
+            '-ac_cc=0',
+
         ]] * self.num_nodes)
         connect_nodes(self.nodes[0], 1)
         connect_nodes(self.nodes[0], 2)
@@ -86,8 +88,8 @@ class GetrawtransactionTest(BitcoinTestFramework):
 
         # Check new fields added to getrawtransaction
         tx_a = self.nodes[2].getrawtransaction(txid_a, 1)
-        assert_equal(tx_a['vin'][0]['value'], 10) # coinbase
-        assert_equal(tx_a['vin'][0]['valueSat'], 10*COIN)
+        assert_equal(tx_a['vin'][0]['value'], 256) # coinbase
+        assert_equal(tx_a['vin'][0]['valueSat'], 256*COIN)
         # we want the non-change (payment) output
         vout = list(filter(lambda o: o['value'] == 2, tx_a['vout']))
         assert_equal(vout[0]['spentTxId'], txid_b)

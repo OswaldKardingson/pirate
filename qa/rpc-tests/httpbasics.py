@@ -106,7 +106,7 @@ class HTTPBasicsTest (BitcoinTestFramework):
         conn.connect()
         conn.request('GET', '/' + ('x'*10000), '', headers)
         out1 = conn.getresponse()
-        assert_equal(out1.status, http.client.BAD_REQUEST)
+        assert_equal(out1.status, http.client.NOT_FOUND)
 
 
 if __name__ == '__main__':

@@ -227,6 +227,8 @@ def initialize_datadir(dirname, n, clock_offset=0, addnodes=None, p2p_port_overr
         f.write("addressindex=1\n")
         f.write("spentindex=1\n")
         f.write("timestampindex=1\n")
+        f.write("ac_private=0\n")
+        f.write("ac_cc=0\n")
         f.write("debug=net\n")
         
         # Handle addnode connections

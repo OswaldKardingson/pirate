@@ -27,9 +27,11 @@ class GetMiningInfoTest(BitcoinTestFramework):
 
         info = node.getmininginfo()
         assert(info['blocks'] == 0)
-        # No blocks have been mined yet, so these fields should not be present.
-        assert('currentblocksize' not in info)
-        assert('currentblocktx' not in info)
+        # No blocks have been mined yet, so these fields should be present but set to 0.
+        assert('currentblocksize' in info)
+        assert('currentblocktx' in info)
+        assert(info['currentblocksize'] == 0)
+        assert(info['currentblocktx'] == 0)
 
         node.generate(1)
 
