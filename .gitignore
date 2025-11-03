@@ -192,4 +192,5 @@ artifacts*
 release*
 target*
 .cargo/.configured*
+.cargo/config
 src/rust/gen/
