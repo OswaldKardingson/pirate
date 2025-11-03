@@ -41,7 +41,6 @@ LIBBITCOINQT=qt/libkomodoqt.a
 LIBSECP256K1=secp256k1/libsecp256k1.la
 LIBCRYPTOCONDITIONS=cryptoconditions/libcryptoconditions_core.a
 LIBUNIVALUE=univalue/libunivalue.la
-LIBCC=libcc.a
 LIBZCASH=libzcash.a
 LIBTLS=libtls.a
 LIBCJSON=libcjson.a
@@ -445,6 +444,7 @@ libbitcoin_server_a_SOURCES = \
   cc/channels.cpp \
   cc/auction.cpp \
   cc/betprotocol.cpp \
+  cc/cclib.cpp \
   chain.cpp \
   checkpoints.cpp \
   fs.cpp \
@@ -485,7 +485,6 @@ libbitcoin_server_a_SOURCES = \
   txdb.cpp \
   txmempool.cpp \
   validationinterface.cpp \
-	cc/cclib.cpp \
   $(BITCOIN_CORE_H) \
   $(LIBZCASH_H) \
 	$(LIBTLS_H)
@@ -543,10 +542,7 @@ libbitcoin_wallet_a_SOURCES = \
   $(BITCOIN_CORE_H) \
   $(LIBZCASH_H)
 
-# a static library for cryptoconditions
-libcc_a_SOURCES = cc/cclib.cpp
-libcc_a_CXXFLAGS = -DBUILD_CUSTOMCC -I../secp256k1/include -I../depends/$(shell echo `../depends/config.guess`/include) -I./univalue/include -I./cryptoconditions/include -I./cryptoconditions/src -I./cryptoconditions/src/asn -I. -I./cc -I$(srcdir)/rust/include -I$(srcdir)/rust/gen/include
-libcc_a_LDFLAGS = -version-info 0:0:0
+# libcc library removed - functionality distributed across other libraries
 
 # crypto primitives library
 crypto_libbitcoin_crypto_a_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_CONFIG_INCLUDES)
@@ -700,12 +696,10 @@ if TARGET_WINDOWS
 pirated_SOURCES += bitcoind-res.rc
 endif
 
+# Optimized linking order - from high-level to low-level dependencies
+# Removed duplicate libraries to reduce binary size and linking time
 pirated_LDADD = \
-  $(LIBBITCOIN_SERVER) \
-  $(LIBBITCOIN_COMMON) \
-  $(LIBUNIVALUE) \
-  $(LIBBITCOIN_UTIL) \
-  $(LIBBITCOIN_CRYPTO)
+  $(LIBBITCOIN_SERVER)
 
 if ENABLE_WALLET
 pirated_LDADD += $(LIBBITCOIN_WALLET)
@@ -716,39 +710,33 @@ pirated_LDADD += $(LIBBITCOIN_ZMQ)
 endif
 
 pirated_LDADD += \
+  $(LIBBITCOIN_COMMON) \
+  $(LIBBITCOIN_CLI) \
+  $(LIBBITCOIN_UTIL) \
   $(LIBZCASH) \
-	$(LIBTLS) \
-	$(LIBRUSTZCASH) \
-	$(LIBCXXBRIDGE) \
+  $(LIBTLS) \
+  $(LIBRUSTZCASH) \
+  $(LIBCXXBRIDGE) \
+  $(LIBCRYPTOCONDITIONS) \
+  $(LIBCJSON) \
+  $(LIBSECP256K1) \
+  $(LIBUNIVALUE) \
   $(LIBLEVELDB) \
   $(LIBMEMENV) \
-  $(LIBSECP256K1) \
-  $(LIBCRYPTOCONDITIONS) \
-	$(LIBCJSON) \
+  $(LIBBITCOIN_CRYPTO) \
+  $(LIBZCASH_LIBS) \
   $(BOOST_LIBS) \
   $(BDB_LIBS) \
   $(SSL_LIBS) \
   $(CRYPTO_LIBS) \
   $(EVENT_PTHREADS_LIBS) \
-  $(EVENT_LIBS) \
-  $(LIBBITCOIN_CRYPTO) \
-  $(LIBZCASH_LIBS) \
-  $(LIBSECP256K1) \
-  $(LIBCRYPTOCONDITIONS)
+  $(EVENT_LIBS)
 
 if ENABLE_ZMQ
 pirated_LDADD += $(ZMQ_LIBS)
 endif
 
-# if TARGET_DARWIN
-# pirated_LDADD += libcc.dylib $(LIBSECP256K1)
-# endif
-# if TARGET_WINDOWS
-# pirated_LDADD += libcc.dll $(LIBSECP256K1)
-# endif
-# if TARGET_LINUX
-# pirated_LDADD += libcc.so $(LIBSECP256K1)
-# endif
+# libcc linking removed - functionality integrated into other libraries
 
 
 
@@ -775,36 +763,38 @@ if TARGET_WINDOWS
 pirate_cli_SOURCES += bitcoin-cli-res.rc
 endif
 
+# Optimized pirate-cli linking - minimal dependencies for CLI tool
 pirate_cli_LDADD = \
-	$(LIBBITCOIN_CLI) \
-	$(LIBUNIVALUE) \
-	$(LIBBITCOIN_UTIL) \
-	$(BOOST_LIBS) \
-	$(SSL_LIBS) \
-	$(CRYPTO_LIBS) \
-	$(EVENT_LIBS) \
-	$(LIBZCASH) \
-	$(LIBTLS) \
-	$(LIBRUSTZCASH) \
-	$(LIBCXXBRIDGE) \
-	$(LIBBITCOIN_CRYPTO) \
-  $(LIBZCASH_LIBS)
+  $(LIBBITCOIN_CLI) \
+  $(LIBBITCOIN_UTIL) \
+  $(LIBZCASH) \
+  $(LIBTLS) \
+  $(LIBRUSTZCASH) \
+  $(LIBCXXBRIDGE) \
+  $(LIBBITCOIN_CRYPTO) \
+  $(LIBUNIVALUE) \
+  $(LIBZCASH_LIBS) \
+  $(BOOST_LIBS) \
+  $(SSL_LIBS) \
+  $(CRYPTO_LIBS) \
+  $(EVENT_LIBS)
 
 if ENABLE_WALLET
+# Optimized wallet utility linking - organized by dependency hierarchy
 wallet_utility_LDADD = \
-	libbitcoin_wallet.a \
-	$(LIBBITCOIN_COMMON) \
-	$(LIBBITCOIN_CRYPTO) \
-	$(LIBSECP256K1) \
-	$(LIBBITCOIN_UTIL) \
-	$(BOOST_LIBS) \
-	$(BDB_LIBS) \
-	$(CRYPTO_LIBS) \
-	$(LIBZCASH) \
-	$(LIBRUSTZCASH) \
-	$(LIBCXXBRIDGE) \
-	$(LIBZCASH_LIBS)\
-	$(LIBCRYPTOCONDITIONS)
+  $(LIBBITCOIN_WALLET) \
+  $(LIBBITCOIN_COMMON) \
+  $(LIBBITCOIN_UTIL) \
+  $(LIBZCASH) \
+  $(LIBRUSTZCASH) \
+  $(LIBCXXBRIDGE) \
+  $(LIBCRYPTOCONDITIONS) \
+  $(LIBSECP256K1) \
+  $(LIBBITCOIN_CRYPTO) \
+  $(LIBZCASH_LIBS) \
+  $(BOOST_LIBS) \
+  $(BDB_LIBS) \
+  $(CRYPTO_LIBS)
 endif
 
 # zcash-tx binary #
@@ -821,21 +811,22 @@ if TARGET_WINDOWS
 pirate_tx_SOURCES += bitcoin-tx-res.rc
 endif
 
-# FIXME: Is libzcash needed for zcash_tx?
+# Optimized pirate-tx linking - transaction utility dependencies
 pirate_tx_LDADD = \
   $(LIBBITCOIN_COMMON) \
-  $(LIBUNIVALUE) \
   $(LIBBITCOIN_UTIL) \
-  $(LIBSECP256K1) \
   $(LIBZCASH) \
-	$(LIBTLS) \
-	$(LIBRUSTZCASH) \
-	$(LIBCXXBRIDGE) \
+  $(LIBTLS) \
+  $(LIBRUSTZCASH) \
+  $(LIBCXXBRIDGE) \
+  $(LIBCRYPTOCONDITIONS) \
+  $(LIBSECP256K1) \
+  $(LIBUNIVALUE) \
   $(LIBBITCOIN_CRYPTO) \
   $(LIBZCASH_LIBS) \
-  $(LIBCRYPTOCONDITIONS)
-
-pirate_tx_LDADD += $(BOOST_LIBS) $(CRYPTO_LIBS) -lcurl
+  $(BOOST_LIBS) \
+  $(CRYPTO_LIBS) \
+  -lcurl
 #
 
 # zcash protocol primitives #
