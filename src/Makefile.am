@@ -31,7 +31,7 @@ else
 LIBRUSTZCASH=$(top_builddir)/target/$(RUST_TARGET)/release/librustzcash.la
 endif
 
-LIBBITCOIN_SERVER=libbitcoin_server.a -lcurl -larchive
+LIBBITCOIN_SERVER=libbitcoin_server.a
 LIBBITCOIN_WALLET=libbitcoin_wallet.a
 LIBBITCOIN_COMMON=libbitcoin_common.a
 LIBBITCOIN_CLI=libbitcoin_cli.a
@@ -190,11 +190,9 @@ $(LIBCRYPTOCONDITIONS): $(wildcard cryptoconditions/src/*) $(wildcard cryptocond
 #	$(AR) cr $(LIBCJSON) $^
 
 # libcjson build
-LIBCJSON=libcjson.a
 libcjson_a_SOURCES = cJSON.c \
   komodo_cJSON.c komodo_cutils.cpp
 libcjson_a_CPPFLAGS=-fPIC
-EXTRA_LIBRARIES += $(LIBCJSON)
 
 # Make is not made aware of per-object dependencies to avoid limiting building parallelization
 # But to build the less dependent modules first, we manually select their order here:
@@ -206,7 +204,8 @@ EXTRA_LIBRARIES += \
   $(LIBBITCOIN_CLI) \
 	$(LIBCXXBRIDGE) \
   $(LIBZCASH) \
-	$(LIBTLS)
+	$(LIBTLS) \
+  $(LIBCJSON)
 
 if ENABLE_WALLET
 BITCOIN_INCLUDES += $(BDB_CPPFLAGS)
@@ -699,7 +698,9 @@ endif
 # Optimized linking order - from high-level to low-level dependencies
 # Removed duplicate libraries to reduce binary size and linking time
 pirated_LDADD = \
-  $(LIBBITCOIN_SERVER)
+  $(LIBBITCOIN_SERVER) \
+  $(CURL_LIBS) \
+  $(ARCHIVE_LIBS)
 
 if ENABLE_WALLET
 pirated_LDADD += $(LIBBITCOIN_WALLET)
@@ -826,7 +827,7 @@ pirate_tx_LDADD = \
   $(LIBZCASH_LIBS) \
   $(BOOST_LIBS) \
   $(CRYPTO_LIBS) \
-  -lcurl
+  $(CURL_LIBS)
 #
 
 # zcash protocol primitives #
@@ -851,7 +852,6 @@ libzcash_a_CPPFLAGS = -fPIC -DBINARY_OUTPUT -DCURVE_ALT_BN128 \
 	-Wstack-protector $(SAN_CXXFLAGS) -fstack-protector-all -fPIE -fvisibility=hidden \
 	-DSTATIC $(BITCOIN_INCLUDES)
 libzcash_a_CXXFLAGS = $(SAN_CXXFLAGS) $(HARDENED_CXXFLAGS) -fwrapv -fno-strict-aliasing
-libzcash_a_LDFLAGS = $(SAN_LDFLAGS) $(HARDENED_LDFLAGS)
 libzcash_a_CPPFLAGS += -DMONTGOMERY_OUTPUT
 
 # zcashconsensus library #
@@ -893,8 +893,6 @@ libtls_a_SOURCES = \
 libtls_a_CPPFLAGS = -fPIC -DBINARY_OUTPUT -DCURVE_ALT_BN128 -DBOOST_SPIRIT_THREADSAFE -DHAVE_BUILD_INFO -D__STDC_FORMAT_MACROS $(HARDENED_CPPFLAGS) -pipe -O2 -g  -Wstack-protector -fstack-protector-all -fPIE -fvisibility=hidden -DSTATIC $(BITCOIN_INCLUDES) -I$(srcdir)/rust/include -I$(srcdir)/rust/gen/include
 
 libtls_a_CXXFLAGS = $(HARDENED_CXXFLAGS) -fwrapv -fno-strict-aliasing
-
-libtls_a_LDFLAGS = $(HARDENED_LDFLAGS)
 
 libtls_a_CPPFLAGS += -DMONTGOMERY_OUTPUT
 

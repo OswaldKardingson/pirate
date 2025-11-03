@@ -739,6 +739,10 @@ if test x$use_pkgconfig = xyes; then
       else
           AC_DEFINE_UNQUOTED([ENABLE_ZMQ],[0],[Define to 1 to enable ZMQ functions])
       fi
+      
+        dnl Check for libcurl (C URL library) and libarchive (archive handling)
+        PKG_CHECK_MODULES([CURL],[libcurl],, [AC_MSG_WARN([libcurl not found. curl features will be disabled])])
+        PKG_CHECK_MODULES([ARCHIVE],[libarchive],, [AC_MSG_WARN([libarchive not found. archive features will be disabled])])
     ]
   )
 else
@@ -781,6 +785,13 @@ else
       ;;
     esac
   fi
+  
+  dnl Fallback checks for libcurl and libarchive when pkg-config is not available
+  AC_CHECK_HEADER([curl/curl.h],, [AC_MSG_WARN([curl headers not found])])
+  AC_CHECK_LIB([curl], [curl_easy_init], CURL_LIBS=-lcurl, AC_MSG_WARN([libcurl not found]))
+
+  AC_CHECK_HEADER([archive.h],, [AC_MSG_WARN([libarchive headers not found])])
+  AC_CHECK_LIB([archive], [archive_version_number], ARCHIVE_LIBS=-larchive, AC_MSG_WARN([libarchive not found]))
   if test x$enable_bip70 != xno; then
     BITCOIN_QT_CHECK(AC_CHECK_LIB([protobuf] ,[main],[PROTOBUF_LIBS=-lprotobuf], BITCOIN_QT_FAIL(libprotobuf not found)))
   fi
@@ -966,6 +977,8 @@ AC_SUBST(SSL_LIBS)
 AC_SUBST(EVENT_LIBS)
 AC_SUBST(EVENT_PTHREADS_LIBS)
 AC_SUBST(ZMQ_LIBS)
+AC_SUBST(CURL_LIBS)
+AC_SUBST(ARCHIVE_LIBS)
 AC_SUBST(LIBZCASH_LIBS)
 AC_CONFIG_FILES([Makefile src/Makefile doc/man/Makefile src/test/buildenv.py])
 AC_CONFIG_FILES([qa/pull-tester/tests_config.ini],[chmod +x qa/pull-tester/tests_config.ini])
