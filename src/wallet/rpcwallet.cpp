@@ -53,6 +53,7 @@
 #include "wallet/asyncrpcoperation_mergetoaddress.h"
 #include "wallet/asyncrpcoperation_sendmany.h"
 #include "wallet/asyncrpcoperation_shieldcoinbase.h"
+#include "wallet/asyncrpcoperation_saplingconsolidation_address.h"
 
 #include "consensus/upgrades.h"
 
@@ -6197,6 +6198,131 @@ UniValue consolidationstatus(const UniValue& params, bool fHelp, const CPubKey& 
       return result;
 }
 
+/**
+ * @brief RPC command to consolidate Sapling notes at a specific address
+ * 
+ * This command initiates an asynchronous operation that consolidates multiple small
+ * notes at a Sapling address into fewer, larger notes. This reduces wallet fragmentation
+ * and improves transaction performance by reducing the number of notes that need to be
+ * processed in future transactions.
+ * 
+ * The consolidation process uses an intelligent two-step note selection algorithm:
+ * 1. Fee Coverage Phase: Selects smallest notes first until total value exceeds required fee
+ * 2. Optimization Phase: Adds additional notes up to maxNotes limit for maximum efficiency
+ * 
+ * Security Features:
+ * - Requires wallet to be unlocked for spending key extraction
+ * - Uses minimum 11-block confirmation depth for note selection
+ * - Maintains at least one unconsolidated note for immediate spending
+ * - Validates all cryptographic proofs before transaction commitment
+ * 
+ * @param params RPC parameters (address, fee, maxnotes, maxtransactions)
+ * @param fHelp Help flag for documentation display
+ * @param mypk Public key parameter (unused)
+ * @return UniValue containing operation ID for status tracking
+ */
+UniValue consolidateaddress(const UniValue& params, bool fHelp, const CPubKey& mypk)
+{
+    if (!EnsureWalletIsAvailable(fHelp))
+        return NullUniValue;
+
+    if (fHelp || params.size() < 1 || params.size() > 4)
+        throw runtime_error(
+            "consolidateaddress \"saplingaddress\" ( fee ) ( maxnotes ) ( maxtransactions )\n"
+            "\nInitiate a Sapling consolidation operation for a specific address.\n"
+            "\nThis is an asynchronous operation that consolidates multiple notes at a Sapling address\n"
+            "\ninto fewer notes to reduce wallet fragmentation and improve performance.\n"
+            + HelpRequiringPassphrase() + "\n"
+            "\nArguments:\n"
+            "1. \"saplingaddress\"      (string, required) The Sapling address to consolidate.\n"
+            "2. fee                   (numeric, optional, default=0.0001) The fee amount to use for consolidation transactions.\n"
+            "3. maxnotes              (numeric, optional, default=50) Maximum number of notes to consolidate per transaction.\n"
+            "4. maxtransactions       (numeric, optional, default=10) Maximum number of consolidation transactions to create.\n"
+            "\nResult:\n"
+            "{\n"
+            "  \"opid\": xxx          (string) An operationid to pass to z_getoperationstatus to get the result of the operation.\n"
+            "}\n"
+            "\nExamples:\n"
+            + HelpExampleCli("consolidateaddress", "\"zs14d8tc0hl9q0vg5l28uec5vk6sk34fkj2n8s7jalvw5fxpy6v39yn4s2ga082lymrkjk0x2nqg37\"")
+            + HelpExampleCli("consolidateaddress", "\"zs14d8tc0hl9q0vg5l28uec5vk6sk34fkj2n8s7jalvw5fxpy6v39yn4s2ga082lymrkjk0x2nqg37\" 0.0001")
+            + HelpExampleCli("consolidateaddress", "\"zs14d8tc0hl9q0vg5l28uec5vk6sk34fkj2n8s7jalvw5fxpy6v39yn4s2ga082lymrkjk0x2nqg37\" 0.0001 30 5")
+            + HelpExampleRpc("consolidateaddress", "\"zs14d8tc0hl9q0vg5l28uec5vk6sk34fkj2n8s7jalvw5fxpy6v39yn4s2ga082lymrkjk0x2nqg37\"")
+            + HelpExampleRpc("consolidateaddress", "\"zs14d8tc0hl9q0vg5l28uec5vk6sk34fkj2n8s7jalvw5fxpy6v39yn4s2ga082lymrkjk0x2nqg37\", 0.0001")
+        );
+
+    LOCK2(cs_main, pwalletMain->cs_wallet);
+    EnsureWalletIsUnlocked();
+
+    // Validate the sapling address
+    auto saplingAddress = params[0].get_str();
+    auto decodedAddr = DecodePaymentAddress(saplingAddress);
+    if (!IsValidPaymentAddress(decodedAddr)) {
+        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid Sapling address");
+    }
+
+    auto saplingAddr = boost::get<libzcash::SaplingPaymentAddress>(&decodedAddr);
+    if (saplingAddr == nullptr) {
+        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Address is not a Sapling address");
+    }
+
+    // Check that we have the spending key for this address and retrieve it while wallet is unlocked
+    libzcash::SaplingExtendedSpendingKey extsk;
+    if (!pwalletMain->GetSaplingExtendedSpendingKey(*saplingAddr, extsk)) {
+        throw JSONRPCError(RPC_WALLET_ERROR, "Wallet does not have spending key for this Sapling address");
+    }
+
+    // Handle optional fee parameter - default to 0.0001 ARRR if not specified
+    CAmount nFee;
+    if (params.size() > 1) {
+        nFee = AmountFromValue(params[1]);
+        if (nFee < 0) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Fee cannot be negative");
+        }
+    } else {
+        nFee = 10000; // Default: 0.0001 ARRR (10000 zatoshis)
+    }
+
+    int maxNotes = 50; // Default
+    if (params.size() > 2) {
+        maxNotes = params[2].get_int();
+        if (maxNotes <= 0) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Maximum notes must be positive");
+        }
+        if (maxNotes > 100) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Maximum notes cannot exceed 100");
+        }
+    }
+
+    int maxTransactions = 10; // Default
+    if (params.size() > 3) {
+        maxTransactions = params[3].get_int();
+        if (maxTransactions <= 0) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Maximum transactions must be positive");
+        }
+        if (maxTransactions > 50) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Maximum transactions cannot exceed 50");
+        }
+    }
+
+    // Check that Sapling is active
+    int nextBlockHeight = chainActive.Height() + 1;
+    if (!NetworkUpgradeActive(nextBlockHeight, Params().GetConsensus(), Consensus::UPGRADE_SAPLING)) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Sapling is not yet active");
+    }
+
+    // Create and queue the consolidation operation
+    std::shared_ptr<AsyncRPCQueue> q = getAsyncRPCQueue();
+    std::shared_ptr<AsyncRPCOperation> operation(
+        new AsyncRPCOperation_saplingconsolidation_address(nextBlockHeight, *saplingAddr, extsk, nFee, maxNotes, maxTransactions)
+    );
+    q->addOperation(operation);
+    AsyncRPCOperationId operationId = operation->getId();
+
+    UniValue result(UniValue::VOBJ);
+    result.push_back(Pair("opid", operationId));
+    return result;
+}
+
 #define MERGE_TO_ADDRESS_DEFAULT_TRANSPARENT_LIMIT 50
 #define MERGE_TO_ADDRESS_DEFAULT_SPROUT_LIMIT 10
 #define MERGE_TO_ADDRESS_DEFAULT_SAPLING_LIMIT 90
@@ -9201,7 +9327,8 @@ static const CRPCCommand commands[] =
     { "disclosure",         "z_validatepaymentdisclosure", &z_validatepaymentdisclosure, true },
 
     // { "consolidation",         "enableconsolidation",      &enableconsolidation,       true },
-    { "consolidation",         "consolidationstatus",      &consolidationstatus,       true }
+    { "consolidation",         "consolidationstatus",      &consolidationstatus,       true },
+    { "consolidation",         "consolidateaddress",       &consolidateaddress,        true }
 
 };
 

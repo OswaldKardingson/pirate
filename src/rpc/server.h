@@ -487,6 +487,7 @@ extern UniValue z_gettotalbalance(const UniValue& params, bool fHelp, const CPub
 
 // extern UniValue enableconsolidation(const UniValue& params, bool fHelp, const CPubKey& mypk); // in rpcwallet.cpp
 extern UniValue consolidationstatus(const UniValue& params, bool fHelp, const CPubKey& mypk); // in rpcwallet.cpp
+extern UniValue consolidateaddress(const UniValue& params, bool fHelp, const CPubKey& mypk); // in rpcwallet.cpp
 
 extern UniValue z_mergetoaddress(const UniValue& params, bool fHelp, const CPubKey& mypk); // in rpcwallet.cpp
 extern UniValue z_sendmany(const UniValue& params, bool fHelp, const CPubKey& mypk); // in rpcwallet.cpp
