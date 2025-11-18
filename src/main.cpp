@@ -3490,14 +3490,16 @@ bool DisconnectBlock(CBlock& block, CValidationState& state, CBlockIndex* pindex
     // set the old best Sprout anchor back
     view.PopAnchor(blockUndo.old_sprout_tree_root, SPROUT);
 
-    // set the old best Sapling anchor back
+    // set the old best Sapling anchor back (both legacy and frontier trees)
     // We can get this from the `hashFinalSaplingRoot` of the last block
     // However, this is only reliable if the last block was on or after
     // the Sapling activation height. Otherwise, the last anchor was the
     // empty root.
     if (NetworkUpgradeActive(pindex->pprev->nHeight, Params().GetConsensus(), Consensus::UPGRADE_SAPLING)) {
+        view.PopAnchor(pindex->pprev->hashFinalSaplingRoot, SAPLING);
         view.PopAnchor(pindex->pprev->hashFinalSaplingRoot, SAPLINGFRONTIER);
     } else {
+        view.PopAnchor(SaplingMerkleTree::empty_root(), SAPLING);
         view.PopAnchor(SaplingMerkleFrontier::empty_root(), SAPLINGFRONTIER);
     }
 
@@ -3838,6 +3840,9 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
         assert(sprout_tree.root() == old_sprout_tree_root);
     }
 
+    SaplingMerkleTree sapling_tree;
+    assert(view.GetSaplingAnchorAt(view.GetBestAnchor(SAPLING), sapling_tree));
+
     SaplingMerkleFrontier sapling_frontier_tree;
     assert(view.GetSaplingFrontierAnchorAt(view.GetBestAnchor(SAPLINGFRONTIER), sapling_frontier_tree));
 
@@ -4014,8 +4019,16 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
             }
         }
 
-        //Append Sapling Outputs to SaplingMerkleFrontier
+        //Append Sapling Outputs to both legacy SaplingMerkleTree and SaplingMerkleFrontier
         if (tx.GetSaplingBundle().IsPresent()) {
+            // Append to legacy tree using individual commitments
+            auto saplingOutputs = tx.GetSaplingOutputs();
+            for (const auto& output : saplingOutputs) {
+                uint256 commitment = uint256::FromRawBytes(output.cmu());
+                sapling_tree.append(commitment);
+            }
+            
+            // Append to frontier tree using bundle
             sapling_frontier_tree.AppendBundle(tx.GetSaplingBundle());
             total_sapling_tx += 1;
         }
@@ -4054,6 +4067,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
         return state.DoS(100, error("ConnectBlock: ac_staked chain failed slow komodo_checkPOW"),REJECT_INVALID, "failed-slow_checkPOW");
 
     view.PushAnchor(sprout_tree);
+    view.PushAnchor(sapling_tree);
     view.PushAnchor(sapling_frontier_tree);
     view.PushAnchor(orchard_frontier_tree);
     if (!fJustCheck) {
@@ -4096,6 +4110,12 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     if (NetworkUpgradeActive(pindex->nHeight, chainparams.GetConsensus(), Consensus::UPGRADE_SAPLING)) {
         //Set the hashFinalSaplingRoot in the block index (equal to HahsBlockCommitments before Orchard)
         pindex->hashFinalSaplingRoot = sapling_frontier_tree.root();
+
+        // Validate that legacy Sapling tree root matches frontier tree root
+        if (sapling_tree.root() != sapling_frontier_tree.root()) {
+            return state.DoS(100, error("ConnectBlock(): Sapling tree root mismatch between legacy and frontier trees"),
+                           REJECT_INVALID, "bad-sapling-root-mismatch");
+        }
     }
 
     // - If this block is before NU5 activation:
@@ -4595,9 +4615,11 @@ bool static DisconnectTip(CValidationState &state, bool fBare = false) {
 
     // Get the current commitment tree
     SproutMerkleTree newSproutTree;
+    SaplingMerkleTree newSaplingTree;
     SaplingMerkleFrontier newSaplingFrontierTree;
     OrchardMerkleFrontier newOrchardFrontierTree;
     assert(pcoinsTip->GetSproutAnchorAt(pcoinsTip->GetBestAnchor(SPROUT), newSproutTree));
+    assert(pcoinsTip->GetSaplingAnchorAt(pcoinsTip->GetBestAnchor(SAPLING), newSaplingTree));
     assert(pcoinsTip->GetSaplingFrontierAnchorAt(pcoinsTip->GetBestAnchor(SAPLINGFRONTIER), newSaplingFrontierTree));
     assert(pcoinsTip->GetOrchardFrontierAnchorAt(pcoinsTip->GetBestAnchor(ORCHARDFRONTIER), newOrchardFrontierTree));
     // Let wallets know transactions went from 1-confirmed to
@@ -4783,11 +4805,13 @@ bool ConnectTip(CValidationState &state, CBlockIndex *pindexNew, CBlock *pblock)
     KOMODO_CONNECTING = (int32_t)pindexNew->nHeight;
     // Get the current commitment tree
     SproutMerkleTree oldSproutTree;
+    SaplingMerkleTree oldSaplingTree;
     SaplingMerkleFrontier oldSaplingFrontierTree;
     OrchardMerkleFrontier oldOrchardFrontierTree;
     if ( KOMODO_NSPV_FULLNODE )
     {
         assert(pcoinsTip->GetSproutAnchorAt(pcoinsTip->GetBestAnchor(SPROUT), oldSproutTree));
+        assert(pcoinsTip->GetSaplingAnchorAt(pcoinsTip->GetBestAnchor(SAPLING), oldSaplingTree));
         assert(pcoinsTip->GetSaplingFrontierAnchorAt(pcoinsTip->GetBestAnchor(SAPLINGFRONTIER), oldSaplingFrontierTree));
         assert(pcoinsTip->GetOrchardFrontierAnchorAt(pcoinsTip->GetBestAnchor(ORCHARDFRONTIER), oldOrchardFrontierTree));
     }

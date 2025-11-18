@@ -40,11 +40,13 @@ using namespace std;
 
 //Anchors
 static const char DB_SPROUT_ANCHOR = 'A';
+static const char DB_SAPLING_ANCHOR = 'Z';
 static const char DB_SAPLING_FRONTIER_ANCHOR = 'Y';
 static const char DB_ORCHARD_FRONTIER_ANCHOR = 'X';
 
 //Best Anchors
 static const char DB_BEST_SPROUT_ANCHOR = 'a';
+static const char DB_BEST_SAPLING_ANCHOR = 'z';
 static const char DB_BEST_SAPLING_FRONTIER_ANCHOR = 'y';
 static const char DB_BEST_ORCHARD_FRONTIER_ANCHOR = 'x';
 
@@ -95,6 +97,18 @@ bool CCoinsViewDB::GetSproutAnchorAt(const uint256 &rt, SproutMerkleTree &tree) 
     }
 
     bool read = db.Read(make_pair(DB_SPROUT_ANCHOR, rt), tree);
+
+    return read;
+}
+
+bool CCoinsViewDB::GetSaplingAnchorAt(const uint256 &rt, SaplingMerkleTree &tree) const {
+    if (rt == SaplingMerkleTree::empty_root()) {
+        SaplingMerkleTree new_tree;
+        tree = new_tree;
+        return true;
+    }
+
+    bool read = db.Read(make_pair(DB_SAPLING_ANCHOR, rt), tree);
 
     return read;
 }
@@ -164,6 +178,10 @@ uint256 CCoinsViewDB::GetBestAnchor(ShieldedType type) const {
         case SPROUT:
             if (!db.Read(DB_BEST_SPROUT_ANCHOR, hashBestAnchor))
                 return SproutMerkleTree::empty_root();
+            break;
+        case SAPLING:
+            if (!db.Read(DB_BEST_SAPLING_ANCHOR, hashBestAnchor))
+                return SaplingMerkleTree::empty_root();
             break;
         case SAPLINGFRONTIER:
             if (!db.Read(DB_BEST_SAPLING_FRONTIER_ANCHOR, hashBestAnchor))
@@ -289,9 +307,11 @@ void BatchWriteHistory(CDBBatch& batch, CHistoryCacheMap& historyCacheMap) {
 bool CCoinsViewDB::BatchWrite(CCoinsMap &mapCoins,
                               const uint256 &hashBlock,
                               const uint256 &hashSproutAnchor,
+                              const uint256 &hashSaplingAnchor,
                               const uint256 &hashSaplingFrontierAnchor,
                               const uint256 &hashOrchardFrontierAnchor,
                               CAnchorsSproutMap &mapSproutAnchors,
+                              CAnchorsSaplingMap &mapSaplingAnchors,
                               CAnchorsSaplingFrontierMap &mapSaplingFrontierAnchors,
                               CAnchorsOrchardFrontierMap &mapOrchardFrontierAnchors,
                               CNullifiersMap &mapSproutNullifiers,
@@ -315,6 +335,7 @@ bool CCoinsViewDB::BatchWrite(CCoinsMap &mapCoins,
     }
 
     ::BatchWriteAnchors<CAnchorsSproutMap, CAnchorsSproutMap::iterator, CAnchorsSproutCacheEntry, SproutMerkleTree>(batch, mapSproutAnchors, DB_SPROUT_ANCHOR);
+    ::BatchWriteAnchors<CAnchorsSaplingMap, CAnchorsSaplingMap::iterator, CAnchorsSaplingMerkleCacheEntry, SaplingMerkleTree>(batch, mapSaplingAnchors, DB_SAPLING_ANCHOR);
     ::BatchWriteAnchors<CAnchorsSaplingFrontierMap, CAnchorsSaplingFrontierMap::iterator, CAnchorsSaplingFrontierCacheEntry, SaplingMerkleFrontier>(batch, mapSaplingFrontierAnchors, DB_SAPLING_FRONTIER_ANCHOR);
     ::BatchWriteAnchors<CAnchorsOrchardFrontierMap, CAnchorsOrchardFrontierMap::iterator, CAnchorsOrchardFrontierCacheEntry, OrchardMerkleFrontier>(batch, mapOrchardFrontierAnchors, DB_ORCHARD_FRONTIER_ANCHOR);
 
@@ -328,6 +349,8 @@ bool CCoinsViewDB::BatchWrite(CCoinsMap &mapCoins,
         batch.Write(DB_BEST_BLOCK, hashBlock);
     if (!hashSproutAnchor.IsNull())
         batch.Write(DB_BEST_SPROUT_ANCHOR, hashSproutAnchor);
+    if (!hashSaplingAnchor.IsNull())
+        batch.Write(DB_BEST_SAPLING_ANCHOR, hashSaplingAnchor);
     if (!hashSaplingFrontierAnchor.IsNull())
         batch.Write(DB_BEST_SAPLING_FRONTIER_ANCHOR, hashSaplingFrontierAnchor);
     if (!hashOrchardFrontierAnchor.IsNull())
