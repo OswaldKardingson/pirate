@@ -7038,6 +7038,32 @@ bool static LoadBlockIndexDB()
             }
         }
     }
+
+    // Validate that saplingFrontier root matches sapling merkle root
+    if (!fReindex)
+    {
+        uint256 saplingLegacyRoot = pcoinsTip->GetBestAnchor(SAPLING);
+        uint256 saplingFrontierRoot = pcoinsTip->GetBestAnchor(SAPLINGFRONTIER);
+        
+        if (saplingFrontierRoot != saplingLegacyRoot)
+        {
+            // Allow both to be empty (no Sapling transactions yet)
+            if (!(saplingFrontierRoot == SaplingMerkleFrontier::empty_root() && 
+                  saplingLegacyRoot == SaplingMerkleTree::empty_root()))
+            {
+                LogPrintf("Sapling anchor mismatch detected: legacy=%s frontier=%s\n",
+                         saplingLegacyRoot.ToString(), saplingFrontierRoot.ToString());
+                LogPrintf("Setting reindex flag to rebuild Sapling tree state\n");
+                
+                // Write reindex flag to disk
+                pblocktree->WriteReindexing(true);
+                fReindex = true;
+                
+                return false;
+            }
+        }
+    }
+    
     return true;
 }
 
