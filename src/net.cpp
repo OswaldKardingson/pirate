@@ -196,6 +196,28 @@ int GetAddNodeConnectionCount()
     return nAddNodeConnections;
 }
 
+int GetTotalOutboundConnectionCount()
+{
+    LOCK(cs_vNodes);
+    int nOutboundConnections = 0;
+    BOOST_FOREACH(CNode* pnode, vNodes) {
+        if (!pnode->fInbound)
+            nOutboundConnections++;
+    }
+    return nOutboundConnections;
+}
+
+int GetTotalInboundConnectionCount()
+{
+    LOCK(cs_vNodes);
+    int nInboundConnections = 0;
+    BOOST_FOREACH(CNode* pnode, vNodes) {
+        if (pnode->fInbound)
+            nInboundConnections++;
+    }
+    return nInboundConnections;
+}
+
 bool IsAddNodeAddress(const CService& addr)
 {
     LOCK(cs_setservAddNodeAddresses);
@@ -1863,7 +1885,18 @@ void ThreadOpenConnections()
 
         ProcessOneShot();
 
-        MilliSleep(500);
+        // Adaptive sleep based on connection health
+        int nTotalOutbound = GetTotalOutboundConnectionCount();
+        int nTotalInbound = GetTotalInboundConnectionCount();
+        int nAddNodeCount = GetAddNodeConnectionCount();
+        int nTotalConnections = nTotalOutbound + nTotalInbound;
+        
+        // Use adaptive retry interval: prioritize establishing connections when poorly connected
+        int sleepInterval = (nTotalConnections == 0) ? 500 :           // No connections - fast retry
+                           (nTotalConnections < 4) ? 1000 :             // Very few - quick retry
+                           (nTotalOutbound < 4 || nAddNodeCount == 0) ? 2000 :  // Need more outbound/addnodes
+                           (nTotalConnections < 16) ? 3000 : 5000;      // Well connected - slow retry
+        MilliSleep(sleepInterval);
 
         CSemaphoreGrant grant(*semOutbound);
 
@@ -1978,7 +2011,18 @@ void ThreadOpenAddedConnections()
                 OpenNetworkConnection(addr, &grant, strAddNode.c_str(), false, true);
                 MilliSleep(500);
             }
-            MilliSleep(10000); // Retry every 10 seconds
+            // Use adaptive retry interval based on connection health
+            int nTotalOutbound = GetTotalOutboundConnectionCount();
+            int nTotalInbound = GetTotalInboundConnectionCount();
+            int nAddNodeCount = GetAddNodeConnectionCount();
+            int nTotalConnections = nTotalOutbound + nTotalInbound;
+            
+            // Prioritize establishing addnode connections when poorly connected overall
+            int retryInterval = (nTotalConnections == 0) ? 10000 :      // No connections - fast retry
+                               (nTotalConnections < 4) ? 30000 :         // Very few - moderate retry
+                               (nAddNodeCount == 0) ? 60000 :            // Need addnodes - quick retry
+                               (nTotalConnections < 16) ? 120000 : 300000; // Well connected - slow retry
+            MilliSleep(retryInterval);
         }
     }
 
@@ -2049,8 +2093,20 @@ void ThreadOpenAddedConnections()
         }
         
         // Report connection status before retry
-        LogPrint("addnode", "AddNode connections: %d/%d active\n", GetAddNodeConnectionCount(), MAX_ADDNODE_CONNECTIONS);
-        MilliSleep(10000); // Retry every 10 seconds
+        int nAddNodeCount = GetAddNodeConnectionCount();
+        int nTotalOutbound = GetTotalOutboundConnectionCount();
+        int nTotalInbound = GetTotalInboundConnectionCount();
+        int nTotalConnections = nTotalOutbound + nTotalInbound;
+        LogPrint("addnode", "Connections - AddNode: %d/%d, Outbound: %d, Inbound: %d, Total: %d\n", 
+                 nAddNodeCount, MAX_ADDNODE_CONNECTIONS, nTotalOutbound, nTotalInbound, nTotalConnections);
+        
+        // Use adaptive retry interval based on connection health
+        // Prioritize establishing addnode connections when poorly connected overall
+        int retryInterval = (nTotalConnections == 0) ? 10000 :      // No connections - fast retry
+                           (nTotalConnections < 4) ? 30000 :         // Very few - moderate retry
+                           (nAddNodeCount == 0) ? 60000 :            // Need addnodes - quick retry
+                           (nTotalConnections < 16) ? 120000 : 300000; // Well connected - slow retry
+        MilliSleep(retryInterval);
     }
 }
 
