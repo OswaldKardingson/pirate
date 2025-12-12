@@ -4391,13 +4391,31 @@ bool static FlushStateToDisk(CValidationState &state, FlushStateMode mode) {
         }
         size_t cacheSize = pcoinsTip->DynamicMemoryUsage();
         // The cache is large and close to the limit, but we have time now (not in the middle of a block processing).
-        bool fCacheLarge = mode == FLUSH_STATE_PERIODIC && cacheSize * (10.0/9) > nCoinCacheUsage;
+        // During initial sync with address indexing, flush more aggressively to prevent cache buildup
+        double flushThreshold;
+        if (IsInitialBlockDownload() && (fAddressIndex || fSpentIndex)) {
+            flushThreshold = 7.0/10;  // 70% during initial sync with address indexing
+        } else if (fAddressIndex || fSpentIndex) {
+            flushThreshold = 8.0/10;  // 80% with address indexing
+        } else {
+            flushThreshold = 9.0/10;  // 90% normal operation
+        }
+        bool fCacheLarge = mode == FLUSH_STATE_PERIODIC && cacheSize > nCoinCacheUsage * flushThreshold;
         // The cache is over the limit, we have to write now.
         bool fCacheCritical = mode == FLUSH_STATE_IF_NEEDED && cacheSize > nCoinCacheUsage;
         // It's been a while since we wrote the block index to disk. Do this frequently, so we don't need to redownload after a crash.
         bool fPeriodicWrite = mode == FLUSH_STATE_PERIODIC && nNow > nLastWrite + (int64_t)DATABASE_WRITE_INTERVAL * 1000000;
         // It's been very long since we flushed the cache. Do this infrequently, to optimize cache usage.
-        bool fPeriodicFlush = mode == FLUSH_STATE_PERIODIC && nNow > nLastFlush + (int64_t)DATABASE_FLUSH_INTERVAL * 1000000;
+        // During initial sync with address indexing, flush much more frequently to prevent cache buildup
+        int64_t flushInterval;
+        if (IsInitialBlockDownload() && (fAddressIndex || fSpentIndex)) {
+            flushInterval = 2 * 60 * 60;  // 2 hours during initial sync with address indexing
+        } else if (fAddressIndex || fSpentIndex) {
+            flushInterval = 6 * 60 * 60;  // 6 hours with address indexing
+        } else {
+            flushInterval = DATABASE_FLUSH_INTERVAL;  // 24 hours normal operation
+        }
+        bool fPeriodicFlush = mode == FLUSH_STATE_PERIODIC && nNow > nLastFlush + (int64_t)flushInterval * 1000000;
         // Combine all conditions that result in a full cache flush.
         bool fDoFullFlush = (mode == FLUSH_STATE_ALWAYS) || fCacheLarge || fCacheCritical || fPeriodicFlush || fFlushForPrune;
         // Write blocks and block index to disk.
