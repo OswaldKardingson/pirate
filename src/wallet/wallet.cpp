@@ -4718,7 +4718,7 @@ void CWallet::IncrementSaplingWallet(const CBlockIndex* pindex) {
                             if (opit != pwtx->mapSaplingNoteData.end()) {
                                 saplingWallet.AppendNoteCommitment(pblockindex->nHeight, txid, i, j, &vOutputs[j], true);
                                 //Get note position
-                                uint64_t position = 0;
+                                uint64_t position = UINT64_MAX;
                                 assert(saplingWallet.IsNoteTracked(txid, j, position));
                                 pwtx->mapSaplingNoteData[op].setPosition(position);
 
@@ -4781,7 +4781,7 @@ void CWallet::IncrementSaplingWallet(const CBlockIndex* pindex) {
                             saplingWallet.AppendNoteCommitment(pindex->nHeight, txid, i, j, &vOutputs[j], true);
 
                             //Get note position
-                            uint64_t position = 0;
+                            uint64_t position = UINT64_MAX;
                             assert(saplingWallet.IsNoteTracked(txid, j, position));
                             pwtx->mapSaplingNoteData[op].setPosition(position);
 
@@ -4976,7 +4976,7 @@ void CWallet::IncrementOrchardWallet(const CBlockIndex* pindex) {
                             if (opit != pwtx->mapOrchardNoteData.end()) {
                                 orchardWallet.AppendNoteCommitment(pblockindex->nHeight, txid, i, j, &vActions[j], true);
                                 //Get note position
-                                uint64_t position = 0;
+                                uint64_t position = UINT64_MAX;
                                 assert(orchardWallet.IsNoteTracked(txid, j, position));
                                 pwtx->mapOrchardNoteData[op].setPosition(position);
 
@@ -5039,7 +5039,7 @@ void CWallet::IncrementOrchardWallet(const CBlockIndex* pindex) {
                             orchardWallet.AppendNoteCommitment(pindex->nHeight, txid, i, j, &vActions[j], true);
 
                             //Get note position
-                            uint64_t position = 0;
+                            uint64_t position = UINT64_MAX;
                             assert(orchardWallet.IsNoteTracked(txid, j, position));
                             pwtx->mapOrchardNoteData[op].setPosition(position);
 
