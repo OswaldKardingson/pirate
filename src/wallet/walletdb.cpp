@@ -654,6 +654,19 @@ bool CWalletDB::WriteSaplingWitnesses(const SaplingWallet& wallet)
             SaplingWalletNoteCommitmentTreeWriter(wallet));
 }
 
+bool CWalletDB::WriteCryptedSaplingWitnesses(const std::vector<unsigned char>& vchCryptedSecret,
+                                              const uint256 chash)
+{
+    LogPrintf("Updating db %s\n", __func__);
+    nWalletDBUpdated++;
+
+    if (!Write(std::make_pair(std::string("csaplingwitness"), chash), vchCryptedSecret, true))
+        return false;
+    
+    Erase(std::string("sapling_note_commitment_tree"));
+    return true;
+}
+
 //Orchard
 
 bool CWalletDB::WriteOrchardZKey(const libzcash::OrchardIncomingViewingKeyPirate &ivk,
@@ -869,6 +882,19 @@ bool CWalletDB::WriteOrchardWitnesses(const OrchardWallet& wallet)
     return Write(
             std::string("orchard_note_commitment_tree"),
             OrchardWalletNoteCommitmentTreeWriter(wallet));
+}
+
+bool CWalletDB::WriteCryptedOrchardWitnesses(const std::vector<unsigned char>& vchCryptedSecret,
+                                              const uint256 chash)
+{
+    LogPrintf("Updating db %s\n", __func__);
+    nWalletDBUpdated++;
+
+    if (!Write(std::make_pair(std::string("corchardwitness"), chash), vchCryptedSecret, true))
+        return false;
+    
+    Erase(std::string("orchard_note_commitment_tree"));
+    return true;
 }
 
 bool CWalletDB::WriteCScript(const uint160& hash, const CScript& redeemScript)
@@ -1892,6 +1918,26 @@ ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue,
             auto loader = pwallet->GetSaplingNoteCommitmentTreeLoader();
             ssValue >> loader;
         }
+        else if (strType == "csaplingwitness")
+        {
+            uint256 chash;
+            ssKey >> chash;
+            std::vector<unsigned char> vchCryptedSecret;
+            ssValue >> vchCryptedSecret;
+            
+            CKeyingMaterial vchSecret;
+            if (!pwallet->DecryptSerializedWalletObjects(vchCryptedSecret, chash, vchSecret)) {
+                strErr = "Error reading wallet database: Failed to decrypt Sapling witness tree";
+                LogPrintf("Loading Error %s - %s\n", strType, strErr);
+                return false;
+            }
+            
+            if (!pwallet->LoadCryptedSaplingWallet(vchSecret)) {
+                strErr = "Error reading wallet database: LoadCryptedSaplingWalletWitness failed";
+                LogPrintf("Loading Error %s - %s\n", strType, strErr);
+                return false;
+            }
+        }
 
         else if (strType == "orchzkey")
         {
@@ -2195,9 +2241,36 @@ ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue,
             auto loader = pwallet->GetOrchardNoteCommitmentTreeLoader();
             ssValue >> loader;
         }
+        else if (strType == "corchardwitness")
+        {
+            uint256 chash;
+            ssKey >> chash;
+            std::vector<unsigned char> vchCryptedSecret;
+            ssValue >> vchCryptedSecret;
+            
+            CKeyingMaterial vchSecret;
+            if (!pwallet->DecryptSerializedWalletObjects(vchCryptedSecret, chash, vchSecret)) {
+                strErr = "Error reading wallet database: Failed to decrypt Orchard witness tree";
+                LogPrintf("Loading Error %s - %s\n", strType, strErr);
+                return false;
+            }
+            
+            if (!pwallet->LoadCryptedOrchardWallet(vchSecret)) {
+                strErr = "Error reading wallet database: LoadCryptedOrchardWalletWitness failed";
+                LogPrintf("Loading Error %s - %s\n", strType, strErr);
+                return false;
+            }
+        }
 
+    } catch (const std::exception& e)
+    {
+        strErr = strprintf("Error reading wallet database: Exception caught while loading key type '%s': %s", strType, e.what());
+        LogPrintf("Loading Error - %s\n", strErr);
+        return false;
     } catch (...)
     {
+        strErr = strprintf("Error reading wallet database: Unknown exception caught while loading key type '%s'", strType);
+        LogPrintf("Loading Error - %s\n", strErr);
         return false;
     }
     return true;

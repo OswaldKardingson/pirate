@@ -5500,6 +5500,48 @@ bool CWallet::EncryptWallet(const SecureString& strWalletPassphrase)
             }
         }
 
+        //Encrypt Sapling wallet frontier tree
+        {
+            CDataStream ss(SER_DISK, CLIENT_VERSION);
+            ss << SaplingWalletNoteCommitmentTreeWriter(saplingWallet);
+            
+            std::vector<unsigned char> vchCryptedSecret;
+            std::string saplingTreeKey = "sapling_note_commitment_tree";
+            uint256 chash = HashWithFP(saplingTreeKey);
+            CKeyingMaterial vchSecret(ss.begin(), ss.end());
+
+            if (!EncryptSerializedWalletObjects(vMasterKey, vchSecret, chash, vchCryptedSecret)) {
+                LogPrintf("Encrypting Sapling wallet frontier tree failed!!!\n");
+                return false;
+            }
+
+            if (!pwalletdbEncryption->WriteCryptedSaplingWitnesses(vchCryptedSecret, chash)) {
+                LogPrintf("Writing encrypted Sapling wallet frontier tree failed!!!\n");
+                return false;
+            }
+        }
+
+        //Encrypt Orchard wallet frontier tree
+        {
+            CDataStream ss(SER_DISK, CLIENT_VERSION);
+            ss << OrchardWalletNoteCommitmentTreeWriter(orchardWallet);
+            
+            std::vector<unsigned char> vchCryptedSecret;
+            std::string orchardTreeKey = "orchard_note_commitment_tree";
+            uint256 chash = HashWithFP(orchardTreeKey);
+            CKeyingMaterial vchSecret(ss.begin(), ss.end());
+
+            if (!EncryptSerializedWalletObjects(vMasterKey, vchSecret, chash, vchCryptedSecret)) {
+                LogPrintf("Encrypting Orchard wallet frontier tree failed!!!\n");
+                return false;
+            }
+
+            if (!pwalletdbEncryption->WriteCryptedOrchardWitnesses(vchCryptedSecret, chash)) {
+                LogPrintf("Writing encrypted Orchard wallet frontier tree failed!!!\n");
+                return false;
+            }
+        }
+
         //Encrypt all CScripts
         for (map<CScriptID, CScript>::iterator it = mapScripts.begin(); it != mapScripts.end(); ++it) {
             if (!AddCScript((*it).second)) {
@@ -12804,6 +12846,37 @@ bool CWallet::SaplingWalletReset() {
 }
 
 /**
+ * @brief Load encrypted Sapling wallet note commitment tree from decrypted data
+ * @param vchSecret The decrypted keying material containing the serialized tree data
+ * @return true if tree was successfully deserialized and loaded, false on error
+ * 
+ * Loads the Sapling note commitment tree from previously decrypted wallet data.
+ * This function is called during encrypted wallet loading to restore the Sapling
+ * witness tree state. The function:
+ * - Deserializes the decrypted data into the proper format
+ * - Loads the tree structure using the Sapling note commitment tree loader
+ * - Handles deserialization errors gracefully by returning false
+ * 
+ * This is used when reading encrypted wallet databases to restore the full
+ * Sapling wallet state including all note witnesses and commitment tree data.
+ */
+bool CWallet::LoadCryptedSaplingWallet(const CKeyingMaterial& vchSecret) {
+
+    try {
+        CDataStream ss(SER_DISK, CLIENT_VERSION);
+        ss.write((const char*)vchSecret.data(), vchSecret.size());
+        ss.Rewind(vchSecret.size());
+        
+        auto loader = GetSaplingNoteCommitmentTreeLoader();
+        ss >> loader;
+
+    } catch (const std::exception&) {
+        return false;
+    }
+    return true;
+}
+
+/**
  * @brief Get Merkle path for an Orchard note
  * @param txid Transaction ID containing the note
  * @param outidx Output index of the note within the transaction
@@ -12844,6 +12917,37 @@ bool CWallet::OrchardWalletGetPathRootWithCMU(libzcash::MerklePath &merklePath, 
 bool CWallet::OrchardWalletReset() {
    orchardWallet.Reset();
    return CWalletDB(strWalletFile).WriteOrchardWitnesses(orchardWallet);
+}
+
+/**
+ * @brief Load encrypted Orchard wallet note commitment tree from decrypted data
+ * @param vchSecret The decrypted keying material containing the serialized tree data
+ * @return true if tree was successfully deserialized and loaded, false on error
+ * 
+ * Loads the Orchard note commitment tree from previously decrypted wallet data.
+ * This function is called during encrypted wallet loading to restore the Orchard
+ * witness tree state. The function:
+ * - Deserializes the decrypted data into the proper format
+ * - Loads the tree structure using the Orchard note commitment tree loader
+ * - Handles deserialization errors gracefully by returning false
+ * 
+ * This is used when reading encrypted wallet databases to restore the full
+ * Orchard wallet state including all note witnesses and commitment tree data.
+ */
+bool CWallet::LoadCryptedOrchardWallet(const CKeyingMaterial& vchSecret) {
+
+    try {
+        CDataStream ss(SER_DISK, CLIENT_VERSION);
+        ss.write((const char*)vchSecret.data(), vchSecret.size());
+        ss.Rewind(vchSecret.size());
+        
+        auto loader = GetOrchardNoteCommitmentTreeLoader();
+        ss >> loader;
+
+    } catch (const std::exception&) {
+        return false;
+    }
+    return true;
 }
 
 /**

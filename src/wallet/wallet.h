@@ -1475,17 +1475,65 @@ protected:
 
         // Add persistence of Sapling incremental witness tree
         saplingWallet.GarbageCollect();
-        if (!walletdb.WriteSaplingWitnesses(saplingWallet)) {
-            LogPrintf("SetBestChain(): Failed to write Sapling witnesses, aborting atomic write\n");
-            walletdb.TxnAbort();
-            return;
+        if (IsCrypted() && !IsLocked()) {
+            // Wallet is encrypted - write encrypted witness trees
+            CDataStream ss(SER_DISK, CLIENT_VERSION);
+            ss << SaplingWalletNoteCommitmentTreeWriter(saplingWallet);
+            
+            std::vector<unsigned char> vchCryptedSecret;
+            std::string saplingTreeKey = "sapling_note_commitment_tree";
+            uint256 chash = HashWithFP(saplingTreeKey);
+            CKeyingMaterial vchSecret(ss.begin(), ss.end());
+
+            if (!EncryptSerializedWalletObjects(vchSecret, chash, vchCryptedSecret)) {
+                LogPrintf("SetBestChain(): Failed to encrypt Sapling witnesses, aborting atomic write\n");
+                walletdb.TxnAbort();
+                return;
+            }
+
+            if (!walletdb.WriteCryptedSaplingWitnesses(vchCryptedSecret, chash)) {
+                LogPrintf("SetBestChain(): Failed to write encrypted Sapling witnesses, aborting atomic write\n");
+                walletdb.TxnAbort();
+                return;
+            }
+        } else if (!IsCrypted()) {
+            // Wallet is not encrypted - write unencrypted witness trees
+            if (!walletdb.WriteSaplingWitnesses(saplingWallet)) {
+                LogPrintf("SetBestChain(): Failed to write Sapling witnesses, aborting atomic write\n");
+                walletdb.TxnAbort();
+                return;
+            }
         }
 
         orchardWallet.GarbageCollect();
-        if (!walletdb.WriteOrchardWitnesses(orchardWallet)) {
-            LogPrintf("SetBestChain(): Failed to write Sapling witnesses, aborting atomic write\n");
-            walletdb.TxnAbort();
-            return;
+        if (IsCrypted() && !IsLocked()) {
+            // Wallet is encrypted - write encrypted witness trees
+            CDataStream ss(SER_DISK, CLIENT_VERSION);
+            ss << OrchardWalletNoteCommitmentTreeWriter(orchardWallet);
+            
+            std::vector<unsigned char> vchCryptedSecret;
+            std::string orchardTreeKey = "orchard_note_commitment_tree";
+            uint256 chash = HashWithFP(orchardTreeKey);
+            CKeyingMaterial vchSecret(ss.begin(), ss.end());
+
+            if (!EncryptSerializedWalletObjects(vchSecret, chash, vchCryptedSecret)) {
+                LogPrintf("SetBestChain(): Failed to encrypt Orchard witnesses, aborting atomic write\n");
+                walletdb.TxnAbort();
+                return;
+            }
+
+            if (!walletdb.WriteCryptedOrchardWitnesses(vchCryptedSecret, chash)) {
+                LogPrintf("SetBestChain(): Failed to write encrypted Orchard witnesses, aborting atomic write\n");
+                walletdb.TxnAbort();
+                return;
+            }
+        } else if (!IsCrypted()) {
+            // Wallet is not encrypted - write unencrypted witness trees
+            if (!walletdb.WriteOrchardWitnesses(orchardWallet)) {
+                LogPrintf("SetBestChain(): Failed to write Orchard witnesses, aborting atomic write\n");
+                walletdb.TxnAbort();
+                return;
+            }
         }
 
         if (!walletdb.TxnCommit()) {
@@ -2085,10 +2133,12 @@ public:
     bool SaplingWalletGetMerklePathOfNote(const uint256 txid, int outidx, libzcash::MerklePath &merklePath);
     bool SaplingWalletGetPathRootWithCMU(libzcash::MerklePath &merklePath, uint256 cmu, uint256 &anchor);
     bool SaplingWalletReset();
+    bool LoadCryptedSaplingWallet(const CKeyingMaterial& vchSecret);
 
     bool OrchardWalletGetMerklePathOfNote(const uint256 txid, int outidx, libzcash::MerklePath &merklePath);
     bool OrchardWalletGetPathRootWithCMU(libzcash::MerklePath &merklePath, uint256 cmu, uint256 &anchor);
     bool OrchardWalletReset();
+    bool LoadCryptedOrchardWallet(const CKeyingMaterial& vchSecret);
 
     void GetSproutNoteWitnesses(
          std::vector<JSOutPoint> notes,

@@ -373,6 +373,8 @@ public:
     bool EraseSaplingExtendedFullViewingKey(const libzcash::SaplingExtendedFullViewingKey &extfvk);
 
     bool WriteSaplingWitnesses(const SaplingWallet& wallet);
+    bool WriteCryptedSaplingWitnesses(const std::vector<unsigned char>& vchCryptedSecret,
+                                      const uint256 chash);
 
     //Orchard
     bool WriteOrchardZKey(const libzcash::OrchardIncomingViewingKeyPirate &ivk,
@@ -418,6 +420,8 @@ public:
                            const std::vector<unsigned char>& vchCryptedSecret);
 
       bool WriteOrchardWitnesses(const OrchardWallet& wallet);
+      bool WriteCryptedOrchardWitnesses(const std::vector<unsigned char>& vchCryptedSecret,
+                                        const uint256 chash);
 
 private:
     CWalletDB(const CWalletDB&);
