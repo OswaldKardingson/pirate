@@ -13,7 +13,6 @@
 #include "clientmodel.h"
 #include "guiconstants.h"
 #include "guiutil.h"
-#include "hardwarewallet.h"
 #include "optionsmodel.h"
 #include "overviewpage.h"
 #include "platformstyle.h"
@@ -79,15 +78,12 @@ WalletView::WalletView(const PlatformStyle *_platformStyle, QWidget *parent):
     usedReceivingAddressesPage = new AddressBookPage(platformStyle, AddressBookPage::ForEditing, AddressBookPage::ReceivingTab, this);
     // usedReceivingZAddressesPage = new ZAddressBookPage(platformStyle, ZAddressBookPage::ForEditing, ZAddressBookPage::ReceivingTab, this);
 
-    hardwarewalletPage = new HardwareWallet(platformStyle, this);
-    
     addWidget(overviewPage);
     addWidget(transactionsPage);
     addWidget(receiveCoinsPage);
     //addWidget(sendCoinsPage);
     addWidget(zsendCoinsPage);
     addWidget(zsignPage);
-    addWidget(hardwarewalletPage);
 
     // Clicking on a transaction on the overview pre-selects the transaction on the transaction history page
     connect(overviewPage, SIGNAL(transactionClicked(QModelIndex)), transactionView, SLOT(focusTransaction(QModelIndex)));
@@ -288,10 +284,7 @@ void WalletView::gotoReceiveCoinsPage()
 {
     setCurrentWidget(receiveCoinsPage);
 }
-void WalletView::gotoHardwareWalletPage()
-{
-    setCurrentWidget(hardwarewalletPage);
-}
+
 /*
 void WalletView::gotoSendCoinsPage(QString addr)
 {

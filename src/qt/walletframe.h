@@ -70,8 +70,6 @@ public Q_SLOTS:
     void gotoHistoryPage();
     /** Switch to receive coins page */
     void gotoReceiveCoinsPage();
-    /**Switch to Hardwarewallet Page*/
-    void gotoHardwareWalletPage();
     /** Switch to send coins page */
     //void gotoSendCoinsPage(QString addr = "");
     /** Switch to Z-sign transaction page */

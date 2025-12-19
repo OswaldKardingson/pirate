@@ -24,7 +24,6 @@ class AddressBookPage;
 class ZAddressBookPage;
 class OpenSKDialog;
 class OpenVKDialog;
-class HardwareWallet;
 
 QT_BEGIN_NAMESPACE
 class QModelIndex;
@@ -82,8 +81,6 @@ private:
     OpenSKDialog *importSKView;
     OpenVKDialog *importVKView;
 
-    HardwareWallet *hardwarewalletPage;
-
     QProgressDialog *progressDialog;
     const PlatformStyle *platformStyle;
 
@@ -101,8 +98,6 @@ public Q_SLOTS:
     void gotoHistoryPage();
     /** Switch to receive coins page */
     void gotoReceiveCoinsPage();
-    /**Switch to Hardwarewallet Page*/
-    void gotoHardwareWalletPage();
     /** Switch to send coins page */
     //void gotoSendCoinsPage(QString addr = "");
     /** Switch to Z-sign transaction page */

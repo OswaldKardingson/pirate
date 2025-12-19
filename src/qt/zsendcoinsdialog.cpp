@@ -417,29 +417,7 @@ void ZSendCoinsDialog::clear()
     //Default: No commission, hide labels on GUI:
     commission=0;
     ui->labelCommission->setVisible(false);
-    ui->labelCommissionValue->setVisible(false);        
-    fHWWalletCommission=false;
-    
-    //Evaluate if T.C. is operating in cold storage (split) mode + is it setup to perform
-    //the 'spend' role + a hardware wallet is used to autenticate the transaction:
-    bool fEnableZSigning = settings.value("fEnableZSigning").toBool();
-    //Is cold storage enabled?
-    if (fEnableZSigning==true) {
-      bool fEnableZSigning_ModeSpend = settings.value("fEnableZSigning_ModeSpend").toBool();
-      //Is this the 'spending' role?
-      if (fEnableZSigning_ModeSpend==true) {
-        bool fEnableZSigning_HWwallet = settings.value("fEnableZSigning_HWwallet").toBool();
-        
-        if (fEnableZSigning_HWwallet==true) {
-          fHWWalletCommission=true;
-                    
-          //Show the commission GUI labels:
-          ui->labelCommission->setVisible(true);
-          ui->labelCommissionValue->setVisible(true);
-          ui->labelCommissionValue->setText("0");
-        }
-      }
-    }    
+    ui->labelCommissionValue->setVisible(false);    
 
     // Remove entries until only one left
     while(ui->entries->count())
@@ -745,22 +723,6 @@ void ZSendCoinsDialog::useAvailableBalance(SendCoinsEntry* entry)
       }
 
       commission = 0;
-      // Is this a cold storage transaction?
-      if (bIsMine==false) {
-        //Is a hardware wallet is used to authorise(sign) the transactions?
-        if (fHWWalletCommission==true) {        
-          //The total amount (available input-fee) already includes the commission.
-          //Extract the commission component:
-          commission = amount - amount / 1.0025;
-          if (commission > 1562500000) { //15.625Arrr
-            //Cap maximum commission at 6250 coin.
-            commission = 1562500000;
-          }
-          QString sCommission = KomodoUnits::format(model->getOptionsModel()->getDisplayUnit(), commission);
-          ui->labelCommissionValue->setText( sCommission );
-          amount -= commission;
-        }
-      }
       
       //From the remaining balance, calculate the maximum amount:
       for (int i = 0; i < ui->entries->count(); ++i) {
@@ -845,21 +807,6 @@ void ZSendCoinsDialog::coinControlUpdateLabels()
     commission=0;
     ui->labelCommission->setVisible(false);
     ui->labelCommissionValue->setVisible(false);
-    //Is this a cold storage transaction?
-    if (bIsMine==false) {
-        //Is a hardware wallet used to authorise(sign) the transactions?
-        if (fHWWalletCommission==true) {
-            commission = total_spend * 0.0025;
-            if (commission > 1562500000) { //15.625Arrr
-                //Cap maximum commission at 6250 coin.
-                commission = 1562500000;
-            }
-            QString sCommission = KomodoUnits::format(model->getOptionsModel()->getDisplayUnit(), commission);
-            ui->labelCommissionValue->setText( sCommission );
-            ui->labelCommission->setVisible(true);
-            ui->labelCommissionValue->setVisible(true);
-        }
-    }
 
     if (CoinControlDialog::coinControl->HasSelected())
     {
