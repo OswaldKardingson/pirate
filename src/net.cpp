@@ -81,7 +81,7 @@ using namespace tls;
 
 using namespace std;
 
-const int MAX_OUTBOUND_CONNECTIONS = 32;
+const int MAX_OUTBOUND_CONNECTIONS = 64;  // Increased from 32 to allow more parallel connections
 int MAX_ADDNODE_CONNECTIONS = 8;  // Reserve slots for addnode connections
 int MAX_REGULAR_OUTBOUND_CONNECTIONS = MAX_OUTBOUND_CONNECTIONS - MAX_ADDNODE_CONNECTIONS;
 

@@ -9438,6 +9438,13 @@ bool SendMessages(CNode* pto, bool fSendTrickle)
             NodeId staller = -1;
 
             FindNextBlocksToDownload(pto->GetId(), MAX_BLOCKS_IN_TRANSIT_PER_PEER - state.nBlocksInFlight, vToDownload, staller);
+            
+            if (!vToDownload.empty()) {
+                LogPrint("net", "Requesting %d blocks from peer=%d (in-flight: %d/%d, height range: %d-%d)\n", 
+                         vToDownload.size(), pto->id, state.nBlocksInFlight, MAX_BLOCKS_IN_TRANSIT_PER_PEER,
+                         vToDownload.front()->nHeight, vToDownload.back()->nHeight);
+            }
+            
             BOOST_FOREACH(CBlockIndex *pindex, vToDownload) {
                 vGetData.push_back(CInv(MSG_BLOCK, pindex->GetBlockHash()));
                 MarkBlockAsInFlight(pto->GetId(), pindex->GetBlockHash(), consensusParams, pindex);
