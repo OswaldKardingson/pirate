@@ -470,6 +470,19 @@ namespace {
             state->nBlocksInFlight--;
             state->nStallingSince = 0;
             mapBlocksInFlight.erase(itInFlight);
+            
+            // Log block processing to track throughput
+            static int64_t lastLogTime = 0;
+            static int blocksProcessed = 0;
+            blocksProcessed++;
+            int64_t now = GetTimeMicros();
+            if (now - lastLogTime > 10000000) { // Every 10 seconds
+                LogPrintf("Block processing stats: %d blocks processed, %d total in-flight globally, peer in-flight: %d\n",
+                         blocksProcessed, mapBlocksInFlight.size(), state->nBlocksInFlight);
+                blocksProcessed = 0;
+                lastLogTime = now;
+            }
+            
             return true;
         }
         return false;
@@ -8529,6 +8542,7 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
                     // time the block arrives, the header chain leading up to it is already validated. Not
                     // doing this will result in the received block being rejected as an orphan in case it is
                     // not a direct successor.
+                    LogPrint("net", "getheaders (%d) %s to peer=%d (triggered by INV)\n", pindexBestHeader->nHeight, inv.hash.ToString(), pfrom->id);
                     pfrom->PushMessage(NetMsgType::GETHEADERS, chainActive.GetLocator(pindexBestHeader), inv.hash);
                     CNodeState *nodestate = State(pfrom->GetId());
                     if (chainActive.Tip()->GetBlockTime() > GetTime() - chainparams.GetConsensus().nPowTargetSpacing * 20 &&
@@ -8538,7 +8552,6 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
                         // later (within the same cs_main lock, though).
                         MarkBlockAsInFlight(pfrom->GetId(), inv.hash, chainparams.GetConsensus());
                     }
-                    LogPrint("net", "getheaders (%d) %s to peer=%d\n", pindexBestHeader->nHeight, inv.hash.ToString(), pfrom->id);
                 }
             }
 
@@ -8810,6 +8823,24 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
             Misbehaving(pfrom->GetId(), 20);
             return error("headers message size = %u", nCount);
         }
+        
+        // During block download, prioritize block processing over header sync
+        // to avoid cs_main lock contention
+        static int64_t lastHeadersProcessed = 0;
+        static int headersInFlight = 0;
+        int64_t now = GetTimeMicros();
+        
+        if (IsInitialBlockDownload() && mapBlocksInFlight.size() > 100) {
+            // Throttle header processing when we have many blocks in-flight
+            if (now - lastHeadersProcessed < 500000) { // 0.5 seconds between header batches
+                LogPrint("net", "Throttling headers from peer=%d (blocks in-flight: %d)\n", 
+                         pfrom->id, mapBlocksInFlight.size());
+                return true;
+            }
+        }
+        
+        lastHeadersProcessed = now;
+        
         headers.resize(nCount);
         for (unsigned int n = 0; n < nCount; n++) {
             vRecv >> headers[n];
@@ -8885,10 +8916,28 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
             // Headers message had its maximum size; the peer may have more headers.
             // TODO: optimize: if pindexLast is an ancestor of chainActive.Tip or pindexBestHeader, continue
             // from there instead.
-            if ( pfrom->sendhdrsreq >= chainActive.Height()-MAX_HEADERS_RESULTS || pindexLast->nHeight != pfrom->sendhdrsreq )
+            
+            // Throttle "more getheaders" requests during IBD to reduce lock contention
+            static std::map<NodeId, int64_t> lastGetHeadersRequest;
+            int64_t now = GetTimeMicros();
+            bool shouldRequest = true;
+            
+            if (IsInitialBlockDownload() && mapBlocksInFlight.size() > 50) {
+                // During heavy block sync, throttle header requests per peer
+                auto it = lastGetHeadersRequest.find(pfrom->GetId());
+                if (it != lastGetHeadersRequest.end() && now - it->second < 2000000) { // 2 seconds
+                    LogPrint("net", "Throttling more getheaders to peer=%d (blocks in-flight: %d, last request: %.2fs ago)\n", 
+                             pfrom->id, mapBlocksInFlight.size(), (now - it->second) / 1000000.0);
+                    shouldRequest = false;
+                }
+            }
+            
+            if (shouldRequest && (pfrom->sendhdrsreq >= chainActive.Height()-MAX_HEADERS_RESULTS || pindexLast->nHeight != pfrom->sendhdrsreq))
             {
                 pfrom->sendhdrsreq = (int32_t)pindexLast->nHeight;
-                LogPrint("net", "more getheaders (%d) to end to peer=%d (startheight:%d)\n", pindexLast->nHeight, pfrom->id, pfrom->nStartingHeight);
+                lastGetHeadersRequest[pfrom->GetId()] = now;
+                LogPrint("net", "more getheaders (%d) to end to peer=%d (startheight:%d, blocks in-flight: %d)\n", 
+                         pindexLast->nHeight, pfrom->id, pfrom->nStartingHeight, mapBlocksInFlight.size());
                 pfrom->PushMessage(NetMsgType::GETHEADERS, chainActive.GetLocator(pindexLast), uint256());
             }
         }
@@ -9335,7 +9384,7 @@ bool SendMessages(CNode* pto, bool fSendTrickle)
                 state.fSyncStarted = true;
                 nSyncStarted++;
                 CBlockIndex *pindexStart = pindexBestHeader->pprev ? pindexBestHeader->pprev : pindexBestHeader;
-                LogPrint("net", "initial getheaders (%d) to peer=%d (startheight:%d)\n", pindexStart->nHeight, pto->id, pto->nStartingHeight);
+                LogPrint("net", "initial getheaders (%d) to peer=%d (startheight:%d) - Starting sync\n", pindexStart->nHeight, pto->id, pto->nStartingHeight);
                 pto->PushMessage(NetMsgType::GETHEADERS, chainActive.GetLocator(pindexStart), uint256());
             }
         }
