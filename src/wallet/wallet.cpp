@@ -9432,10 +9432,6 @@ int CWallet::ScanForWalletTransactions(CBlockIndex* pindexStart, bool fUpdate, b
                 }
             }
 
-            //Delete Transactions
-            if (pindex->nHeight % fDeleteInterval == 0)
-                while(DeleteWalletTransactions(pindex, true)) {}
-
             if (GetTime() >= nNow + 60) {
                 nNow = GetTime();
                 LogPrintf("Still rescanning. At block %d. Progress=%f\n", pindex->nHeight, Checkpoints::GuessVerificationProgress(chainParams.Checkpoints(), pindex));
