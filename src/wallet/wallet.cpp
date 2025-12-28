@@ -4728,8 +4728,13 @@ void CWallet::IncrementSaplingWallet(const CBlockIndex* pindex) {
                             } else {
                                 saplingWallet.AppendNoteCommitment(pblockindex->nHeight, txid, i, j, &vOutputs[j], false);
                             }
+                        }                    
+                        // Only update nullifiers if we have Sapling notes for this transaction
+                        if (pwtx->mapSaplingNoteData.size() > 0) {
+                            UpdateSaplingNullifierNoteMapWithTx(pwtx);
+                        } else {
+                            saplingWallet.ClearPositionsForTxid(txid);
                         }
-                        UpdateSaplingNullifierNoteMapWithTx(pwtx);
                     } else {
                         //No transactions in this tx belong to the wallet, use full tx appending
                         saplingWallet.ClearPositionsForTxid(txid);
@@ -4792,7 +4797,12 @@ void CWallet::IncrementSaplingWallet(const CBlockIndex* pindex) {
                             saplingWallet.AppendNoteCommitment(pindex->nHeight, txid, i, j, &vOutputs[j], false);
                         }
                     }
-                    UpdateSaplingNullifierNoteMapWithTx(pwtx);
+                    // Only update nullifiers if we have Sapling notes for this transaction
+                    if (pwtx->mapSaplingNoteData.size() > 0) {
+                        UpdateSaplingNullifierNoteMapWithTx(pwtx);
+                    } else {
+                        saplingWallet.ClearPositionsForTxid(txid);
+                    }
                 } else {
                     //No transactions in this tx belong to the wallet, use full tx appending
                     saplingWallet.ClearPositionsForTxid(txid);
@@ -4986,8 +4996,13 @@ void CWallet::IncrementOrchardWallet(const CBlockIndex* pindex) {
                             } else {
                                 orchardWallet.AppendNoteCommitment(pblockindex->nHeight, txid, i, j, &vActions[j], false);
                             }
+                        }                   
+                        // Only update nullifiers if we have Orchard notes for this transaction
+                        if (pwtx->mapOrchardNoteData.size() > 0) {
+                            UpdateOrchardNullifierNoteMapWithTx(pwtx);
+                        } else {
+                            orchardWallet.ClearPositionsForTxid(txid);
                         }
-                        UpdateOrchardNullifierNoteMapWithTx(pwtx);
                     } else {
                         //No transactions in this tx belong to the wallet, use full tx appending
                         orchardWallet.ClearPositionsForTxid(txid);
@@ -5050,7 +5065,12 @@ void CWallet::IncrementOrchardWallet(const CBlockIndex* pindex) {
                             orchardWallet.AppendNoteCommitment(pindex->nHeight, txid, i, j, &vActions[j], false);
                         }
                     }
-                    UpdateOrchardNullifierNoteMapWithTx(pwtx);
+                    // Only update nullifiers if we have Orchard notes for this transaction
+                    if (pwtx->mapOrchardNoteData.size() > 0) {
+                        UpdateOrchardNullifierNoteMapWithTx(pwtx);
+                    } else {
+                        orchardWallet.ClearPositionsForTxid(txid);
+                    }
                 } else {
                     //No transactions in this tx belong to the wallet, use full tx appending
                     orchardWallet.ClearPositionsForTxid(txid);
