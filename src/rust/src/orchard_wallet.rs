@@ -792,7 +792,7 @@ pub extern "C" fn orchard_is_note_tracked(
     }
 
     let position_out = unsafe { &mut *position_out };
-    *position_out = 0;
+    *position_out = u64::MAX;
     return false;
 }
 
