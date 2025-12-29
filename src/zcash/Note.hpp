@@ -46,22 +46,10 @@ public:
 };
 
 inline bool plaintext_version_is_valid(const Consensus::Params& params, int height, unsigned char leadbyte) {
-    int orchardActivationHeight = params.vUpgrades[Consensus::UPGRADE_ORCHARD].nActivationHeight;
-
-    if (height < orchardActivationHeight && leadbyte != 0x01) {
-        // non-0x01 received before Orchard activation height
-        return false;
-    }
-    if (height >= orchardActivationHeight
-        && height < orchardActivationHeight + ZIP212_GRACE_PERIOD
-        && leadbyte != 0x01
-        && leadbyte != 0x02)
-    {
-        // non-{0x01,0x02} received after Orchard activation and before grace period has elapsed
-        return false;
-    }
-    if (orchardActivationHeight > 0 && height >= orchardActivationHeight + ZIP212_GRACE_PERIOD && leadbyte != 0x02) {
-        // non-0x02 received past (Orchard activation height + grace period)
+    // Modified to always accept both 0x01 and 0x02 lead bytes for compatibility
+    // This allows decryption of notes created with either ZIP 212 format regardless of blockchain height
+    if (leadbyte != 0x01 && leadbyte != 0x02) {
+        // Only reject if leadbyte is neither 0x01 nor 0x02
         return false;
     }
     return true;
