@@ -8112,8 +8112,15 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
         if (!vRecv.empty())
             vRecv >> addrFrom >> nNonce;
         if (!vRecv.empty()) {
+            size_t sizeBefore = vRecv.size();
             vRecv >> LIMITED_STRING(pfrom->strSubVer, MAX_SUBVERSION_LENGTH);
+            size_t sizeAfter = vRecv.size();
             pfrom->cleanSubVer = SanitizeString(pfrom->strSubVer);
+            LogPrint("net", "peer=%d version message: strSubVer='%s' (len=%d, consumed=%d bytes), cleanSubVer='%s'\n", 
+                     pfrom->id, pfrom->strSubVer, pfrom->strSubVer.length(), (sizeBefore - sizeAfter), pfrom->cleanSubVer);
+        }
+        else {
+            LogPrint("net", "peer=%d version message: no subversion field in message (vRecv empty after nonce)\n", pfrom->id);
         }
         if (!vRecv.empty())
             vRecv >> pfrom->nStartingHeight;
