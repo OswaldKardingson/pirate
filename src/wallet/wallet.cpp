@@ -4289,6 +4289,148 @@ void CWallet::AddToSpends(const uint256& wtxid)
 }
 
 /**
+ * @brief Process Sapling transactions in a block and update commitment tree
+ * @param pblockindex The block index being processed
+ * @param pblock The block containing transactions to process
+ * 
+ * Processes all transactions in a block for Sapling wallet state updates.
+ * For transactions belonging to the wallet:
+ * - Creates empty positions for tracking
+ * - Appends individual note commitments with tracking enabled
+ * - Updates note positions in wallet transaction data
+ * - Updates nullifier mappings
+ * 
+ * For transactions not in the wallet:
+ * - Batch-appends all commitments without tracking
+ * 
+ * This function is used during both wallet rebuild and incremental updates.
+ */
+void CWallet::ProcessSaplingBlockTransactions(const CBlockIndex* pblockindex, const CBlock* pblock)
+{
+    AssertLockHeld(cs_main);
+    AssertLockHeld(cs_wallet);
+
+    //Create Checkpoint before incrementing wallet
+    saplingWallet.CheckpointNoteCommitmentTree(pblockindex->nHeight);
+
+    for (int i = 0; i < pblock->vtx.size(); i++) {
+        uint256 txid = pblock->vtx[i].GetHash();
+        auto it = mapWallet.find(txid);
+
+        //Use single output appending for transaction that belong to the wallet so that they can be marked
+        if (it != mapWallet.end()) {
+            saplingWallet.CreateEmptyPositionsForTxid(pblockindex->nHeight, txid);
+            CWalletTx *pwtx = &(*it).second;
+            auto vOutputs = pblock->vtx[i].GetSaplingOutputs();
+            for (int j = 0; j < vOutputs.size(); j++) {
+                SaplingOutPoint op = SaplingOutPoint(txid, j);
+                auto opit = pwtx->mapSaplingNoteData.find(op);
+
+                if (opit != pwtx->mapSaplingNoteData.end()) {
+                    saplingWallet.AppendNoteCommitment(pblockindex->nHeight, txid, i, j, &vOutputs[j], true);
+                    //Get note position
+                    uint64_t position = UINT64_MAX;
+                    assert(saplingWallet.IsNoteTracked(txid, j, position));
+                    pwtx->mapSaplingNoteData[op].setPosition(position);
+
+                    // Validate position and tree root
+                    uint256 treeRoot = saplingWallet.GetLatestAnchor();
+                    LogPrint("saplingwallet", "Sapling Wallet - Note tracked: txid=%s outidx=%d position=%llu root=%s\n", 
+                        txid.ToString(), j, (unsigned long long)position, treeRoot.ToString());
+                    
+                    // Sanity check: position should be less than tree size
+                    if (position == UINT64_MAX) {
+                        LogPrintf("ERROR: Sapling Wallet - Invalid position (UINT64_MAX) for tracked note txid=%s outidx=%d\n",
+                            txid.ToString(), j);
+                    }
+
+
+                } else {
+                    saplingWallet.AppendNoteCommitment(pblockindex->nHeight, txid, i, j, &vOutputs[j], false);
+                }
+            }                    
+            // Only update nullifiers if we have Sapling notes for this transaction
+            if (pwtx->mapSaplingNoteData.size() > 0) {
+                UpdateSaplingNullifierNoteMapWithTx(pwtx);
+            } else {
+                saplingWallet.ClearPositionsForTxid(txid);
+            }
+        } else {
+            //No transactions in this tx belong to the wallet, use full tx appending
+            saplingWallet.ClearPositionsForTxid(txid);
+            saplingWallet.AppendNoteCommitments(pblockindex->nHeight,pblock->vtx[i],i);
+        }
+    }
+}
+
+/**
+ * @brief Process all Orchard transactions in a block
+ * @param pblockindex The block index containing the transactions
+ * @param pblock Pointer to the block data
+ * 
+ * Processes all transactions in the block, handling wallet transactions differently
+ * from non-wallet transactions. Wallet transactions use individual commitment appending
+ * to track note positions, while non-wallet transactions use batch appending.
+ */
+void CWallet::ProcessOrchardBlockTransactions(const CBlockIndex* pblockindex, const CBlock* pblock)
+{
+    AssertLockHeld(cs_main);
+    AssertLockHeld(cs_wallet);
+
+    //Create Checkpoint before incrementing wallet
+    orchardWallet.CheckpointNoteCommitmentTree(pblockindex->nHeight);
+
+    for (int i = 0; i < pblock->vtx.size(); i++) {
+        uint256 txid = pblock->vtx[i].GetHash();
+        auto it = mapWallet.find(txid);
+
+        //Use single output appending for transaction that belong to the wallet so that they can be marked
+        if (it != mapWallet.end()) {
+            orchardWallet.CreateEmptyPositionsForTxid(pblockindex->nHeight, txid);
+            CWalletTx *pwtx = &(*it).second;
+            auto vActions = pblock->vtx[i].GetOrchardActions();
+            for (int j = 0; j < vActions.size(); j++) {
+                OrchardOutPoint op = OrchardOutPoint(txid, j);
+                auto opit = pwtx->mapOrchardNoteData.find(op);
+
+                if (opit != pwtx->mapOrchardNoteData.end()) {
+                    orchardWallet.AppendNoteCommitment(pblockindex->nHeight, txid, i, j, &vActions[j], true);
+                    //Get note position
+                    uint64_t position = UINT64_MAX;
+                    assert(orchardWallet.IsNoteTracked(txid, j, position));
+                    pwtx->mapOrchardNoteData[op].setPosition(position);
+
+                    // Validate position and tree root
+                    uint256 treeRoot = orchardWallet.GetLatestAnchor();
+                    LogPrint("orchardwallet", "Orchard Wallet - Note tracked: txid=%s outidx=%d position=%llu root=%s\n", 
+                        txid.ToString(), j, (unsigned long long)position, treeRoot.ToString());
+                    
+                    // Sanity check: position should be less than tree size
+                    if (position == UINT64_MAX) {
+                        LogPrintf("ERROR: Orchard Wallet - Invalid position (UINT64_MAX) for tracked note txid=%s outidx=%d\n",
+                            txid.ToString(), j);
+                    }
+
+
+                } else {
+                    orchardWallet.AppendNoteCommitment(pblockindex->nHeight, txid, i, j, &vActions[j], false);
+                }
+            }                   
+            // Only update nullifiers if we have Orchard notes for this transaction
+            if (pwtx->mapOrchardNoteData.size() > 0) {
+                UpdateOrchardNullifierNoteMapWithTx(pwtx);
+            } else {
+                orchardWallet.ClearPositionsForTxid(txid);
+            }
+        } else {
+            //No transactions in this tx belong to the wallet, use full tx appending
+            orchardWallet.ClearPositionsForTxid(txid);
+            orchardWallet.AppendNoteCommitments(pblockindex->nHeight,pblock->vtx[i],i);
+        }
+    }
+}
+
+/**
  * @brief Validate Sapling wallet tracked positions against Rust wallet state
  * @param pindex The current block index for validation context
  * @return false if the SaplingWallet needs to be rebuilt, true if valid
@@ -4689,9 +4831,6 @@ void CWallet::IncrementSaplingWallet(const CBlockIndex* pindex) {
             //Loop thru blocks to rebuild saplingWallet commitment tree
             while (pblockindex) {
 
-                //Create Checkpoint before incrementing wallet
-                saplingWallet.CheckpointNoteCommitmentTree(pblockindex->nHeight);
-
                 if (GetTime() >= nNow2 + 60) {
                     nNow2 = GetTime();
                     LogPrintf("Rebuilding Witnesses for block %d. Progress=%f\n", pblockindex->nHeight, Checkpoints::GuessVerificationProgress(Params().Checkpoints(), pblockindex));
@@ -4719,45 +4858,7 @@ void CWallet::IncrementSaplingWallet(const CBlockIndex* pindex) {
                 ReadBlockFromDisk(block, pblockindex, 1);
                 CBlock *pblock = &block;
 
-                for (int i = 0; i < pblock->vtx.size(); i++) {
-                    uint256 txid = pblock->vtx[i].GetHash();
-                    auto it = mapWallet.find(txid);
-
-                    //Use single output appending for transaction that belong to the wallet so that they can be marked
-                    if (it != mapWallet.end()) {
-                        saplingWallet.CreateEmptyPositionsForTxid(pblockindex->nHeight, txid);
-                        CWalletTx *pwtx = &(*it).second;
-                        auto vOutputs = pblock->vtx[i].GetSaplingOutputs();
-                        for (int j = 0; j < vOutputs.size(); j++) {
-                            SaplingOutPoint op = SaplingOutPoint(txid, j);
-                            auto opit = pwtx->mapSaplingNoteData.find(op);
-
-                            if (opit != pwtx->mapSaplingNoteData.end()) {
-                                saplingWallet.AppendNoteCommitment(pblockindex->nHeight, txid, i, j, &vOutputs[j], true);
-                                //Get note position
-                                uint64_t position = UINT64_MAX;
-                                assert(saplingWallet.IsNoteTracked(txid, j, position));
-                                pwtx->mapSaplingNoteData[op].setPosition(position);
-
-                                LogPrint("saplingwallet", "Sapling Wallet - Merkle Path position %i\n", position);
-
-
-                            } else {
-                                saplingWallet.AppendNoteCommitment(pblockindex->nHeight, txid, i, j, &vOutputs[j], false);
-                            }
-                        }                    
-                        // Only update nullifiers if we have Sapling notes for this transaction
-                        if (pwtx->mapSaplingNoteData.size() > 0) {
-                            UpdateSaplingNullifierNoteMapWithTx(pwtx);
-                        } else {
-                            saplingWallet.ClearPositionsForTxid(txid);
-                        }
-                    } else {
-                        //No transactions in this tx belong to the wallet, use full tx appending
-                        saplingWallet.ClearPositionsForTxid(txid);
-                        saplingWallet.AppendNoteCommitments(pblockindex->nHeight,pblock->vtx[i],i);
-                    }
-                }
+                ProcessSaplingBlockTransactions(pblockindex, pblock);
 
                 //Check completeness
                 if (pblockindex == pindex)
@@ -4778,54 +4879,7 @@ void CWallet::IncrementSaplingWallet(const CBlockIndex* pindex) {
             ReadBlockFromDisk(block, pindex, 1);
             CBlock *pblock = &block;
 
-            //Create Checkpoint before incrementing wallet
-            saplingWallet.CheckpointNoteCommitmentTree(pindex->nHeight);
-
-            for (int i = 0; i < pblock->vtx.size(); i++) {
-                uint256 txid = pblock->vtx[i].GetHash();
-                auto it = mapWallet.find(txid);
-
-                //Use single output appending for transaction that belong to the wallet so that they can be marked
-                if (it != mapWallet.end()) {
-                    saplingWallet.CreateEmptyPositionsForTxid(pindex->nHeight, txid);
-                    CWalletTx *pwtx = &(*it).second;
-                    auto vOutputs = pblock->vtx[i].GetSaplingOutputs();
-
-                    LogPrint("saplingwallet", "Sapling Wallet - Appending Single Commitments for transaction %s\n", pwtx->GetHash().ToString());
-
-                    for (int j = 0; j < vOutputs.size(); j++) {
-                        SaplingOutPoint op = SaplingOutPoint(txid, j);
-                        auto opit = pwtx->mapSaplingNoteData.find(op);
-                        LogPrint("saplingwallet", "Sapling Wallet - Checking for outpoint %s, %i\n", pwtx->GetHash().ToString(), j);
-
-                        if (opit != pwtx->mapSaplingNoteData.end()) {
-                            LogPrint("saplingwallet", "Sapling Wallet - Appending outpoint %s, %i\n", pwtx->GetHash().ToString(), j);
-                            saplingWallet.AppendNoteCommitment(pindex->nHeight, txid, i, j, &vOutputs[j], true);
-
-                            //Get note position
-                            uint64_t position = UINT64_MAX;
-                            assert(saplingWallet.IsNoteTracked(txid, j, position));
-                            pwtx->mapSaplingNoteData[op].setPosition(position);
-
-                            LogPrint("saplingwallet", "Sapling Wallet - Merkle Path position %i\n", position);
-
-                        } else {
-                            LogPrint("saplingwallet", "Sapling Wallet - Outpoint %s, %i not found in note data\n", pwtx->GetHash().ToString(), j);
-                            saplingWallet.AppendNoteCommitment(pindex->nHeight, txid, i, j, &vOutputs[j], false);
-                        }
-                    }
-                    // Only update nullifiers if we have Sapling notes for this transaction
-                    if (pwtx->mapSaplingNoteData.size() > 0) {
-                        UpdateSaplingNullifierNoteMapWithTx(pwtx);
-                    } else {
-                        saplingWallet.ClearPositionsForTxid(txid);
-                    }
-                } else {
-                    //No transactions in this tx belong to the wallet, use full tx appending
-                    saplingWallet.ClearPositionsForTxid(txid);
-                    saplingWallet.AppendNoteCommitments(pindex->nHeight,pblock->vtx[i],i);
-                }
-            }
+            ProcessSaplingBlockTransactions(pindex, pblock);
         }
     }
 
@@ -4957,9 +5011,6 @@ void CWallet::IncrementOrchardWallet(const CBlockIndex* pindex) {
             //Loop thru blocks to rebuild saplingWallet commitment tree
             while (pblockindex) {
 
-                //Create Checkpoint before incrementing wallet
-                orchardWallet.CheckpointNoteCommitmentTree(pblockindex->nHeight);
-
                 if (GetTime() >= nNow2 + 60) {
                     nNow2 = GetTime();
                     LogPrintf("Rebuilding Orchard Witnesses for block %d. Progress=%f\n", pblockindex->nHeight, Checkpoints::GuessVerificationProgress(Params().Checkpoints(), pblockindex));
@@ -4987,45 +5038,7 @@ void CWallet::IncrementOrchardWallet(const CBlockIndex* pindex) {
                 ReadBlockFromDisk(block, pblockindex, 1);
                 CBlock *pblock = &block;
 
-                for (int i = 0; i < pblock->vtx.size(); i++) {
-                    uint256 txid = pblock->vtx[i].GetHash();
-                    auto it = mapWallet.find(txid);
-
-                    //Use single output appending for transaction that belong to the wallet so that they can be marked
-                    if (it != mapWallet.end()) {
-                        orchardWallet.CreateEmptyPositionsForTxid(pblockindex->nHeight, txid);
-                        CWalletTx *pwtx = &(*it).second;
-                        auto vActions = pblock->vtx[i].GetOrchardActions();
-                        for (int j = 0; j < vActions.size(); j++) {
-                            OrchardOutPoint op = OrchardOutPoint(txid, j);
-                            auto opit = pwtx->mapOrchardNoteData.find(op);
-
-                            if (opit != pwtx->mapOrchardNoteData.end()) {
-                                orchardWallet.AppendNoteCommitment(pblockindex->nHeight, txid, i, j, &vActions[j], true);
-                                //Get note position
-                                uint64_t position = UINT64_MAX;
-                                assert(orchardWallet.IsNoteTracked(txid, j, position));
-                                pwtx->mapOrchardNoteData[op].setPosition(position);
-
-                                LogPrint("orchardwallet", "Orchard Wallet - Merkle Path position %i\n", position);
-
-
-                            } else {
-                                orchardWallet.AppendNoteCommitment(pblockindex->nHeight, txid, i, j, &vActions[j], false);
-                            }
-                        }                   
-                        // Only update nullifiers if we have Orchard notes for this transaction
-                        if (pwtx->mapOrchardNoteData.size() > 0) {
-                            UpdateOrchardNullifierNoteMapWithTx(pwtx);
-                        } else {
-                            orchardWallet.ClearPositionsForTxid(txid);
-                        }
-                    } else {
-                        //No transactions in this tx belong to the wallet, use full tx appending
-                        orchardWallet.ClearPositionsForTxid(txid);
-                        orchardWallet.AppendNoteCommitments(pblockindex->nHeight,pblock->vtx[i],i);
-                    }
-                }
+                ProcessOrchardBlockTransactions(pblockindex, pblock);
 
                 //Check completeness
                 if (pblockindex == pindex)
@@ -5046,54 +5059,7 @@ void CWallet::IncrementOrchardWallet(const CBlockIndex* pindex) {
             ReadBlockFromDisk(block, pindex, 1);
             CBlock *pblock = &block;
 
-            //Create Checkpoint before incrementing wallet
-            orchardWallet.CheckpointNoteCommitmentTree(pindex->nHeight);
-
-            for (int i = 0; i < pblock->vtx.size(); i++) {
-                uint256 txid = pblock->vtx[i].GetHash();
-                auto it = mapWallet.find(txid);
-
-                //Use single output appending for transaction that belong to the wallet so that they can be marked
-                if (it != mapWallet.end()) {
-                    orchardWallet.CreateEmptyPositionsForTxid(pindex->nHeight, txid);
-                    CWalletTx *pwtx = &(*it).second;
-                    auto vActions = pblock->vtx[i].GetOrchardActions();
-
-                    LogPrint("orchardwallet", "Orchard Wallet - Appending Single Commitments for transaction %s\n", pwtx->GetHash().ToString());
-
-                    for (int j = 0; j < vActions.size(); j++) {
-                        OrchardOutPoint op = OrchardOutPoint(txid, j);
-                        auto opit = pwtx->mapOrchardNoteData.find(op);
-                        LogPrint("orchardwallet", "Orchard Wallet - Checking for outpoint %s, %i\n", pwtx->GetHash().ToString(), j);
-
-                        if (opit != pwtx->mapOrchardNoteData.end()) {
-                            LogPrint("orchardwallet", "Orchard Wallet - Appending outpoint %s, %i\n", pwtx->GetHash().ToString(), j);
-                            orchardWallet.AppendNoteCommitment(pindex->nHeight, txid, i, j, &vActions[j], true);
-
-                            //Get note position
-                            uint64_t position = UINT64_MAX;
-                            assert(orchardWallet.IsNoteTracked(txid, j, position));
-                            pwtx->mapOrchardNoteData[op].setPosition(position);
-
-                            LogPrint("orchardwallet", "Orchard Wallet - Merkle Path position %i\n", position);
-
-                        } else {
-                            LogPrint("orchardwallet", "Orchard Wallet - Action %s, %i not found in note data\n", pwtx->GetHash().ToString(), j);
-                            orchardWallet.AppendNoteCommitment(pindex->nHeight, txid, i, j, &vActions[j], false);
-                        }
-                    }
-                    // Only update nullifiers if we have Orchard notes for this transaction
-                    if (pwtx->mapOrchardNoteData.size() > 0) {
-                        UpdateOrchardNullifierNoteMapWithTx(pwtx);
-                    } else {
-                        orchardWallet.ClearPositionsForTxid(txid);
-                    }
-                } else {
-                    //No transactions in this tx belong to the wallet, use full tx appending
-                    orchardWallet.ClearPositionsForTxid(txid);
-                    orchardWallet.AppendNoteCommitments(pindex->nHeight,pblock->vtx[i],i);
-                }
-            }
+            ProcessOrchardBlockTransactions(pindex, pblock);
         }
     }
 

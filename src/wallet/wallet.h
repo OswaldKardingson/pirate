@@ -1153,10 +1153,12 @@ public:
      * pindex is the new tip being connected.  Public so these can be called from init.cpp.
      */
 
+    void ProcessSaplingBlockTransactions(const CBlockIndex* pblockindex, const CBlock* pblock);
     bool ValidateSaplingWalletTrackedPositions(const CBlockIndex* pindex);
     void IncrementSaplingWallet(const CBlockIndex* pindex);
     void DecrementSaplingWallet(const CBlockIndex* pindex);
 
+    void ProcessOrchardBlockTransactions(const CBlockIndex* pblockindex, const CBlock* pblock);
     bool ValidateOrchardWalletTrackedPositions(const CBlockIndex* pindex);
     void IncrementOrchardWallet(const CBlockIndex* pindex);
     void DecrementOrchardWallet(const CBlockIndex* pindex);
