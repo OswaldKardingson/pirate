@@ -9394,6 +9394,8 @@ int CWallet::ScanForWalletTransactions(CBlockIndex* pindexStart, bool fUpdate, b
           OrchardWalletReset();
         }
 
+        bool firstLoop = true;
+
         while (pindex)
         {
             //exit loop if trying to shutdown
@@ -9439,16 +9441,38 @@ int CWallet::ScanForWalletTransactions(CBlockIndex* pindexStart, bool fUpdate, b
                 nNow = GetTime();
                 LogPrintf("Still rescanning. At block %d. Progress=%f\n", pindex->nHeight, Checkpoints::GuessVerificationProgress(chainParams.Checkpoints(), pindex));
             }
+
+            //Update the Sapling and Orchard Wallet Merkle tree and set transaction nullifiers
+            //This needs to be done after processing the block to ensure
+            //that subsequent spends can be detected
+            if (firstLoop) {
+                // First iteration: use full Increment functions to initialize witness trees
+                IncrementSaplingWallet(pindex);
+                IncrementOrchardWallet(pindex);
+                firstLoop = false;
+            } else {
+                // Subsequent iterations: use lightweight Process functions
+                CBlock *pblock = &block;
+                ProcessSaplingBlockTransactions(pindex, pblock);
+                ProcessOrchardBlockTransactions(pindex, pblock);
+            }
+
             pindex = chainActive.Next(pindex);
         }
 
         uiInterface.ShowProgress(_("Rescanning..."), 100, false); // hide progress dialog in GUI
 
+        //Reset validation flags to force final validation of witness trees
+        saplingWalletValidated = false;
+        saplingWalletPositionsValidated = false;
+        orchardWalletValidated = false;
+        orchardWalletPositionsValidated = false;
+
         //Update the Sapling Wallet Merkle tree
-        IncrementSaplingWallet(chainActive.Tip());
+        ValidateSaplingWalletTrackedPositions(chainActive.Tip());
 
         //Update the Orchard Wallet Merkle tree
-        IncrementOrchardWallet(chainActive.Tip());
+        ValidateOrchardWalletTrackedPositions(chainActive.Tip());
 
         //Write all transactions ant block loacator to the wallet
         currentBlock = chainActive.GetLocator();
