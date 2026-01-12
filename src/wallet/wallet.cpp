@@ -3861,6 +3861,7 @@ int CWallet::GetOrchardSpendDepth(const uint256& nullifier) const {
  * 
  * Records that a specific transparent UTXO is being spent by a transaction.
  * This function:
+ * - Removes any existing entries for this outpoint (during rescan)
  * - Adds the spending relationship to mapTxSpends
  * - Synchronizes metadata across all transactions that spend the same output
  * 
@@ -3869,6 +3870,9 @@ int CWallet::GetOrchardSpendDepth(const uint256& nullifier) const {
  */
 void CWallet::AddToTransparentSpends(const COutPoint& outpoint, const uint256& wtxid)
 {
+    // Remove any existing entries for this outpoint to avoid duplicates during rescan
+    mapTxSpends.erase(outpoint);
+    
     mapTxSpends.insert(make_pair(outpoint, wtxid));
 
     pair<TxSpends::iterator, TxSpends::iterator> range;
@@ -3883,6 +3887,7 @@ void CWallet::AddToTransparentSpends(const COutPoint& outpoint, const uint256& w
  * 
  * Records that a specific Sprout note is being spent by a transaction.
  * This function:
+ * - Removes any existing entries for this nullifier (during rescan)
  * - Adds the spending relationship to mapTxSproutNullifiers
  * - Synchronizes metadata across all transactions that spend the same nullifier
  * 
@@ -3891,6 +3896,9 @@ void CWallet::AddToTransparentSpends(const COutPoint& outpoint, const uint256& w
  */
 void CWallet::AddToSproutSpends(const uint256& nullifier, const uint256& wtxid)
 {
+    // Remove any existing entries for this nullifier to avoid duplicates during rescan
+    mapTxSproutNullifiers.erase(nullifier);
+    
     mapTxSproutNullifiers.insert(make_pair(nullifier, wtxid));
 
     pair<TxNullifiers::iterator, TxNullifiers::iterator> range;
@@ -3905,6 +3913,7 @@ void CWallet::AddToSproutSpends(const uint256& nullifier, const uint256& wtxid)
  * 
  * Records that a specific Sapling note is being spent by a transaction.
  * This function:
+ * - Removes any existing entries for this nullifier (during rescan)
  * - Adds the spending relationship to mapTxSaplingNullifiers
  * - Synchronizes metadata across all transactions that spend the same nullifier
  * 
@@ -3913,6 +3922,10 @@ void CWallet::AddToSproutSpends(const uint256& nullifier, const uint256& wtxid)
  */
 void CWallet::AddToSaplingSpends(const uint256& nullifier, const uint256& wtxid)
 {
+    // Remove any existing entries for this nullifier to avoid duplicates during rescan
+    mapTxSaplingNullifiers.erase(nullifier);
+    
+    //Add the new spending relationship
     mapTxSaplingNullifiers.insert(make_pair(nullifier, wtxid));
 
     pair<TxNullifiers::iterator, TxNullifiers::iterator> range;
@@ -3927,6 +3940,7 @@ void CWallet::AddToSaplingSpends(const uint256& nullifier, const uint256& wtxid)
  * 
  * Records that a specific Orchard note is being spent by a transaction.
  * This function:
+ * - Removes any existing entries for this nullifier (during rescan)
  * - Adds the spending relationship to mapTxOrchardNullifiers
  * - Synchronizes metadata across all transactions that spend the same nullifier
  * 
@@ -3935,6 +3949,9 @@ void CWallet::AddToSaplingSpends(const uint256& nullifier, const uint256& wtxid)
  */
 void CWallet::AddToOrchardSpends(const uint256& nullifier, const uint256& wtxid)
 {
+    // Remove any existing entries for this nullifier to avoid duplicates during rescan
+    mapTxOrchardNullifiers.erase(nullifier);
+    
     mapTxOrchardNullifiers.insert(make_pair(nullifier, wtxid));
 
     pair<TxNullifiers::iterator, TxNullifiers::iterator> range;
@@ -6304,9 +6321,9 @@ bool CWallet::AddToWallet(const CWalletTx& wtxIn, bool fFromLoadWallet, CWalletD
         CWalletTx& wtx = (*ret.first).second;
         wtx.BindWallet(this);
         UpdateNullifierNoteMapWithTx(wtx);
+        AddToSpends(hash);
         bool fInsertedNew = ret.second;
         if (fInsertedNew) {
-            AddToSpends(hash);
             wtx.nOrderPos = IncOrderPosNext(pwalletdb);
         }
 
