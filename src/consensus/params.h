@@ -84,8 +84,6 @@ struct NetworkUpgrade {
     {
         READWRITE(nProtocolVersion);
         READWRITE(nActivationHeight);
-        READWRITE(ALWAYS_ACTIVE);
-        READWRITE(NO_ACTIVATION_HEIGHT);
     }
 };
 
@@ -182,6 +180,11 @@ struct Params {
         READWRITE(nPOSTargetSpacing);
         READWRITE(nMaxFutureBlockTime);
         READWRITE(nMinimumChainWork);
+        
+        // Serialize network upgrade information
+        for (int i = 0; i < MAX_NETWORK_UPGRADES; i++) {
+            READWRITE(vUpgrades[i]);
+        }
     }
 };
 
