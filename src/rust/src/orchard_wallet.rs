@@ -782,12 +782,8 @@ pub extern "C" fn orchard_is_note_tracked(
     let txid = TxId::from_bytes(*unsafe { txid.as_ref() }.expect("txid may not be null."));
 
     if let Some(position) = wallet.get_position_of_note(&txid, &tx_action_idx) {
-
-        let mut buf = [0; 8];
-        LittleEndian::write_u64(&mut buf, position.into());
-
         let position_out = unsafe { &mut *position_out };
-        *position_out = LittleEndian::read_u64(&buf);
+        *position_out = position.into();
         return true;
     }
 
