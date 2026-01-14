@@ -1155,12 +1155,12 @@ public:
 
     void ProcessSaplingBlockTransactions(const CBlockIndex* pblockindex, const CBlock* pblock);
     bool ValidateSaplingWalletTrackedPositions(const CBlockIndex* pindex);
-    void IncrementSaplingWallet(const CBlockIndex* pindex);
+    void IncrementSaplingWallet(const CBlockIndex* pindex, const CBlock* pblock = nullptr);
     void DecrementSaplingWallet(const CBlockIndex* pindex);
 
     void ProcessOrchardBlockTransactions(const CBlockIndex* pblockindex, const CBlock* pblock);
     bool ValidateOrchardWalletTrackedPositions(const CBlockIndex* pindex);
-    void IncrementOrchardWallet(const CBlockIndex* pindex);
+    void IncrementOrchardWallet(const CBlockIndex* pindex, const CBlock* pblock = nullptr);
     void DecrementOrchardWallet(const CBlockIndex* pindex);
 
 

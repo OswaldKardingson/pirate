@@ -4733,7 +4733,7 @@ bool CWallet::ValidateOrchardWalletTrackedPositions(const CBlockIndex* pindex) {
  * wallet synchronized with the blockchain state. It ensures that all
  * Sapling notes can be properly spent and that witnesses remain valid.
  */
-void CWallet::IncrementSaplingWallet(const CBlockIndex* pindex) {
+void CWallet::IncrementSaplingWallet(const CBlockIndex* pindex, const CBlock* pblock) {
 
     AssertLockHeld(cs_main);
     AssertLockHeld(cs_wallet);
@@ -4833,7 +4833,7 @@ void CWallet::IncrementSaplingWallet(const CBlockIndex* pindex) {
 
                 if (GetTime() >= nNow2 + 60) {
                     nNow2 = GetTime();
-                    LogPrintf("Rebuilding Witnesses for block %d. Progress=%f\n", pblockindex->nHeight, Checkpoints::GuessVerificationProgress(Params().Checkpoints(), pblockindex));
+                    LogPrintf("Rebuilding Sapling Wallet for block %d. Progress=%f\n", pblockindex->nHeight, Checkpoints::GuessVerificationProgress(Params().Checkpoints(), pblockindex));
                 }
 
                 //Report Progress to the GUI and log file
@@ -4842,10 +4842,10 @@ void CWallet::IncrementSaplingWallet(const CBlockIndex* pindex) {
                     nNow1 = GetTime();
                     if (!uiShown) {
                         uiShown = true;
-                        uiInterface.ShowProgress("Rebuilding Witnesses", 0, false);
+                        uiInterface.ShowProgress("Rebuilding Sapling Wallet", 0, false);
                     }
                     scanperc = (int)((Checkpoints::GuessVerificationProgress(chainParams.Checkpoints(), pblockindex, false) - dProgressStart) / (dProgressTip - dProgressStart) * 100);
-                    uiInterface.ShowProgress(_(("Rebuilding Witnesses for block " + std::to_string(witnessHeight) + "...").c_str()), std::max(1, std::min(99, scanperc)), false);
+                    uiInterface.ShowProgress(_(("Rebuilding Sapling Wallet for block " + std::to_string(witnessHeight) + "...").c_str()), std::max(1, std::min(99, scanperc)), false);
                 }
 
                 //exit loop if trying to shutdown
@@ -4869,17 +4869,19 @@ void CWallet::IncrementSaplingWallet(const CBlockIndex* pindex) {
             }
 
             if (uiShown) {
-                uiInterface.ShowProgress(_("Witness Cache Complete..."), 100, false);
+                uiInterface.ShowProgress(_("Sapling Wallet Rebuild Complete..."), 100, false);
             }
 
         } else {
 
             //Retrieve the full block to get all of the transaction commitments
-            CBlock block;
-            ReadBlockFromDisk(block, pindex, 1);
-            CBlock *pblock = &block;
-
-            ProcessSaplingBlockTransactions(pindex, pblock);
+            if (pblock == nullptr) {
+                CBlock block;
+                ReadBlockFromDisk(block, pindex, 1);
+                ProcessSaplingBlockTransactions(pindex, &block);
+            } else {
+                ProcessSaplingBlockTransactions(pindex, pblock);
+            }
         }
     }
 
@@ -4913,7 +4915,7 @@ void CWallet::IncrementSaplingWallet(const CBlockIndex* pindex) {
  * wallet synchronized with the blockchain state. It ensures that all
  * Orchard notes can be properly spent and that witnesses remain valid.
  */
-void CWallet::IncrementOrchardWallet(const CBlockIndex* pindex) {
+void CWallet::IncrementOrchardWallet(const CBlockIndex* pindex, const CBlock* pblock) {
 
     AssertLockHeld(cs_main);
     AssertLockHeld(cs_wallet);
@@ -5013,7 +5015,7 @@ void CWallet::IncrementOrchardWallet(const CBlockIndex* pindex) {
 
                 if (GetTime() >= nNow2 + 60) {
                     nNow2 = GetTime();
-                    LogPrintf("Rebuilding Orchard Witnesses for block %d. Progress=%f\n", pblockindex->nHeight, Checkpoints::GuessVerificationProgress(Params().Checkpoints(), pblockindex));
+                    LogPrintf("Rebuilding Orchard Wallet for block %d. Progress=%f\n", pblockindex->nHeight, Checkpoints::GuessVerificationProgress(Params().Checkpoints(), pblockindex));
                 }
 
                 //Report Progress to the GUI and log file
@@ -5022,10 +5024,10 @@ void CWallet::IncrementOrchardWallet(const CBlockIndex* pindex) {
                     nNow1 = GetTime();
                     if (!uiShown) {
                         uiShown = true;
-                        uiInterface.ShowProgress("Rebuilding Orchard Witnesses", 0, false);
+                        uiInterface.ShowProgress("Rebuilding Orchard Wallet", 0, false);
                     }
                     scanperc = (int)((Checkpoints::GuessVerificationProgress(chainParams.Checkpoints(), pblockindex, false) - dProgressStart) / (dProgressTip - dProgressStart) * 100);
-                    uiInterface.ShowProgress(_(("Rebuilding Orchard Witnesses for block " + std::to_string(witnessHeight) + "...").c_str()), std::max(1, std::min(99, scanperc)), false);
+                    uiInterface.ShowProgress(_(("Rebuilding Orchard Wallet for block " + std::to_string(witnessHeight) + "...").c_str()), std::max(1, std::min(99, scanperc)), false);
                 }
 
                 //exit loop if trying to shutdown
@@ -5055,11 +5057,13 @@ void CWallet::IncrementOrchardWallet(const CBlockIndex* pindex) {
         } else {
 
             //Retrieve the full block to get all of the transaction commitments
-            CBlock block;
-            ReadBlockFromDisk(block, pindex, 1);
-            CBlock *pblock = &block;
-
-            ProcessOrchardBlockTransactions(pindex, pblock);
+            if (pblock == nullptr) {
+                CBlock block;
+                ReadBlockFromDisk(block, pindex, 1);
+                ProcessOrchardBlockTransactions(pindex, &block);
+            } else {
+                ProcessOrchardBlockTransactions(pindex, pblock);
+            }
         }
     }
 
@@ -9394,8 +9398,6 @@ int CWallet::ScanForWalletTransactions(CBlockIndex* pindexStart, bool fUpdate, b
           OrchardWalletReset();
         }
 
-        bool firstLoop = true;
-
         while (pindex)
         {
             //exit loop if trying to shutdown
@@ -9442,37 +9444,26 @@ int CWallet::ScanForWalletTransactions(CBlockIndex* pindexStart, bool fUpdate, b
                 LogPrintf("Still rescanning. At block %d. Progress=%f\n", pindex->nHeight, Checkpoints::GuessVerificationProgress(chainParams.Checkpoints(), pindex));
             }
 
+            if (pindex->nHeight == chainActive.Tip()->nHeight) {
+                //Reset validation flags to force final validation of witness trees
+                //on last loop
+                saplingWalletValidated = false;
+                saplingWalletPositionsValidated = false;
+                orchardWalletValidated = false;
+                orchardWalletPositionsValidated = false;
+            }
+
             //Update the Sapling and Orchard Wallet Merkle tree and set transaction nullifiers
             //This needs to be done after processing the block to ensure
             //that subsequent spends can be detected
-            if (firstLoop) {
-                // First iteration: use full Increment functions to initialize witness trees
-                IncrementSaplingWallet(pindex);
-                IncrementOrchardWallet(pindex);
-                firstLoop = false;
-            } else {
-                // Subsequent iterations: use lightweight Process functions
-                CBlock *pblock = &block;
-                ProcessSaplingBlockTransactions(pindex, pblock);
-                ProcessOrchardBlockTransactions(pindex, pblock);
-            }
+            IncrementSaplingWallet(pindex, &block);
+            IncrementOrchardWallet(pindex, &block);
 
             pindex = chainActive.Next(pindex);
+            
         }
 
         uiInterface.ShowProgress(_("Rescanning..."), 100, false); // hide progress dialog in GUI
-
-        //Reset validation flags to force final validation of witness trees
-        saplingWalletValidated = false;
-        saplingWalletPositionsValidated = false;
-        orchardWalletValidated = false;
-        orchardWalletPositionsValidated = false;
-
-        //Update the Sapling Wallet Merkle tree
-        ValidateSaplingWalletTrackedPositions(chainActive.Tip());
-
-        //Update the Orchard Wallet Merkle tree
-        ValidateOrchardWalletTrackedPositions(chainActive.Tip());
 
         //Write all transactions ant block loacator to the wallet
         currentBlock = chainActive.GetLocator();
