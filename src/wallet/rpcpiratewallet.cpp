@@ -148,12 +148,53 @@ void getSaplingSpends(const Consensus::Params& params, int nHeight, RpcTx& tx, s
         }
         SaplingOutPoint op = (*opit).second;
 
-        // Get Tx from files
-        sapling::Output* output;
+        // Get parent transaction and check output validity
         const CWalletTx* parentwtx = pwalletMain->GetWalletTx(op.hash);
         if (parentwtx != NULL) {
             auto vOutputs = parentwtx->GetSaplingOutputs();
-            output = &vOutputs[op.n];
+            
+            // Check if the output index is valid
+            if (op.n >= vOutputs.size()) {
+                continue;
+            }
+            
+            // Access the output directly from the returned const reference
+            const sapling::Output& output = vOutputs[op.n];
+
+            for (std::set<uint256>::iterator it = ivks.begin(); it != ivks.end(); it++) {
+                auto ivk = SaplingIncomingViewingKey(*it);
+
+                // Cipher Text
+                libzcash::SaplingEncCiphertext encCiphertext;
+                auto rustEncCiphertext = output.enc_ciphertext();
+                std::memcpy(&encCiphertext, &rustEncCiphertext, 580);
+
+                auto ephemeralKey = uint256::FromRawBytes(output.ephemeral_key());
+                auto cmu = uint256::FromRawBytes(output.cmu());
+
+                auto pt = libzcash::SaplingNotePlaintext::decrypt(params, nHeight,
+                                                                  encCiphertext, ivk, ephemeralKey, cmu);
+
+                if (pt) {
+                    ivksOut.insert(ivk);
+                    auto note = pt.value();
+                    auto pa = ivk.address(note.d);
+                    auto address = pa.value();
+                    spend.encodedAddress = EncodePaymentAddress(address);
+                    spend.amount = note.value();
+                    spend.spendShieldedOutputIndex = (int)op.n;
+                    spend.spendTxid = op.hash.ToString();
+
+                    libzcash::SaplingExtendedFullViewingKey extfvk;
+                    pwalletMain->GetSaplingFullViewingKey(ivk, extfvk);
+                    spend.spendable = pwalletMain->HaveSaplingSpendingKey(extfvk);
+
+                    if (spend.spendable || fIncludeWatchonly)
+                        vSpend.push_back(spend);
+                    // ivk found no need ot try anymore
+                    break;
+                }
+            }
         } else {
             map<uint256, ArchiveTxPoint>::iterator it = pwalletMain->mapArcTxs.find(op.hash);
             if (it != pwalletMain->mapArcTxs.end()) {
@@ -182,44 +223,51 @@ void getSaplingSpends(const Consensus::Params& params, int nHeight, RpcTx& tx, s
                     }
                 }
 
-                // Get Output
+                // Get Output and use immediately
                 auto vOutputs = parentctx.GetSaplingOutputs();
-                output = &vOutputs[op.n];
-            }
-        }
+                
+                // Check if the output index is valid
+                if (op.n >= vOutputs.size()) {
+                    continue;
+                }
+                
+                // Access the output directly from the returned const reference
+                const sapling::Output& output = vOutputs[op.n];
 
-        for (std::set<uint256>::iterator it = ivks.begin(); it != ivks.end(); it++) {
-            auto ivk = SaplingIncomingViewingKey(*it);
+                for (std::set<uint256>::iterator it = ivks.begin(); it != ivks.end(); it++) {
+                    auto ivk = SaplingIncomingViewingKey(*it);
 
-            // Cipher Text
-            libzcash::SaplingEncCiphertext encCiphertext;
-            auto rustEncCiphertext = output->enc_ciphertext();
-            std::memcpy(&encCiphertext, &rustEncCiphertext, 580);
+                    // Cipher Text
+                    libzcash::SaplingEncCiphertext encCiphertext;
+                    auto rustEncCiphertext = output.enc_ciphertext();
+                    std::memcpy(&encCiphertext, &rustEncCiphertext, 580);
 
-            auto ephemeralKey = uint256::FromRawBytes(output->ephemeral_key());
-            auto cmu = uint256::FromRawBytes(output->cmu());
+                    auto ephemeralKey = uint256::FromRawBytes(output.ephemeral_key());
+                    auto cmu = uint256::FromRawBytes(output.cmu());
 
-            auto pt = libzcash::SaplingNotePlaintext::decrypt(params, nHeight,
-                                                              encCiphertext, ivk, ephemeralKey, cmu);
+                    auto pt = libzcash::SaplingNotePlaintext::decrypt(params, nHeight,
+                                                                      encCiphertext, ivk, ephemeralKey, cmu);
 
-            if (pt) {
-                ivksOut.insert(ivk);
-                auto note = pt.value();
-                auto pa = ivk.address(note.d);
-                auto address = pa.value();
-                spend.encodedAddress = EncodePaymentAddress(address);
-                spend.amount = note.value();
-                spend.spendShieldedOutputIndex = (int)op.n;
-                spend.spendTxid = op.hash.ToString();
+                    if (pt) {
+                        ivksOut.insert(ivk);
+                        auto note = pt.value();
+                        auto pa = ivk.address(note.d);
+                        auto address = pa.value();
+                        spend.encodedAddress = EncodePaymentAddress(address);
+                        spend.amount = note.value();
+                        spend.spendShieldedOutputIndex = (int)op.n;
+                        spend.spendTxid = op.hash.ToString();
 
-                libzcash::SaplingExtendedFullViewingKey extfvk;
-                pwalletMain->GetSaplingFullViewingKey(ivk, extfvk);
-                spend.spendable = pwalletMain->HaveSaplingSpendingKey(extfvk);
+                        libzcash::SaplingExtendedFullViewingKey extfvk;
+                        pwalletMain->GetSaplingFullViewingKey(ivk, extfvk);
+                        spend.spendable = pwalletMain->HaveSaplingSpendingKey(extfvk);
 
-                if (spend.spendable || fIncludeWatchonly)
-                    vSpend.push_back(spend);
-                // ivk found no need ot try anymore
-                break;
+                        if (spend.spendable || fIncludeWatchonly)
+                            vSpend.push_back(spend);
+                        // ivk found no need ot try anymore
+                        break;
+                    }
+                }
             }
         }
     }
@@ -405,12 +453,43 @@ void getOrchardSpends(const Consensus::Params& params, int nHeight, RpcTx& tx, s
         }
         OrchardOutPoint op = (*opit).second;
 
-        // Get Tx from files
-        orchard_bundle::Action* rustAction;
+        // Get parent transaction and check action validity
         const CWalletTx* parentwtx = pwalletMain->GetWalletTx(op.hash);
         if (parentwtx != NULL) {
             auto vActions = parentwtx->GetOrchardActions();
-            rustAction = &vActions[op.n];
+            
+            // Check if the action index is valid
+            if (op.n >= vActions.size()) {
+                continue;
+            }
+            
+            // Access the action directly from the returned const reference
+            const orchard_bundle::Action& rustAction = vActions[op.n];
+
+            for (std::set<OrchardIncomingViewingKeyPirate>::iterator it = ivks.begin(); it != ivks.end(); it++) {
+                auto ivk = *it;
+                auto pt = OrchardNotePlaintext::AttemptDecryptOrchardAction(&rustAction, ivk);
+
+                if (pt) {
+                    auto note = pt.value();
+                    auto memo = note.memo();
+
+                    ivksOut.insert(ivk);
+                    spend.encodedAddress = EncodePaymentAddress(note.GetAddress());
+                    spend.amount = note.value();
+                    spend.spendShieldedActionIndex = (int)op.n;
+                    spend.spendTxid = op.hash.ToString();
+
+                    libzcash::OrchardExtendedFullViewingKeyPirate extfvk;
+                    pwalletMain->GetOrchardFullViewingKey(ivk, extfvk);
+                    spend.spendable = pwalletMain->HaveOrchardSpendingKey(extfvk);
+
+                    if (spend.spendable || fIncludeWatchonly)
+                        vSpend.push_back(spend);
+                    // ivk found no need ot try anymore
+                    break;
+                }
+            }
         } else {
             map<uint256, ArchiveTxPoint>::iterator it = pwalletMain->mapArcTxs.find(op.hash);
             if (it != pwalletMain->mapArcTxs.end()) {
@@ -439,34 +518,41 @@ void getOrchardSpends(const Consensus::Params& params, int nHeight, RpcTx& tx, s
                     }
                 }
 
-                // Get Output
+                // Get Action and use immediately
                 auto vActions = parentctx.GetOrchardActions();
-                rustAction = &vActions[op.n];
-            }
-        }
+                
+                // Check if the action index is valid
+                if (op.n >= vActions.size()) {
+                    continue;
+                }
+                
+                // Access the action directly from the returned const reference
+                const orchard_bundle::Action& rustAction = vActions[op.n];
 
-        for (std::set<OrchardIncomingViewingKeyPirate>::iterator it = ivks.begin(); it != ivks.end(); it++) {
-            auto ivk = *it;
-            auto pt = OrchardNotePlaintext::AttemptDecryptOrchardAction(rustAction, ivk);
+                for (std::set<OrchardIncomingViewingKeyPirate>::iterator it = ivks.begin(); it != ivks.end(); it++) {
+                    auto ivk = *it;
+                    auto pt = OrchardNotePlaintext::AttemptDecryptOrchardAction(&rustAction, ivk);
 
-            if (pt) {
-                auto note = pt.value();
-                auto memo = note.memo();
+                    if (pt) {
+                        auto note = pt.value();
+                        auto memo = note.memo();
 
-                ivksOut.insert(ivk);
-                spend.encodedAddress = EncodePaymentAddress(note.GetAddress());
-                spend.amount = note.value();
-                spend.spendShieldedActionIndex = (int)op.n;
-                spend.spendTxid = op.hash.ToString();
+                        ivksOut.insert(ivk);
+                        spend.encodedAddress = EncodePaymentAddress(note.GetAddress());
+                        spend.amount = note.value();
+                        spend.spendShieldedActionIndex = (int)op.n;
+                        spend.spendTxid = op.hash.ToString();
 
-                libzcash::OrchardExtendedFullViewingKeyPirate extfvk;
-                pwalletMain->GetOrchardFullViewingKey(ivk, extfvk);
-                spend.spendable = pwalletMain->HaveOrchardSpendingKey(extfvk);
+                        libzcash::OrchardExtendedFullViewingKeyPirate extfvk;
+                        pwalletMain->GetOrchardFullViewingKey(ivk, extfvk);
+                        spend.spendable = pwalletMain->HaveOrchardSpendingKey(extfvk);
 
-                if (spend.spendable || fIncludeWatchonly)
-                    vSpend.push_back(spend);
-                // ivk found no need ot try anymore
-                break;
+                        if (spend.spendable || fIncludeWatchonly)
+                            vSpend.push_back(spend);
+                        // ivk found no need ot try anymore
+                        break;
+                    }
+                }
             }
         }
     }
