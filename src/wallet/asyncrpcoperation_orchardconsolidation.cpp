@@ -147,6 +147,7 @@ bool AsyncRPCOperation_orchardconsolidation::main_impl()
 
     // Main consolidation loop - process up to 50 rounds
     for (int roundIndex = 0; roundIndex < 50; roundIndex++) {
+        LOCK2(cs_main, pwalletMain->cs_wallet);
         // Reset flag for each round
         roundComplete = false;
         
@@ -158,7 +159,6 @@ bool AsyncRPCOperation_orchardconsolidation::main_impl()
         std::map<std::pair<int, int>, OrchardNoteEntry> sortedEntriesMap;
         
         {
-            LOCK2(cs_main, pwalletMain->cs_wallet);
             consolidationTarget = pwalletMain->targetOrchardConsolidationQty;
             
             // Get filtered Orchard notes with minimum depth of 11 for stability
@@ -274,7 +274,6 @@ bool AsyncRPCOperation_orchardconsolidation::main_impl()
                 int expirationHeight = 0;
                 
                 {
-                    LOCK2(cs_main, pwalletMain->cs_wallet);
                     expirationHeight = chainActive.Tip()->nHeight + ORCHARD_CONSOLIDATION_EXPIRY_DELTA;
                     transactionBuilder.SetExpiryHeight(expirationHeight);
 
@@ -412,7 +411,6 @@ bool AsyncRPCOperation_orchardconsolidation::main_impl()
     if (roundComplete) {
         // All addresses now have single notes - consolidation complete
         // No more consolidation is possible or beneficial
-        LOCK2(cs_main, pwalletMain->cs_wallet);
         pwalletMain->nextOrchardConsolidation = pwalletMain->orchardConsolidationInterval + chainActive.Tip()->nHeight;
         pwalletMain->fOrchardConsolidationRunning = false;
     }

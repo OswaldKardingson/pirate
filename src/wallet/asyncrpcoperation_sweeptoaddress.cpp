@@ -178,6 +178,7 @@ void AsyncRPCOperation_sweeptoaddress::main()
  */
 bool AsyncRPCOperation_sweeptoaddress::main_impl()
 {
+    LOCK2(cs_main, pwalletMain->cs_wallet);
     LogPrint("zrpcunsafe", "%s: Beginning asyncrpcoperation_sweeptoaddress.\n", getId());
     auto consensusParams = Params().GetConsensus();
     auto nextActivationHeight = NextActivationHeight(targetHeight_, consensusParams);
@@ -197,7 +198,6 @@ bool AsyncRPCOperation_sweeptoaddress::main_impl()
     bool hasOrchardTarget = false;
 
     {
-        LOCK2(cs_main, pwalletMain->cs_wallet);
         // We set minDepth to 11 to avoid unconfirmed notes and in anticipation of specifying
         // an anchor at height N-10 for each Sprout JoinSplit description
         // Consider, should notes be sorted?
@@ -360,7 +360,6 @@ bool AsyncRPCOperation_sweeptoaddress::main_impl()
         
         auto saplingBuilder = TransactionBuilder(consensusParams, targetHeight_, pwalletMain);
         {
-            LOCK2(cs_main, pwalletMain->cs_wallet);
             saplingBuilder.SetExpiryHeight(chainActive.Tip()->nHeight + SWEEP_EXPIRY_DELTA);
 
             LogPrint("zrpcunsafe", "%s: Creating Sapling sweep transaction with output amount=%s from spending key\n", getId(), FormatMoney(saplingAmountToSend - saplingFee));
@@ -467,7 +466,6 @@ bool AsyncRPCOperation_sweeptoaddress::main_impl()
         
         auto orchardBuilder = TransactionBuilder(consensusParams, targetHeight_, pwalletMain);
         {
-            LOCK2(cs_main, pwalletMain->cs_wallet);
             orchardBuilder.SetExpiryHeight(chainActive.Tip()->nHeight + SWEEP_EXPIRY_DELTA);
 
             LogPrint("zrpcunsafe", "%s: Creating Orchard sweep transaction with %d notes, output amount=%s\n", getId(), orchardSweepInputs.size(), FormatMoney(orchardAmountToSend - orchardFee));

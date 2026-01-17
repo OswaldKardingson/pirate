@@ -144,6 +144,7 @@ bool AsyncRPCOperation_saplingconsolidation::main_impl()
 
     // Main consolidation loop - process up to 50 rounds
     for (int roundIndex = 0; roundIndex < 50; roundIndex++) {
+        LOCK2(cs_main, pwalletMain->cs_wallet);
         // Reset flag for each round
         roundComplete = false;
         
@@ -155,7 +156,7 @@ bool AsyncRPCOperation_saplingconsolidation::main_impl()
         std::map<std::pair<int, int>, SaplingNoteEntry> sortedEntriesMap;
         
         {
-            LOCK2(cs_main, pwalletMain->cs_wallet);
+            
             consolidationTarget = pwalletMain->targetSaplingConsolidationQty;
             
             // Get filtered notes with minimum depth of 11 for stability
@@ -273,7 +274,6 @@ bool AsyncRPCOperation_saplingconsolidation::main_impl()
                 int expirationHeight = 0;
                 
                 {
-                    LOCK2(cs_main, pwalletMain->cs_wallet);
                     expirationHeight = chainActive.Tip()->nHeight + SAPLING_CONSOLIDATION_EXPIRY_DELTA;
                     transactionBuilder.SetExpiryHeight(expirationHeight);
 
@@ -366,7 +366,6 @@ bool AsyncRPCOperation_saplingconsolidation::main_impl()
 
     // Check if consolidation is complete (no more addresses with multiple notes)
     if (roundComplete) {
-        LOCK2(cs_main, pwalletMain->cs_wallet);
         // Schedule next consolidation at regular interval
         pwalletMain->nextSaplingConsolidation = pwalletMain->saplingConsolidationInterval + chainActive.Tip()->nHeight;
         pwalletMain->fSaplingConsolidationRunning = false;
