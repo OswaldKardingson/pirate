@@ -381,6 +381,7 @@ void getHttpsJson(std::string url, JsonDownload *reply, int headerType)
           break;
       case CMC_HEADERS:
           headers = curl_slist_append(headers, "Accept: application/json");
+          headers = curl_slist_append(headers, "User-Agent: Pirate");
           break;
       case GITHUB_HEADERS:
           headers = curl_slist_append(headers, "Accept: application/vnd.github+json");
