@@ -1214,7 +1214,7 @@ ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue,
                 if (strType == "tx") {
                     ssKey >> hash;
                     ssValue >> wtx;
-                    LogPrintf("Deserializing TX %s\n", hash.ToString());
+                    LogPrint("walletdb","Deserializing TX %s\n", hash.ToString());
                 } else {
                     uint256 chash;
                     ssKey >> chash;
@@ -2515,7 +2515,7 @@ DBErrors CWalletDB::LoadWallet(CWallet* pwallet)
     LogPrintf("SaplingKeys: %u plaintext, %u w/metadata\n",
            wss.nSaplingKeys, wss.nSaplingKeyMeta);
 
-     LogPrintf("SaplingKeys: %u encrypted, %u w/encrypted metadata\n",
+    LogPrintf("SaplingKeys: %u encrypted, %u w/encrypted metadata\n",
            wss.nCSaplingKeys, wss.nCSaplingKeyMeta);
 
     LogPrintf("Sapling Addresses: %u \n",wss.nSaplingAddrs);
@@ -2524,7 +2524,7 @@ DBErrors CWalletDB::LoadWallet(CWallet* pwallet)
     LogPrintf("OrchardKeys: %u plaintext, %u w/metadata\n",
            wss.nOrchardKeys, wss.nOrchardKeyMeta);
 
-     LogPrintf("OrchardKeys: %u encrypted, %u w/encrypted metadata\n",
+    LogPrintf("OrchardKeys: %u encrypted, %u w/encrypted metadata\n",
            wss.nCOrchardKeys, wss.nCOrchardKeyMeta);
 
     LogPrintf("Orchard Addresses: %u \n",wss.nOrchardAddrs);
