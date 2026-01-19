@@ -670,7 +670,11 @@ static void BlockNotifyCallback(bool initialSync, const CBlockIndex *pBlockIndex
     std::string strCmd = GetArg("-blocknotify", "");
     if (!strCmd.empty()) {
         boost::replace_all(strCmd, "%s", pBlockIndex->GetBlockHash().GetHex());
+#ifdef ENABLE_SYSTEM_COMMAND
         boost::thread t(runCommand, strCmd); // thread runs free
+#else
+        LogPrintf("Block notification skipped: %s\nTo enable, rebuild with: ./configure CXXFLAGS=\"-DENABLE_SYSTEM_COMMAND\"\n", strCmd);
+#endif
     }
 }
 

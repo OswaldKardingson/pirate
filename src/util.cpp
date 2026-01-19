@@ -983,12 +983,14 @@ boost::filesystem::path GetTempPath() {
 #endif
 }
 
+#ifdef ENABLE_SYSTEM_COMMAND
 void runCommand(const std::string& strCommand)
 {
     int nErr = ::system(strCommand.c_str());
     if (nErr)
         LogPrintf("runCommand error: system(%s) returned %d\n", strCommand, nErr);
 }
+#endif
 
 void RenameThread(const char* name)
 {
