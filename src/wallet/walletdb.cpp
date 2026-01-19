@@ -1159,7 +1159,7 @@ ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue,
         // is just the two items serialized one after the other
         ssKey >> strType;
 
-        LogPrintf("Loading type %s\n", strType);
+        LogPrint("walletdb","Loading type %s\n", strType);
 
         //General Wallet Info
         if (strType == "hdseed") // encypted type is chdseed
