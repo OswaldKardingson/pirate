@@ -2803,7 +2803,7 @@ bool CAddrDB::Read(CAddrMan& addr)
     CDataStream ssPeers(vchData, SER_DISK, CLIENT_VERSION);
 
     // verify stored checksum matches input data
-    uint256 hashTmp = Hash(ssPeers.begin() + CMessageHeader::HEADER_SIZE, ssPeers.end());
+    uint256 hashTmp = Hash(ssPeers.begin(), ssPeers.end());
     if (hashIn != hashTmp)
         return error("%s: Checksum mismatch, data corrupted", __func__);
 
