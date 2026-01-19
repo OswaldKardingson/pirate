@@ -533,7 +533,7 @@ std::string HelpMessage(HelpMessageMode mode)
     strUsage += HelpMessageOpt("-paytxfee=<amt>", strprintf(_("Fee (in %s/kB) to add to transactions you send (default: %s)"),
         CURRENCY_UNIT, FormatMoney(payTxFee.GetFeePerK())));
     strUsage += HelpMessageOpt("-rescan", _("Rescan the block chain for missing wallet transactions") + " " + _("on startup"));
-    strUsage += HelpMessageOpt("-rescanheight", _("Rescan the block chain from the specified height when rescan=1 on startup"));
+    strUsage += HelpMessageOpt("-rescanheight", _("Start block height for rescanning (works with -rescan, -zapwallettxes, or GUI rescan). Default: 0 (genesis)"));
     strUsage += HelpMessageOpt("-salvagewallet", _("Attempt to recover private keys from a corrupt wallet.dat") + " " + _("on startup"));
     strUsage += HelpMessageOpt("-sendfreetransactions", strprintf(_("Send transactions as zero-fee transactions if possible (default: %u)"), 0));
     strUsage += HelpMessageOpt("-spendzeroconfchange", strprintf(_("Spend unconfirmed change when sending transactions (default: %u)"), 1));
@@ -2665,8 +2665,10 @@ bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
             if (chainActive.Tip() && rescanHeight > 0) {
                 if (rescanHeight > chainActive.Tip()->nHeight) {
                     pindexRescan = chainActive.Tip();
+                    LogPrintf("Rescan height %d exceeds chain tip, starting from tip at height %d\n", rescanHeight, pindexRescan->nHeight);
                 } else {
                     pindexRescan = chainActive[rescanHeight];
+                    LogPrintf("Starting rescan from specified height %d\n", rescanHeight);
                 }
             }
         }
