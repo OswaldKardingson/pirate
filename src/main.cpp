@@ -6808,13 +6808,13 @@ CBlockIndex * InsertBlockIndex(uint256 hash)
 bool static LoadBlockIndexDB()
 {
     const CChainParams& chainparams = Params();
-    LogPrintf("%s: start loading guts\n", __func__);
+    LogPrintf("%s: Start Loading Block Index.\n", __func__);
     {
         LOCK(cs_main);
         if (!pblocktree->LoadBlockIndexGuts())
             return false;
     }
-    LogPrintf("%s: loaded guts\n", __func__);
+    LogPrintf("%s: Block Index Loaded.\n", __func__);
     boost::this_thread::interruption_point();
 
     // Calculate nChainWork
@@ -6827,7 +6827,7 @@ bool static LoadBlockIndexDB()
     }
     sort(vSortedByHeight.begin(), vSortedByHeight.end());
 
-    uiInterface.ShowProgress(_("Loading block index DB..."), 0, false);
+    uiInterface.ShowProgress(_("Updating Chain Values..."), 0, false);
     int cur_height_num = 0;
 
     for (const std::pair<int, CBlockIndex*>& item : vSortedByHeight)
@@ -6929,7 +6929,7 @@ bool static LoadBlockIndexDB()
         if (pindex->IsValid(BLOCK_VALID_TREE) && (pindexBestHeader == NULL || CBlockIndexWorkComparator()(pindexBestHeader, pindex)))
             pindexBestHeader = pindex;
 
-        uiInterface.ShowProgress(_("Loading block index DB..."), (int)((double)(cur_height_num*100)/(double)(vSortedByHeight.size())), false);
+        uiInterface.ShowProgress(_("Updating Chain Values..."), (int)((double)(cur_height_num*100)/(double)(vSortedByHeight.size())), false);
         cur_height_num++;
     }
 
