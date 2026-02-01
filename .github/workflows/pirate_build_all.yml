@@ -322,9 +322,13 @@ jobs:
         run: |
           mkdir -p dist
           zip -j "dist/pirate-qt-ubuntu2004-v${VERSION}.zip" pirate-qt-linux
+          deb_version="${VERSION}"
+          if [[ "${VERSION}" == dev-* ]]; then
+            deb_version="0.0.0~${VERSION}"
+          fi
           debdir="bin/pirate-qt-ubuntu1804-v${VERSION}"
           mkdir -p "$debdir/DEBIAN" "$debdir/usr/local/bin" "$debdir/usr/share/pixmaps" "$debdir/usr/share/applications"
-          sed "s/RELEASE_VERSION/${VERSION}/g" zcutil/deb/control_amd64 > "$debdir/DEBIAN/control"
+          sed "s/RELEASE_VERSION/${deb_version}/g" zcutil/deb/control_amd64 > "$debdir/DEBIAN/control"
           cp pirate-qt-linux "$debdir/usr/local/bin/pirate-qt"
           cp zcutil/deb/pirate.xpm "$debdir/usr/share/pixmaps/"
           cp zcutil/deb/desktopentry "$debdir/usr/share/applications/pirate-qt.desktop"
@@ -453,9 +457,13 @@ jobs:
         run: |
           mkdir -p dist
           zip -j "dist/pirate-qt-aarch64-v${VERSION}.zip" pirate-qt-arm
+          deb_version="${VERSION}"
+          if [[ "${VERSION}" == dev-* ]]; then
+            deb_version="0.0.0~${VERSION}"
+          fi
           debdir="bin/pirate-qt-aarch64-v${VERSION}"
           mkdir -p "$debdir/DEBIAN" "$debdir/usr/local/bin" "$debdir/usr/share/pixmaps" "$debdir/usr/share/applications"
-          sed "s/RELEASE_VERSION/${VERSION}/g" zcutil/deb/control_aarch64 > "$debdir/DEBIAN/control"
+          sed "s/RELEASE_VERSION/${deb_version}/g" zcutil/deb/control_aarch64 > "$debdir/DEBIAN/control"
           cp pirate-qt-arm "$debdir/usr/local/bin/pirate-qt"
           cp zcutil/deb/pirate.xpm "$debdir/usr/share/pixmaps/"
           cp zcutil/deb/desktopentry "$debdir/usr/share/applications/piratewallet-qt.desktop"
