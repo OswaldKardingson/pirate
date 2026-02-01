@@ -1,6 +1,6 @@
 --- a/qtbase/src/3rdparty/libpng/png.c
 +++ b/qtbase/src/3rdparty/libpng/png.c
-@@
+@@ -1,1 +1,2 @@
 -#include "pngpriv.h"
 +#include "pngpriv.h"
 +#include <math.h>
