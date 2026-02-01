@@ -12,6 +12,7 @@ $(package)_config_opts+=AR="$($(package)_ar)"
 $(package)_config_opts_darwin+=AR="$($(package)_libtool)"
 $(package)_config_opts_darwin+=ARFLAGS="-o"
 $(package)_config_opts_android+=CHOST=$(host)
+$(package)_cppflags_darwin+=-DHAVE_STDIO_H
 endef
 
 # zlib has its own custom configure script that takes in options like CC,
