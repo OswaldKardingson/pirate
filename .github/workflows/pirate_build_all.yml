@@ -274,6 +274,9 @@ jobs:
       BUILD: x86_64-unknown-linux-gnu
     steps:
       - uses: actions/checkout@v4
+      - name: Ensure parent depends alias
+        shell: bash
+        run: ln -sfn "$PWD/depends" "$PWD/../depends"
       - name: Set version
         shell: bash
         run: |
