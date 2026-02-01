@@ -21,6 +21,9 @@ jobs:
   cli-linux:
     name: CLI (Linux x86_64)
     runs-on: ubuntu-latest
+    env:
+      HOST: x86_64-unknown-linux-gnu
+      BUILD: x86_64-unknown-linux-gnu
     steps:
       - uses: actions/checkout@v4
       - name: Set version
@@ -151,6 +154,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Ensure AArch64 host alias
+        run: ln -sfn aarch64-linux-gnu depends/aarch64-unknown-linux-gnu
       - name: Set version
         shell: bash
         run: |
@@ -245,6 +250,9 @@ jobs:
   qt-linux:
     name: QT (Linux x86_64)
     runs-on: ubuntu-latest
+    env:
+      HOST: x86_64-unknown-linux-gnu
+      BUILD: x86_64-unknown-linux-gnu
     steps:
       - uses: actions/checkout@v4
       - name: Set version
@@ -365,6 +373,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Ensure AArch64 host alias
+        run: ln -sfn aarch64-linux-gnu depends/aarch64-unknown-linux-gnu
       - name: Set version
         shell: bash
         run: |
