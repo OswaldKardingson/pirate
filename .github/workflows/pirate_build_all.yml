@@ -580,13 +580,24 @@ jobs:
       - name: Import GPG signing key
         env:
           PIRATE_GPG_PRIVATE_KEY: ${{ secrets.PIRATE_GPG_PRIVATE_KEY }}
+          PIRATE_GPG_PASSPHRASE: ${{ secrets.PIRATE_GPG_PASSPHRASE }}
         run: |
           if [ -z "$PIRATE_GPG_PRIVATE_KEY" ]; then
             echo "Missing PIRATE_GPG_PRIVATE_KEY secret."
             exit 1
           fi
-          echo "$PIRATE_GPG_PRIVATE_KEY" | gpg --batch --import
+          if [ -z "$PIRATE_GPG_PASSPHRASE" ]; then
+            echo "Missing PIRATE_GPG_PASSPHRASE secret."
+            exit 1
+          fi
+          mkdir -p ~/.gnupg
+          chmod 700 ~/.gnupg
+          echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf
+          gpgconf --kill gpg-agent
+          echo "$PIRATE_GPG_PRIVATE_KEY" | gpg --batch --pinentry-mode loopback --passphrase "$PIRATE_GPG_PASSPHRASE" --import
       - name: Sign artifacts
+        env:
+          PIRATE_GPG_PASSPHRASE: ${{ secrets.PIRATE_GPG_PASSPHRASE }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           ./zcutil/signbinaries.sh --version "$VERSION"
