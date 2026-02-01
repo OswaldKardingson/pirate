@@ -126,7 +126,8 @@ jobs:
             liblz4-dev \
             zip \
             gcc-mingw-w64-x86-64-posix \
-            g++-mingw-w64-x86-64-posix
+            g++-mingw-w64-x86-64-posix \
+            binutils-mingw-w64-x86-64
       - name: Build daemon (cross)
         run: |
           chmod +x zcutil/build-win.sh
@@ -343,7 +344,8 @@ jobs:
             liblz4-dev \
             zip \
             gcc-mingw-w64-x86-64-posix \
-            g++-mingw-w64-x86-64-posix
+            g++-mingw-w64-x86-64-posix \
+            binutils-mingw-w64-x86-64
       - name: Build QT (Windows cross)
         run: |
           chmod +x zcutil/build-qt-win.sh
