@@ -23,8 +23,8 @@ define $(package)_set_vars
 endef
 endif
 
-$(package)_config_env_mingw32=CPPFLAGS="-I$(host_prefix)/include" LDFLAGS="-L$(host_prefix)/lib" LIBS="-lssl -lcrypto -lz -lws2_32 -lcrypt32"
-$(package)_config_env_mingw64=CPPFLAGS="-I$(host_prefix)/include" LDFLAGS="-L$(host_prefix)/lib" LIBS="-lssl -lcrypto -lz -lws2_32 -lcrypt32"
+$(package)_config_env_mingw32=CC="$($(package)_cc)" CFLAGS="$($(package)_cflags)" CPPFLAGS="-I$(host_prefix)/include" LDFLAGS="-L$(host_prefix)/lib" LIBS="-lssl -lcrypto -lz -lws2_32 -lcrypt32"
+$(package)_config_env_mingw64=CC="$($(package)_cc)" CFLAGS="$($(package)_cflags)" CPPFLAGS="-I$(host_prefix)/include" LDFLAGS="-L$(host_prefix)/lib" LIBS="-lssl -lcrypto -lz -lws2_32 -lcrypt32"
 
 
 define $(package)_config_cmds
