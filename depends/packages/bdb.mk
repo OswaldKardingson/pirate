@@ -32,7 +32,9 @@ define $(package)_preprocess_cmds
 endef
 else ifeq ($(host_os),mingw32)
 define $(package)_preprocess_cmds
-	sed -i "s/WinIoCtl.h/winioctl.h/g" src/dbinc/win_db.h
+	sed -i "s/WinIoCtl.h/winioctl.h/g" src/dbinc/win_db.h && \
+	test -f src/dbinc/db_int.h && sed -i -e 's@^[[:space:]]*#include <sys/uio.h>@/* #include <sys/uio.h> */@' src/dbinc/db_int.h || true && \
+	test -f src/dbinc/db_int.in && sed -i -e 's@^[[:space:]]*#include <sys/uio.h>@/* #include <sys/uio.h> */@' src/dbinc/db_int.in || true
 endef
 endif
 
