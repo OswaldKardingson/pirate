@@ -44,7 +44,7 @@ case @host_os@ in
     if test -z $with_qt_libdir; then
       with_qt_libdir=$depends_prefix/lib
     fi
-    LIBS="-lssl -lcrypto -lz -lws2_32 -lcrypt32 $LIBS"
+    LIBS="-lssl -lcrypto -lz -lws2_32 -lcrypt32 -lwinmm -lwldap32 $LIBS"
   ;;
 esac
 
