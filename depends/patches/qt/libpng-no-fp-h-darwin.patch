@@ -1,6 +1,6 @@
---- a/src/3rdparty/libpng/pngpriv.h
-+++ b/src/3rdparty/libpng/pngpriv.h
-@@
+--- a/qtbase/src/3rdparty/libpng/pngpriv.h
++++ b/qtbase/src/3rdparty/libpng/pngpriv.h
+@@ -1,1 +1,3 @@
 -#      include <fp.h>
 +#      if !defined(__APPLE__)
 +#      include <fp.h>
