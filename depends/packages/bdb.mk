@@ -35,6 +35,7 @@ define $(package)_preprocess_cmds
   sed -i.old 's/WinIoCtl.h/winioctl.h/g' src/dbinc/win_db.h && \
   sed -i.old 's/__atomic_compare_exchange\\(/__atomic_compare_exchange_db(/' src/dbinc/atomic.h && \
   sed -i.old 's/atomic_init/atomic_init_db/' src/dbinc/atomic.h src/mp/mp_region.c src/mp/mp_mvcc.c src/mp/mp_fget.c src/mutex/mut_method.c src/mutex/mut_tas.c && \
+  sed -i.old 's/mkdir(name, DB_MODE_700)/mkdir(name)/' src/os/os_mkdir.c && \
   test -f src/dbinc/db_int.h && sed -i.old -e 's@^[[:space:]]*#include <sys/uio.h>@/* #include <sys/uio.h> */@' src/dbinc/db_int.h || true && \
   test -f src/dbinc/db_int.in && sed -i.old -e 's@^[[:space:]]*#include <sys/uio.h>@/* #include <sys/uio.h> */@' src/dbinc/db_int.in || true
 endef
