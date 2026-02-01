@@ -22,6 +22,16 @@ define $(package)_config_cmds
   env $($(package)_config_opts) ./configure --static --prefix=$(host_prefix)
 endef
 
+define $(package)_config_cmds_darwin
+  env $($(package)_config_opts) ./configure --static --prefix=$(host_prefix) && \
+  if [ -f zconf.h ]; then \
+    sed -i '' -e 's/^#define NO_FDOPEN/\/\* #undef NO_FDOPEN \*\//' zconf.h; \
+    if ! grep -q '^#define HAVE_STDIO_H' zconf.h; then \
+      printf '\n#define HAVE_STDIO_H 1\n' >> zconf.h; \
+    fi; \
+  fi
+endef
+
 define $(package)_build_cmds
   $(MAKE) libz.a
 endef
