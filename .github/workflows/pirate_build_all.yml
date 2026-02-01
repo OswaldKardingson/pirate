@@ -66,6 +66,9 @@ jobs:
         run: |
           chmod +x zcutil/build.sh
           ./zcutil/build.sh -j$(nproc)
+      - name: Strip CLI (Linux)
+        run: |
+          strip --strip-unneeded src/pirated src/pirate-cli src/pirate-tx
       - name: Fetch Zcash params (tests)
         if: ${{ inputs.run_tests }}
         run: ./zcutil/fetch-params.sh
@@ -84,7 +87,7 @@ jobs:
       - name: Package CLI (Linux)
         run: |
           mkdir -p dist
-          zip -j "dist/pirate-cli-ubuntu2004-v${VERSION}.zip" \
+          zip -j "dist/pirate-cli-ubuntu2404-v${VERSION}.zip" \
             src/pirated \
             src/pirate-cli \
             src/pirate-tx \
@@ -151,6 +154,10 @@ jobs:
         run: |
           chmod +x zcutil/build-win.sh
           ./zcutil/build-win.sh -j$(nproc)
+      - name: Strip CLI (Windows)
+        run: |
+          x86_64-w64-mingw32-strip --strip-unneeded \
+            src/pirated.exe src/pirate-cli.exe src/pirate-tx.exe
       - name: Package CLI (Windows)
         run: |
           mkdir -p dist
@@ -213,6 +220,9 @@ jobs:
         run: |
           chmod +x zcutil/build-arm.sh
           ./zcutil/build-arm.sh -j$(nproc)
+      - name: Strip CLI (AArch64)
+        run: |
+          aarch64-linux-gnu-strip --strip-unneeded src/pirated src/pirate-cli src/pirate-tx
       - name: Package CLI (AArch64)
         run: |
           mkdir -p dist
@@ -257,6 +267,9 @@ jobs:
         run: |
           chmod +x zcutil/build-mac.sh
           ./zcutil/build-mac.sh -j$(sysctl -n hw.ncpu)
+      - name: Strip CLI (macOS)
+        run: |
+          strip -x src/pirated src/pirate-cli src/pirate-tx
       - name: Package CLI (macOS)
         run: |
           mkdir -p dist
@@ -323,22 +336,25 @@ jobs:
         run: |
           chmod +x zcutil/build-qt-linux.sh
           ./zcutil/build-qt-linux.sh -j$(nproc)
+      - name: Strip QT (Linux)
+        run: |
+          strip --strip-unneeded pirate-qt-linux
       - name: Package QT (Linux)
         run: |
           mkdir -p dist
-          zip -j "dist/pirate-qt-ubuntu2004-v${VERSION}.zip" pirate-qt-linux
+          zip -j "dist/pirate-qt-ubuntu2404-v${VERSION}.zip" pirate-qt-linux
           deb_version="${VERSION}"
           if [[ "${VERSION}" == dev-* ]]; then
             deb_version="0.0.0~${VERSION}"
           fi
-          debdir="bin/pirate-qt-ubuntu1804-v${VERSION}"
+          debdir="bin/pirate-qt-ubuntu2404-v${VERSION}"
           mkdir -p "$debdir/DEBIAN" "$debdir/usr/local/bin" "$debdir/usr/share/pixmaps" "$debdir/usr/share/applications"
           sed "s/RELEASE_VERSION/${deb_version}/g" zcutil/deb/control_amd64 > "$debdir/DEBIAN/control"
           cp pirate-qt-linux "$debdir/usr/local/bin/pirate-qt"
           cp zcutil/deb/pirate.xpm "$debdir/usr/share/pixmaps/"
           cp zcutil/deb/desktopentry "$debdir/usr/share/applications/pirate-qt.desktop"
           dpkg-deb --build "$debdir"
-          mv "$debdir.deb" "dist/pirate-qt-ubuntu1804-v${VERSION}.deb"
+          mv "$debdir.deb" "dist/pirate-qt-ubuntu2404-v${VERSION}.deb"
           rm -rf bin
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -402,6 +418,9 @@ jobs:
         run: |
           chmod +x zcutil/build-qt-win.sh
           ./zcutil/build-qt-win.sh -j$(nproc)
+      - name: Strip QT (Windows)
+        run: |
+          x86_64-w64-mingw32-strip --strip-unneeded pirate-qt-win.exe
       - name: Package QT (Windows)
         run: |
           mkdir -p dist
@@ -461,6 +480,9 @@ jobs:
         run: |
           chmod +x zcutil/build-qt-arm.sh
           ./zcutil/build-qt-arm.sh -j$(nproc)
+      - name: Strip QT (AArch64)
+        run: |
+          aarch64-linux-gnu-strip --strip-unneeded pirate-qt-arm
       - name: Package QT (AArch64)
         run: |
           mkdir -p dist

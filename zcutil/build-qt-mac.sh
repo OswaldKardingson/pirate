@@ -75,6 +75,8 @@ CXXFLAGS="$ARCH_FLAGS -I$PREFIX/include -fwrapv -fno-strict-aliasing \
 make "$@" NO_GTEST=0 STATIC=1
 
 cp src/qt/komodo-qt "$mydir"/pirate-qt-mac
+# Strip symbols to reduce release size.
+strip -x "$mydir"/pirate-qt-mac
 
 #Package as App bundle in a dmg
 ./makeReleaseMac.sh
