@@ -249,6 +249,8 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
       - name: Build daemon (macOS)
+        env:
+          CONFIGURE_FLAGS: --disable-hardening
         run: |
           chmod +x zcutil/build-mac.sh
           ./zcutil/build-mac.sh -j$(sysctl -n hw.ncpu)

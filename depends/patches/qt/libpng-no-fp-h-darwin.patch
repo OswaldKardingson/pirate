@@ -1,0 +1,7 @@
+--- a/src/3rdparty/libpng/pngpriv.h
++++ b/src/3rdparty/libpng/pngpriv.h
+@@
+-#      include <fp.h>
++#      if !defined(__APPLE__)
++#      include <fp.h>
++#      endif
