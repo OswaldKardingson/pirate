@@ -26,6 +26,9 @@ jobs:
       BUILD: x86_64-unknown-linux-gnu
     steps:
       - uses: actions/checkout@v4
+      - name: Ensure parent depends alias
+        shell: bash
+        run: ln -sfn "$PWD/depends" "$PWD/../depends"
       - name: Set version
         shell: bash
         run: |
@@ -97,6 +100,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Ensure parent depends alias
+        shell: bash
+        run: ln -sfn "$PWD/depends" "$PWD/../depends"
       - name: Set version
         shell: bash
         run: |
@@ -164,6 +170,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Ensure parent depends alias
+        shell: bash
+        run: ln -sfn "$PWD/depends" "$PWD/../depends"
       - name: Ensure AArch64 host alias
         run: ln -sfn aarch64-linux-gnu depends/aarch64-unknown-linux-gnu
       - name: Set version
@@ -393,6 +402,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Ensure parent depends alias
+        shell: bash
+        run: ln -sfn "$PWD/depends" "$PWD/../depends"
       - name: Ensure AArch64 host alias
         run: ln -sfn aarch64-linux-gnu depends/aarch64-unknown-linux-gnu
       - name: Set version
