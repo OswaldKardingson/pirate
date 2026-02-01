@@ -235,6 +235,7 @@ define $(package)_preprocess_cmds
   patch -p1 -i $($(package)_patch_dir)/windows_lto.patch && \
   patch -p1 -i $($(package)_patch_dir)/zlib-timebits64.patch && \
   patch -p1 -i $($(package)_patch_dir)/libpng-no-fp-h-darwin.patch && \
+  patch -p1 -i $($(package)_patch_dir)/libpng-include-math.patch && \
   mkdir -p qtbase/mkspecs/macx-clang-linux &&\
   cp -f qtbase/mkspecs/macx-clang/qplatformdefs.h qtbase/mkspecs/macx-clang-linux/ &&\
   cp -f $($(package)_patch_dir)/mac-qmake.conf qtbase/mkspecs/macx-clang-linux/qmake.conf && \
