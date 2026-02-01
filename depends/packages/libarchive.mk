@@ -15,8 +15,8 @@ $(package)_patches=0001-libarchive-Do-not-include-sys-mount_h-when-linux-fs_h.pa
 
 $(package)_dependencies=zlib
 
-$(package)_config_env_mingw32=LD_LIBRARY_PATH="$(host_prefix)/lib" PKG_CONFIG_LIBDIR="$(host_prefix)/lib/pkgconfig" CPPFLAGS="-I$(host_prefix)/include" LDFLAGS="-L$(host_prefix)/lib" LIBS="-lz"
-$(package)_config_env_mingw64=LD_LIBRARY_PATH="$(host_prefix)/lib" PKG_CONFIG_LIBDIR="$(host_prefix)/lib/pkgconfig" CPPFLAGS="-I$(host_prefix)/include" LDFLAGS="-L$(host_prefix)/lib" LIBS="-lz"
+$(package)_config_env_mingw32=LD_LIBRARY_PATH="$(host_prefix)/lib" PKG_CONFIG_LIBDIR="$(host_prefix)/lib/pkgconfig" CC="$($(package)_cc)" CFLAGS="$($(package)_cflags)" CPPFLAGS="$($(package)_cppflags)" LDFLAGS="$($(package)_ldflags)" AR="$($(package)_ar)" RANLIB="$($(package)_ranlib)" LIBS="-lz"
+$(package)_config_env_mingw64=LD_LIBRARY_PATH="$(host_prefix)/lib" PKG_CONFIG_LIBDIR="$(host_prefix)/lib/pkgconfig" CC="$($(package)_cc)" CFLAGS="$($(package)_cflags)" CPPFLAGS="$($(package)_cppflags)" LDFLAGS="$($(package)_ldflags)" AR="$($(package)_ar)" RANLIB="$($(package)_ranlib)" LIBS="-lz"
 
 ifeq ($(build_os),darwin)
 define $(package)_set_vars
