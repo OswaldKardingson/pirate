@@ -594,7 +594,10 @@ jobs:
           chmod 700 ~/.gnupg
           echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf
           gpgconf --kill gpg-agent
-          echo "$PIRATE_GPG_PRIVATE_KEY" | gpg --batch --pinentry-mode loopback --passphrase "$PIRATE_GPG_PASSPHRASE" --import
+          printf '%s\n' "$PIRATE_GPG_PRIVATE_KEY" \
+            | tr -d '\r' \
+            | awk 'BEGIN{in=0} /-----BEGIN PGP PRIVATE KEY BLOCK-----/{in=1} in{print} /-----END PGP PRIVATE KEY BLOCK-----/{exit}' \
+            | gpg --batch --pinentry-mode loopback --passphrase "$PIRATE_GPG_PASSPHRASE" --import
       - name: Sign artifacts
         env:
           PIRATE_GPG_PASSPHRASE: ${{ secrets.PIRATE_GPG_PASSPHRASE }}
