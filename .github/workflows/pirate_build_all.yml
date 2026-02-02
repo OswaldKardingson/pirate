@@ -100,6 +100,7 @@ jobs:
 
   cli-windows:
     name: CLI (Windows x86_64 cross)
+    if: ${{ false }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -174,6 +175,7 @@ jobs:
 
   cli-aarch64:
     name: CLI (Linux AArch64 cross)
+    if: ${{ false }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -239,6 +241,7 @@ jobs:
 
   cli-macos:
     name: CLI (macOS)
+    if: ${{ false }}
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -286,6 +289,7 @@ jobs:
 
   qt-linux:
     name: QT (Linux x86_64)
+    if: ${{ false }}
     runs-on: ubuntu-latest
     env:
       HOST: x86_64-unknown-linux-gnu
@@ -364,6 +368,7 @@ jobs:
 
   qt-windows:
     name: QT (Windows x86_64 cross)
+    if: ${{ false }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -433,6 +438,7 @@ jobs:
 
   qt-aarch64:
     name: QT (Linux AArch64 cross)
+    if: ${{ false }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -508,6 +514,7 @@ jobs:
 
   qt-macos:
     name: QT (macOS)
+    if: ${{ false }}
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -551,13 +558,6 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - cli-linux
-      - cli-windows
-      - cli-aarch64
-      - cli-macos
-      - qt-linux
-      - qt-windows
-      - qt-aarch64
-      - qt-macos
     permissions:
       contents: write
     steps:
@@ -594,8 +594,9 @@ jobs:
           chmod 700 ~/.gnupg
           echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf
           gpgconf --kill gpg-agent
-          printf '%s\n' "$PIRATE_GPG_PRIVATE_KEY" \
+          printf '%s' "$PIRATE_GPG_PRIVATE_KEY" \
             | tr -d '\r' \
+            | sed 's/-----BEGIN PGP PRIVATE KEY BLOCK-----/-----BEGIN PGP PRIVATE KEY BLOCK-----\n/; s/-----END PGP PRIVATE KEY BLOCK-----/\n-----END PGP PRIVATE KEY BLOCK-----/' \
             | sed -n '/-----BEGIN PGP PRIVATE KEY BLOCK-----/,/-----END PGP PRIVATE KEY BLOCK-----/p' \
             | gpg --batch --pinentry-mode loopback --passphrase "$PIRATE_GPG_PASSPHRASE" --import
       - name: Sign artifacts
