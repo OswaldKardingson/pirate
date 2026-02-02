@@ -1,6 +1,11 @@
-![Pirate build - Ubuntu 20.04](https://github.com/PirateNetwork/pirate/actions/workflows/pirate_ci_ubunutu2004.yml/badge.svg)\
-![Pirate build - Windows cross compile 20.04](https://github.com/PirateNetwork/pirate/actions/workflows/pirate_ci_windows_cross2004.yml/badge.svg)\
-![Pirate build - Aarch64 cross compile 20.04](https://github.com/PirateNetwork/pirate/actions/workflows/pirate_ci_aarch64_cross2004.yml/badge.svg)\
+![CLI Linux x86_64](https://github.com/PirateNetwork/pirate/actions/workflows/pirate_build_all.yml/badge.svg?job=CLI%20%28Linux%20x86_64%29)\
+![CLI Windows x86_64 cross](https://github.com/PirateNetwork/pirate/actions/workflows/pirate_build_all.yml/badge.svg?job=CLI%20%28Windows%20x86_64%20cross%29)\
+![CLI Linux AArch64 cross](https://github.com/PirateNetwork/pirate/actions/workflows/pirate_build_all.yml/badge.svg?job=CLI%20%28Linux%20AArch64%20cross%29)\
+![CLI macOS](https://github.com/PirateNetwork/pirate/actions/workflows/pirate_build_all.yml/badge.svg?job=CLI%20%28macOS%29)\
+![QT Linux x86_64](https://github.com/PirateNetwork/pirate/actions/workflows/pirate_build_all.yml/badge.svg?job=QT%20%28Linux%20x86_64%29)\
+![QT Windows x86_64 cross](https://github.com/PirateNetwork/pirate/actions/workflows/pirate_build_all.yml/badge.svg?job=QT%20%28Windows%20x86_64%20cross%29)\
+![QT Linux AArch64 cross](https://github.com/PirateNetwork/pirate/actions/workflows/pirate_build_all.yml/badge.svg?job=QT%20%28Linux%20AArch64%20cross%29)\
+![QT macOS](https://github.com/PirateNetwork/pirate/actions/workflows/pirate_build_all.yml/badge.svg?job=QT%20%28macOS%29)\
 ![Pirate Logo](https://i.ibb.co/F7Dgnxy/Pirate-Logo-Wordmark-Gold.png "Pirate Chain Logo")
 
 
