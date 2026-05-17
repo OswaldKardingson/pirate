@@ -678,11 +678,11 @@ endif
 
 pirated_LDADD = \
   $(LIBBITCOIN_SERVER) \
-  -lcurl \
-  -larchive \
   $(LIBBITCOIN_COMMON) \
   $(LIBUNIVALUE) \
   $(LIBBITCOIN_UTIL) \
+  -lcurl \
+  -larchive \
   $(LIBBITCOIN_ZMQ) \
   $(LIBBITCOIN_CRYPTO)
 

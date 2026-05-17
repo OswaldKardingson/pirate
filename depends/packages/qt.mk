@@ -24,6 +24,8 @@ $(package)_patches += memory_resource.patch
 $(package)_patches += utc_from_string_no_optimize.patch
 $(package)_patches += windows_lto.patch
 $(package)_patches += zlib-timebits64.patch
+$(package)_patches += libpng-no-fp-h-darwin.patch
+$(package)_patches += libpng-include-math.patch
 
 $(package)_qttranslations_file_name=qttranslations-$($(package)_suffix)
 $(package)_qttranslations_sha256_hash=24d4c58bc2a40c0f44f59ee64af4192c7d0038c1e45af61646cfc5b65058f271
@@ -91,6 +93,7 @@ $(package)_config_opts += -qt-harfbuzz
 $(package)_config_opts += -qt-zlib
 $(package)_config_opts += -static
 $(package)_config_opts += -v
+$(package)_config_opts += -no-pch
 $(package)_config_opts += -no-feature-bearermanagement
 $(package)_config_opts += -no-feature-colordialog
 $(package)_config_opts += -no-feature-commandlineparser
@@ -130,7 +133,6 @@ $(package)_config_opts += -no-feature-xml
 
 $(package)_config_opts_darwin = -no-dbus
 $(package)_config_opts_darwin += -no-opengl
-$(package)_config_opts_darwin += -pch
 $(package)_config_opts_darwin += -no-feature-corewlan
 $(package)_config_opts_darwin += -no-freetype
 $(package)_config_opts_darwin += QMAKE_MACOSX_DEPLOYMENT_TARGET=$(OSX_MIN_VERSION)
@@ -233,6 +235,8 @@ define $(package)_preprocess_cmds
   patch -p1 -i $($(package)_patch_dir)/guix_cross_lib_path.patch && \
   patch -p1 -i $($(package)_patch_dir)/windows_lto.patch && \
   patch -p1 -i $($(package)_patch_dir)/zlib-timebits64.patch && \
+  patch -p1 -i $($(package)_patch_dir)/libpng-no-fp-h-darwin.patch && \
+  patch -p1 -i $($(package)_patch_dir)/libpng-include-math.patch && \
   mkdir -p qtbase/mkspecs/macx-clang-linux &&\
   cp -f qtbase/mkspecs/macx-clang/qplatformdefs.h qtbase/mkspecs/macx-clang-linux/ &&\
   cp -f $($(package)_patch_dir)/mac-qmake.conf qtbase/mkspecs/macx-clang-linux/qmake.conf && \

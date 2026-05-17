@@ -536,6 +536,8 @@ endif
 qt_komodo_qt_LDADD += $(LIBBITCOIN_CLI) \
   $(LIBBITCOIN_COMMON) \
   $(LIBBITCOIN_UTIL) \
+  -lcurl \
+  -larchive \
   $(LIBBITCOIN_CONSENSUS) \
   $(LIBBITCOIN_CRYPTO) \
   $(LIBUNIVALUE) \
