@@ -129,10 +129,11 @@ cargo_verbose_ = $(cargo_verbose_@AM_DEFAULT_V@)
 cargo_verbose_1 = --verbose
 
 if ENABLE_ONLINE_RUST
-# Ensure that .cargo/config does not exist
+# Use the persistent Cargo config for target-specific linker settings.
 CARGO_CONFIGURED = $(top_srcdir)/.cargo/.configured-for-online
-$(CARGO_CONFIGURED):
+$(CARGO_CONFIGURED): $(top_srcdir)/.cargo/persistent-config
 	$(AM_V_at)rm -f $(top_srcdir)/.cargo/.configured-for-offline $(top_srcdir)/.cargo/config
+	$(AM_V_at)cp $< $(top_srcdir)/.cargo/config
 	$(AM_V_at)touch $@
 
 else
@@ -140,9 +141,10 @@ else
 RUST_BUILD_OPTS += --offline
 
 CARGO_CONFIGURED = $(top_srcdir)/.cargo/.configured-for-offline
-$(CARGO_CONFIGURED): $(top_srcdir)/.cargo/config.offline
+$(CARGO_CONFIGURED): $(top_srcdir)/.cargo/config.offline $(top_srcdir)/.cargo/persistent-config
 	$(AM_V_at)rm -f $(top_srcdir)/.cargo/.configured-for-online
-	$(AM_V_at)cp $< $(top_srcdir)/.cargo/config
+	$(AM_V_at)cp $(top_srcdir)/.cargo/persistent-config $(top_srcdir)/.cargo/config
+	$(AM_V_at)cat $(top_srcdir)/.cargo/config.offline >>$(top_srcdir)/.cargo/config
 	$(AM_V_at)echo "directory = \"$(RUST_VENDORED_SOURCES)\"" >>$(top_srcdir)/.cargo/config
 	$(AM_V_at)touch $@
 endif
