@@ -47,13 +47,27 @@ make "$@" -C ./depends/ V=1 NO_QT=1
 
 ./autogen.sh
 
-# LDFLAGS="-static-libgcc -static-libstdc++"
-# CPPFLAGS="-I$PREFIX/include -arch x86_64" LDFLAGS="-L$PREFIX/lib -arch x86_64 -Wl,-no_pie" \
-# CXXFLAGS='-arch x86_64 -I/usr/local/Cellar/gcc\@8/8.3.0/include/c++/8.3.0/ '"-I${PREFIX}/include"' -fwrapv -fno-strict-aliasing -g0 -O2 -Wl,-undefined -Wl,dynamic_lookup' \
-# ./configure --prefix="${PREFIX}" --with-gui=no --enable-tests=no "$HARDENING_ARG" "$LCOV_ARG"
+# Detect architecture and set appropriate flags
+ARCH=$(uname -m)
+if [ "$ARCH" = "arm64" ]; then
+    # Apple Silicon (M1/M2)
+    ARCH_FLAGS="-arch arm64"
+    export RUSTFLAGS="-C link-arg=-undefined -C link-arg=dynamic_lookup"
+else
+    # Intel x86_64
+    ARCH_FLAGS="-arch x86_64"
+fi
 
-CPPFLAGS="-I$PREFIX/include -arch x86_64" LDFLAGS="-L$PREFIX/lib -arch x86_64 -Wl,-no_pie" \
-CXXFLAGS="-arch x86_64 -I$PREFIX/include -fwrapv -fno-strict-aliasing \
+if command -v rustup >/dev/null 2>&1; then
+    if [ "$ARCH" = "arm64" ]; then
+        rustup target add aarch64-apple-darwin
+    fi
+    export RUSTC="$(rustup which rustc)"
+    export CARGO="$(rustup which cargo)"
+fi
+
+CPPFLAGS="-I$PREFIX/include $ARCH_FLAGS" LDFLAGS="-L$PREFIX/lib $ARCH_FLAGS -Wl,-no_pie" \
+CXXFLAGS="$ARCH_FLAGS -I$PREFIX/include -fwrapv -fno-strict-aliasing \
 -Wno-deprecated-declarations -Wno-deprecated-builtins -Wno-enum-constexpr-conversion \
 -Wno-unknown-warning-option -Werror -Wno-error=attributes -g" \
 ./configure --prefix="${PREFIX}" --with-gui=no "$HARDENING_ARG" "$LCOV_ARG" "$DEBUGGING_ARG"

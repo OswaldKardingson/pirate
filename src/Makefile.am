@@ -31,7 +31,13 @@ else
 LIBRUSTZCASH=$(top_builddir)/target/$(RUST_TARGET)/release/librustzcash.la
 endif
 
-LIBBITCOIN_SERVER=libbitcoin_server.a -lcurl -larchive
+if TARGET_DARWIN
+RUST_DARWIN_FRAMEWORKS = -framework Security
+else
+RUST_DARWIN_FRAMEWORKS =
+endif
+
+LIBBITCOIN_SERVER=libbitcoin_server.a
 LIBBITCOIN_WALLET=libbitcoin_wallet.a
 LIBBITCOIN_COMMON=libbitcoin_common.a
 LIBBITCOIN_CLI=libbitcoin_cli.a
@@ -155,7 +161,7 @@ $(LIBRUSTZCASH): cargo-build-lib
 	$(AM_V_at)echo "dlname=''" >>$@
 	$(AM_V_at)echo "library_names=''" >>$@
 	$(AM_V_at)echo "old_library='../$(basename $(@F)).a'" >>$@
-	$(AM_V_at)echo "inherited_linker_flags=''" >>$@
+	$(AM_V_at)echo "inherited_linker_flags='$(RUST_DARWIN_FRAMEWORKS)'" >>$@
 	$(AM_V_at)echo "installed=no" >>$@
 	$(AM_V_at)echo "shouldnotlink=no" >>$@
 
@@ -666,16 +672,14 @@ pirated_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
 pirated_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 pirated_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS)
 
-if TARGET_DARWIN
-pirated_LDFLAGS += -framework Security
-endif
-
 if TARGET_WINDOWS
 pirated_SOURCES += bitcoind-res.rc
 endif
 
 pirated_LDADD = \
   $(LIBBITCOIN_SERVER) \
+  -lcurl \
+  -larchive \
   $(LIBBITCOIN_COMMON) \
   $(LIBUNIVALUE) \
   $(LIBBITCOIN_UTIL) \
@@ -780,10 +784,6 @@ pirate_tx_SOURCES = komodo-tx.cpp
 pirate_tx_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
 pirate_tx_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 pirate_tx_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS)
-
-if TARGET_DARWIN
-pirate_tx_LDFLAGS += -framework Security
-endif
 
 if TARGET_WINDOWS
 pirate_tx_SOURCES += bitcoin-tx-res.rc

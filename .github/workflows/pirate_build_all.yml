@@ -1,0 +1,673 @@
+name: Pirate CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      run_tests:
+        description: Run tests (Linux only)
+        type: boolean
+        default: false
+
+concurrency:
+  group: pirate-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  cli-linux:
+    name: CLI (Linux x86_64)
+    runs-on: ubuntu-latest
+    env:
+      HOST: x86_64-unknown-linux-gnu
+      BUILD: x86_64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@v6
+      - name: Ensure parent depends alias
+        shell: bash
+        run: ln -sfn "$PWD/depends" "$PWD/../depends"
+      - name: Set version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="dev-${GITHUB_SHA::7}"
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            pkg-config \
+            m4 \
+            g++-multilib \
+            autoconf \
+            libtool \
+            libncurses-dev \
+            unzip \
+            git \
+            python3 \
+            python3-zmq \
+            zlib1g-dev \
+            wget \
+            libcurl4-gnutls-dev \
+            bsdmainutils \
+            curl \
+            libsodium-dev \
+            bison \
+            liblz4-dev \
+            zip
+      - name: Build daemon
+        run: |
+          chmod +x zcutil/build.sh
+          ./zcutil/build.sh -j$(nproc)
+      - name: Strip CLI (Linux)
+        run: |
+          strip --strip-unneeded src/pirated src/pirate-cli src/pirate-tx
+      - name: Fetch Zcash params (tests)
+        if: ${{ inputs.run_tests }}
+        run: ./zcutil/fetch-params.sh
+      - name: Run tests (Linux)
+        if: ${{ inputs.run_tests }}
+        env:
+          PYTHONPATH: ./src/test
+          SRCDIR: ./src
+          BUILDDIR: ./src
+        run: |
+          export PATH="$PWD/src:$PATH"
+          make check
+          python3 src/test/bitcoin-util-test.py
+          python3 src/test/wallet-utility.py
+          test/functional/test_runner.py --jobs=$(nproc)
+      - name: Package CLI (Linux)
+        run: |
+          mkdir -p dist
+          zip -j "dist/pirate-cli-ubuntu2404-v${VERSION}.zip" \
+            src/pirated \
+            src/pirate-cli \
+            src/pirate-tx \
+            PIRATE_7776
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: cli-linux
+          path: dist/*
+
+  cli-windows:
+    name: CLI (Windows x86_64 cross)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Ensure parent depends alias
+        shell: bash
+        run: ln -sfn "$PWD/depends" "$PWD/../depends"
+      - name: Set version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="dev-${GITHUB_SHA::7}"
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            pkg-config \
+            m4 \
+            autoconf \
+            libtool \
+            unzip \
+            git \
+            python3 \
+            python3-zmq \
+            zlib1g-dev \
+            wget \
+            libcurl4-gnutls-dev \
+            bsdmainutils \
+            curl \
+            libsodium-dev \
+            bison \
+            liblz4-dev \
+            zip \
+            gcc-mingw-w64-x86-64-posix \
+            g++-mingw-w64-x86-64-posix \
+            binutils-mingw-w64-x86-64
+      - name: Ensure mingw-w64 tool aliases
+        shell: bash
+        run: |
+          for tool in ar ranlib strip nm gcc g++ windres dlltool objcopy; do
+            if ! command -v x86_64-w64-mingw64-$tool >/dev/null 2>&1; then
+              if command -v x86_64-w64-mingw32-$tool >/dev/null 2>&1; then
+                sudo ln -sf "$(command -v x86_64-w64-mingw32-$tool)" "/usr/bin/x86_64-w64-mingw64-$tool"
+              fi
+            fi
+          done
+      - name: Build daemon (cross)
+        run: |
+          chmod +x zcutil/build-win.sh
+          ./zcutil/build-win.sh -j$(nproc)
+      - name: Strip CLI (Windows)
+        run: |
+          x86_64-w64-mingw32-strip --strip-unneeded \
+            src/pirated.exe src/pirate-cli.exe src/pirate-tx.exe
+      - name: Package CLI (Windows)
+        run: |
+          mkdir -p dist
+          zip -j "dist/pirate-cli-windows-v${VERSION}.zip" \
+            src/pirated.exe \
+            src/pirate-cli.exe \
+            src/pirate-tx.exe \
+            PIRATE_7776
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: cli-windows
+          path: dist/*
+
+  cli-aarch64:
+    name: CLI (Linux AArch64 cross)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Ensure parent depends alias
+        shell: bash
+        run: ln -sfn "$PWD/depends" "$PWD/../depends"
+      - name: Ensure AArch64 host alias
+        run: ln -sfn aarch64-linux-gnu depends/aarch64-unknown-linux-gnu
+      - name: Set version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="dev-${GITHUB_SHA::7}"
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            pkg-config \
+            m4 \
+            autoconf \
+            libtool \
+            unzip \
+            git \
+            python3 \
+            python3-zmq \
+            zlib1g-dev \
+            wget \
+            libcurl4-gnutls-dev \
+            bsdmainutils \
+            curl \
+            libsodium-dev \
+            bison \
+            liblz4-dev \
+            zip \
+            gcc-aarch64-linux-gnu \
+            g++-aarch64-linux-gnu \
+            binutils-aarch64-linux-gnu
+      - name: Build daemon (cross)
+        run: |
+          chmod +x zcutil/build-arm.sh
+          ./zcutil/build-arm.sh -j$(nproc)
+      - name: Strip CLI (AArch64)
+        run: |
+          aarch64-linux-gnu-strip --strip-unneeded src/pirated src/pirate-cli src/pirate-tx
+      - name: Package CLI (AArch64)
+        run: |
+          mkdir -p dist
+          zip -j "dist/pirate-cli-aarch64-v${VERSION}.zip" \
+            src/pirated \
+            src/pirate-cli \
+            src/pirate-tx \
+            PIRATE_7776
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: cli-aarch64
+          path: dist/*
+
+  cli-macos:
+    name: CLI (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Ensure parent depends alias
+        shell: bash
+        run: ln -sfn "$PWD/depends" "$PWD/../depends"
+      - name: Set version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="dev-${GITHUB_SHA::7}"
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+      - name: Install Homebrew dependencies
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+        run: |
+          install_brew_formulae() {
+            missing=()
+            for formula in "$@"; do
+              if ! brew list --formula "$formula" >/dev/null 2>&1; then
+                missing+=("$formula")
+              fi
+            done
+            if [ "${#missing[@]}" -gt 0 ]; then
+              brew install "${missing[@]}"
+            fi
+          }
+
+          install_brew_formulae autoconf automake libtool coreutils bison
+          command -v pkg-config >/dev/null 2>&1 || brew install pkgconf
+          command -v python3 >/dev/null 2>&1 || brew install python
+          command -v wget >/dev/null 2>&1 || brew install wget
+          command -v curl >/dev/null 2>&1 || brew install curl
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build daemon (macOS)
+        env:
+          CONFIGURE_FLAGS: --disable-hardening
+        run: |
+          chmod +x zcutil/build-mac.sh
+          ./zcutil/build-mac.sh -j$(sysctl -n hw.ncpu)
+      - name: Strip CLI (macOS)
+        run: |
+          strip -x src/pirated src/pirate-cli src/pirate-tx
+      - name: Package CLI (macOS)
+        run: |
+          mkdir -p dist
+          zip -j "dist/pirate-cli-MacOS-v${VERSION}.zip" \
+            src/pirated \
+            src/pirate-cli \
+            src/pirate-tx \
+            PIRATE_7776
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: cli-macos
+          path: dist/*
+
+  qt-linux:
+    name: QT (Linux x86_64)
+    runs-on: ubuntu-latest
+    env:
+      HOST: x86_64-unknown-linux-gnu
+      BUILD: x86_64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@v6
+      - name: Ensure parent depends alias
+        shell: bash
+        run: ln -sfn "$PWD/depends" "$PWD/../depends"
+      - name: Set version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="dev-${GITHUB_SHA::7}"
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            pkg-config \
+            m4 \
+            g++-multilib \
+            autoconf \
+            libtool \
+            libncurses-dev \
+            unzip \
+            git \
+            python3 \
+            python3-zmq \
+            zlib1g-dev \
+            wget \
+            libcurl4-gnutls-dev \
+            bsdmainutils \
+            curl \
+            libsodium-dev \
+            bison \
+            liblz4-dev \
+            zip \
+            dpkg-dev \
+            qtbase5-dev \
+            qttools5-dev \
+            qttools5-dev-tools
+      - name: Build QT (Linux)
+        run: |
+          chmod +x zcutil/build-qt-linux.sh
+          ./zcutil/build-qt-linux.sh -j$(nproc)
+      - name: Strip QT (Linux)
+        run: |
+          strip --strip-unneeded pirate-qt-linux
+      - name: Package QT (Linux)
+        run: |
+          mkdir -p dist
+          zip -j "dist/pirate-qt-ubuntu2404-v${VERSION}.zip" pirate-qt-linux
+          deb_version="${VERSION}"
+          if [[ "${VERSION}" == dev-* ]]; then
+            deb_version="0.0.0~${VERSION}"
+          fi
+          debdir="bin/pirate-qt-ubuntu2404-v${VERSION}"
+          mkdir -p "$debdir/DEBIAN" "$debdir/usr/local/bin" "$debdir/usr/share/pixmaps" "$debdir/usr/share/applications"
+          sed "s/RELEASE_VERSION/${deb_version}/g" zcutil/deb/control_amd64 > "$debdir/DEBIAN/control"
+          cp pirate-qt-linux "$debdir/usr/local/bin/pirate-qt"
+          cp zcutil/deb/pirate.xpm "$debdir/usr/share/pixmaps/"
+          cp zcutil/deb/desktopentry "$debdir/usr/share/applications/pirate-qt.desktop"
+          dpkg-deb --build "$debdir"
+          mv "$debdir.deb" "dist/pirate-qt-ubuntu2404-v${VERSION}.deb"
+          rm -rf bin
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: qt-linux
+          path: dist/*
+
+  qt-windows:
+    name: QT (Windows x86_64 cross)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Ensure parent depends alias
+        shell: bash
+        run: ln -sfn "$PWD/depends" "$PWD/../depends"
+      - name: Set version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="dev-${GITHUB_SHA::7}"
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            pkg-config \
+            m4 \
+            autoconf \
+            libtool \
+            unzip \
+            git \
+            python3 \
+            python3-zmq \
+            zlib1g-dev \
+            wget \
+            libcurl4-gnutls-dev \
+            bsdmainutils \
+            curl \
+            libsodium-dev \
+            bison \
+            liblz4-dev \
+            zip \
+            gcc-mingw-w64-x86-64-posix \
+            g++-mingw-w64-x86-64-posix \
+            binutils-mingw-w64-x86-64
+      - name: Ensure mingw-w64 tool aliases
+        shell: bash
+        run: |
+          for tool in ar ranlib strip nm gcc g++ windres dlltool objcopy; do
+            if ! command -v x86_64-w64-mingw64-$tool >/dev/null 2>&1; then
+              if command -v x86_64-w64-mingw32-$tool >/dev/null 2>&1; then
+                sudo ln -sf "$(command -v x86_64-w64-mingw32-$tool)" "/usr/bin/x86_64-w64-mingw64-$tool"
+              fi
+            fi
+          done
+      - name: Build QT (Windows cross)
+        run: |
+          chmod +x zcutil/build-qt-win.sh
+          ./zcutil/build-qt-win.sh -j$(nproc)
+      - name: Strip QT (Windows)
+        run: |
+          x86_64-w64-mingw32-strip --strip-unneeded pirate-qt-win.exe
+      - name: Package QT (Windows)
+        run: |
+          mkdir -p dist
+          zip -j "dist/pirate-qt-windows-v${VERSION}.zip" pirate-qt-win.exe
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: qt-windows
+          path: dist/*
+
+  qt-aarch64:
+    name: QT (Linux AArch64 cross)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Ensure parent depends alias
+        shell: bash
+        run: ln -sfn "$PWD/depends" "$PWD/../depends"
+      - name: Ensure AArch64 host alias
+        run: ln -sfn aarch64-linux-gnu depends/aarch64-unknown-linux-gnu
+      - name: Set version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="dev-${GITHUB_SHA::7}"
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            pkg-config \
+            m4 \
+            autoconf \
+            libtool \
+            unzip \
+            git \
+            python3 \
+            python3-zmq \
+            zlib1g-dev \
+            wget \
+            libcurl4-gnutls-dev \
+            bsdmainutils \
+            curl \
+            libsodium-dev \
+            bison \
+            liblz4-dev \
+            zip \
+            dpkg-dev \
+            gcc-aarch64-linux-gnu \
+            g++-aarch64-linux-gnu \
+            binutils-aarch64-linux-gnu
+      - name: Build QT (AArch64 cross)
+        run: |
+          chmod +x zcutil/build-qt-arm.sh
+          ./zcutil/build-qt-arm.sh -j$(nproc)
+      - name: Strip QT (AArch64)
+        run: |
+          aarch64-linux-gnu-strip --strip-unneeded pirate-qt-arm
+      - name: Package QT (AArch64)
+        run: |
+          mkdir -p dist
+          zip -j "dist/pirate-qt-aarch64-v${VERSION}.zip" pirate-qt-arm
+          deb_version="${VERSION}"
+          if [[ "${VERSION}" == dev-* ]]; then
+            deb_version="0.0.0~${VERSION}"
+          fi
+          debdir="bin/pirate-qt-aarch64-v${VERSION}"
+          mkdir -p "$debdir/DEBIAN" "$debdir/usr/local/bin" "$debdir/usr/share/pixmaps" "$debdir/usr/share/applications"
+          sed "s/RELEASE_VERSION/${deb_version}/g" zcutil/deb/control_aarch64 > "$debdir/DEBIAN/control"
+          cp pirate-qt-arm "$debdir/usr/local/bin/pirate-qt"
+          cp zcutil/deb/pirate.xpm "$debdir/usr/share/pixmaps/"
+          cp zcutil/deb/desktopentry "$debdir/usr/share/applications/piratewallet-qt.desktop"
+          dpkg-deb --build "$debdir"
+          mv "$debdir.deb" "dist/pirate-qt-aarch64-v${VERSION}.deb"
+          rm -rf bin
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: qt-aarch64
+          path: dist/*
+
+  qt-macos:
+    name: QT (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Ensure parent depends alias
+        shell: bash
+        run: ln -sfn "$PWD/depends" "$PWD/../depends"
+      - name: Set version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="dev-${GITHUB_SHA::7}"
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+      - name: Install Homebrew dependencies
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+        run: |
+          install_brew_formulae() {
+            missing=()
+            for formula in "$@"; do
+              if ! brew list --formula "$formula" >/dev/null 2>&1; then
+                missing+=("$formula")
+              fi
+            done
+            if [ "${#missing[@]}" -gt 0 ]; then
+              brew install "${missing[@]}"
+            fi
+          }
+
+          install_brew_formulae autoconf automake libtool coreutils bison qt@5 create-dmg
+          command -v pkg-config >/dev/null 2>&1 || brew install pkgconf
+          command -v python3 >/dev/null 2>&1 || brew install python
+          command -v wget >/dev/null 2>&1 || brew install wget
+          command -v curl >/dev/null 2>&1 || brew install curl
+          echo "$(brew --prefix qt@5)/bin" >> "$GITHUB_PATH"
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build QT (macOS)
+        run: |
+          chmod +x zcutil/build-qt-mac.sh
+          ./zcutil/build-qt-mac.sh -j$(sysctl -n hw.ncpu)
+      - name: Package QT (macOS)
+        run: |
+          mkdir -p dist
+          mv pirate-qt-mac.dmg "dist/pirate-qt-MacOS-v${VERSION}.dmg"
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: qt-macos
+          path: dist/*
+
+  release:
+    name: Sign and Release (tags)
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    needs:
+      - cli-linux
+      - cli-windows
+      - cli-aarch64
+      - cli-macos
+      - qt-linux
+      - qt-windows
+      - qt-aarch64
+      - qt-macos
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Install signing dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gnupg zip
+      - name: Download build artifacts
+        uses: actions/download-artifact@v7
+        with:
+          path: downloaded
+      - name: Collect artifacts
+        run: |
+          mkdir -p artifacts
+          find downloaded -type f -print0 | xargs -0 -I{} mv {} artifacts/
+          ls -la artifacts
+      - name: Import GPG signing key
+        env:
+          PIRATE_GPG_PRIVATE_KEY: ${{ secrets.PIRATE_GPG_PRIVATE_KEY }}
+          PIRATE_GPG_PASSPHRASE: ${{ secrets.PIRATE_GPG_PASSPHRASE }}
+        run: |
+          if [ -z "$PIRATE_GPG_PRIVATE_KEY" ]; then
+            echo "Missing PIRATE_GPG_PRIVATE_KEY secret."
+            exit 1
+          fi
+          if [ -z "$PIRATE_GPG_PASSPHRASE" ]; then
+            echo "Missing PIRATE_GPG_PASSPHRASE secret."
+            exit 1
+          fi
+          mkdir -p ~/.gnupg
+          chmod 700 ~/.gnupg
+          echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf
+          gpgconf --kill gpg-agent
+          printf '%s' "$PIRATE_GPG_PRIVATE_KEY" \
+            | tr -d '\r' \
+            | sed 's/-----BEGIN PGP PRIVATE KEY BLOCK-----/-----BEGIN PGP PRIVATE KEY BLOCK-----\n/; s/-----END PGP PRIVATE KEY BLOCK-----/\n-----END PGP PRIVATE KEY BLOCK-----/' \
+            | sed -n '/-----BEGIN PGP PRIVATE KEY BLOCK-----/,/-----END PGP PRIVATE KEY BLOCK-----/p' \
+            | gpg --batch --pinentry-mode loopback --passphrase "$PIRATE_GPG_PASSPHRASE" --import
+      - name: Sign artifacts
+        env:
+          PIRATE_GPG_PASSPHRASE: ${{ secrets.PIRATE_GPG_PASSPHRASE }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          ./zcutil/signbinaries.sh --version "$VERSION"
+      - name: Generate release notes
+        run: |
+          TAG_NAME="${GITHUB_REF_NAME}"
+          VERSION="${TAG_NAME#v}"
+          NOTES_RAW="$(git tag -l --format='%(contents)' "$TAG_NAME")"
+          if [ -z "$NOTES_RAW" ]; then
+            NOTES_FORMATTED="- (no release notes provided)"
+          else
+            NOTES_FORMATTED="$(printf '%s\n' "$NOTES_RAW" | awk '
+              { gsub(/^[ \t]+|[ \t]+$/, "", $0); }
+              $0 == "" { next }
+              /^[*-][ \t]+/ { sub(/^[*-][ \t]+/, "- ", $0); print; next }
+              { print "- " $0 }
+            ')"
+          fi
+          sha256sum artifacts/pirate-*-v${VERSION}* | sed "s|artifacts/||" | sort -k2,2 > release_hashes.txt
+          {
+            echo "Pirate ${VERSION}"
+            echo
+            echo "Updates"
+            echo "$NOTES_FORMATTED"
+            echo
+            cat release_hashes.txt
+          } > release_body.md
+          echo "RELEASE_TITLE=Version ${VERSION} Signed Release" >> "$GITHUB_ENV"
+          cat release_body.md
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v3
+        with:
+          name: ${{ env.RELEASE_TITLE }}
+          tag_name: ${{ github.ref_name }}
+          body_path: release_body.md
+          files: artifacts/*
+          fail_on_unmatched_files: true
