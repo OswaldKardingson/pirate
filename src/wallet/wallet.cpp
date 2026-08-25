@@ -7163,23 +7163,17 @@ static void RunWalletScanWorkers(
     }
 }
 
-struct IronwoodNoteDecryptionWork
-{
-    IronwoodIncomingViewingKey ivk;
-    KeyScope scope;
-    const ironwood_bundle::Action* action;
-    uint32_t position;
-    uint256 hash;
-};
-
 /**
  * @brief Worker thread function for decrypting Ironwood notes
  * @param wallet Pointer to the wallet instance
- * @param work Immutable block-level decryption work
- * @param lane First work item assigned to this worker
- * @param stride Distance between work items assigned to this worker
+ * @param vIvk Vector of incoming viewing keys to try for decryption
+ * @param vIronwoodEncryptedAction Vector of encrypted Ironwood actions to decrypt
+ * @param vPosition Vector of action positions within transactions
+ * @param vHash Vector of transaction hashes corresponding to actions
+ * @param height Block height for validation context
  * @param noteData[out] Map to store successfully decrypted note data
  * @param viewingKeysToAdd[out] Map to store newly discovered viewing keys
+ * @param threadNumber Thread identifier for logging/debugging
  * 
  * Multi-threaded worker function that attempts to decrypt Ironwood actions using
  * the provided incoming viewing keys. Successfully decrypted notes are added to
@@ -7188,22 +7182,27 @@ struct IronwoodNoteDecryptionWork
  */
 static void DecryptIronwoodNoteWorker(
     const CWallet *wallet,
-    const std::vector<IronwoodNoteDecryptionWork>& work,
-    size_t lane,
-    size_t stride,
+    const std::vector<std::pair<const IronwoodIncomingViewingKey*, KeyScope>> vIvkWithScope,
+    const std::vector<ironwood_bundle::Action*> vIronwoodEncryptedAction,
+    const std::vector<uint32_t> vPosition,
+    const std::vector<uint256> vHash,
+    const int &height,
     mapIronwoodNoteData_t *noteData,
-    IronwoodIncomingViewingKeyMap *viewingKeysToAdd)
+    IronwoodIncomingViewingKeyMap *viewingKeysToAdd,
+    int threadNumber)
 {
-    for (size_t i = lane; i < work.size(); i += stride) {
-        const auto& item = work[i];
-        auto result = IronwoodNotePlaintext::AttemptDecryptIronwoodAction(item.action, item.ivk);
+    for (int i = 0; i < vIvkWithScope.size(); i++) {
+
+        IronwoodIncomingViewingKey ivk = *vIvkWithScope[i].first;
+        KeyScope scope = vIvkWithScope[i].second;
+        auto result = IronwoodNotePlaintext::AttemptDecryptIronwoodAction(vIronwoodEncryptedAction[i], ivk);
         if (result != std::nullopt) {
 
             // We don't cache the nullifier here as computing it requires knowledge of the note position
             // in the commitment tree, which can only be determined when the transaction has been mined.
-            IronwoodOutPoint op {item.hash, item.position};
+            IronwoodOutPoint op {vHash[i], vPosition[i]};
             IronwoodNoteData nd;
-            nd.ivk = item.ivk;
+            nd.ivk = ivk;
 
             //Cache Address and value - in Memory Only
             auto note = result.value();
@@ -7211,13 +7210,13 @@ static void DecryptIronwoodNoteWorker(
             nd.address = note.GetAddress();
             nd.fNoteDataInitialized = true;
 
-            LogPrintf("\n\nIronwood Transaction Found %s, %i\n\n", item.hash.ToString(), item.position);
+            LogPrintf("\n\nIronwood Transaction Found %s, %i\n\n", vHash[i].ToString(), vPosition[i]);
             if (nd.value >= minTxValue) {
                 //Only add notes greater then this value
                 //dust filter
                 {
                     LOCK(wallet->cs_wallet_threadedfunction);
-                    viewingKeysToAdd->insert(make_pair(nd.address, std::make_pair(nd.ivk, item.scope)));
+                    viewingKeysToAdd->insert(make_pair(nd.address, std::make_pair(nd.ivk, scope)));
                     noteData->insert(std::make_pair(op, nd));
                 }
             }
@@ -7245,41 +7244,88 @@ static void DecryptIronwoodNoteWorker(
 std::pair<mapIronwoodNoteData_t, IronwoodIncomingViewingKeyMap> CWallet::FindMyIronwoodNotes(const std::vector<CTransaction> &vtx, int height) const
 {
     LOCK(cs_wallet);
-    (void) height;
 
     //Data to be collected
     mapIronwoodNoteData_t noteData;
     IronwoodIncomingViewingKeyMap viewingKeysToAdd;
 
-    // Keep the Rust-owned actions alive until the entire block has been
-    // scanned; each work item below contains a pointer into one of these Vecs.
-    std::vector<rust::Vec<ironwood_bundle::Action>> transactionActions;
-    transactionActions.reserve(vtx.size());
-    std::vector<IronwoodNoteDecryptionWork> work;
+    //Create key+scope thread buckets
+    std::vector<std::pair<const IronwoodIncomingViewingKey*, KeyScope>> vIvkWithScope;
+    std::vector<std::vector<std::pair<const IronwoodIncomingViewingKey*, KeyScope>>> vvIvkWithScope;
+
+    //Create Output thread buckets
+    std::vector<ironwood_bundle::Action*> vIronwoodEncryptedAction;
+    std::vector<std::vector<ironwood_bundle::Action*>> vvIronwoodEncryptedAction;
+
+    //Create transaction position thread buckets
+    std::vector<uint32_t> vPosition;
+    std::vector<std::vector<uint32_t>> vvPosition;
+
+    //Create transaction hash thread buckets
+    std::vector<uint256> vHash;
+    std::vector<std::vector<uint256>> vvHash;
+
+    for (uint32_t i = 0; i < maxProcessingThreads; i++) {
+        vvIvkWithScope.emplace_back(vIvkWithScope);
+        vvIronwoodEncryptedAction.emplace_back(vIronwoodEncryptedAction);
+        vvPosition.emplace_back(vPosition);
+        vvHash.emplace_back(vHash);
+    }
 
     // Protocol Spec: 4.19 Block Chain Scanning (Sapling)
+    uint32_t t = 0;
     for (uint32_t j = 0; j < vtx.size(); j++) {
         //Transaction being processed
         uint256 hash = vtx[j].GetHash();
-        auto actions = vtx[j].GetIronwoodActions();
-        transactionActions.emplace_back(std::move(actions));
-        const auto& vActions = transactionActions.back();
+        auto vActions = vtx[j].GetIronwoodActions();
 
         for (uint32_t i = 0; i < vActions.size(); i++) {
-            // Create a work entry for every IVK with the current note.
+            auto action = &vActions[i];
+
+            //Create a tread entry for every ivk with the current note.
             for (auto it = setIronwoodIncomingViewingKeys.begin(); it != setIronwoodIncomingViewingKeys.end(); it++) {
-                work.push_back({it->first, it->second, &vActions[i], i, hash});
+                vvIvkWithScope[t].emplace_back(&(it->first), it->second);
+                vvPosition[t].emplace_back(i);
+                vvHash[t].emplace_back(hash);
+                vvIronwoodEncryptedAction[t].emplace_back(action);
+
+                //Increment ivk vector
+                t++;
+                //reset if ivk vector is greater qty of threads being used
+                if (t >= vvIvkWithScope.size()) {
+                    t = 0;
+                }
             }
         }
+
+        std::vector<boost::thread*> decryptionThreads;
+        for (uint32_t i = 0; i < vvIvkWithScope.size(); i++) {
+            if(!vvIvkWithScope[i].empty()) {
+                decryptionThreads.emplace_back(new boost::thread(DecryptIronwoodNoteWorker, this, vvIvkWithScope[i], vvIronwoodEncryptedAction[i], vvPosition[i], vvHash[i], height, &noteData, &viewingKeysToAdd, i));
+            }
+        }
+
+        // Cleanup Threads
+        for (auto dthread : decryptionThreads) {
+            dthread->join();
+            delete dthread;
+        }
+
+        //Rest Vectors for next transaction
+        for (uint32_t i = 0; i < vvIvkWithScope.size(); i++) {
+            vvIvkWithScope[i].resize(0);
+            vvIronwoodEncryptedAction[i].resize(0);
+            vvPosition[i].resize(0);
+            vvHash[i].resize(0);
+        }
+
     }
 
-    RunWalletScanWorkers(
-        work.size(),
-        [&](size_t lane, size_t stride) {
-            DecryptIronwoodNoteWorker(
-                this, work, lane, stride, &noteData, &viewingKeysToAdd);
-        },
-        "Ironwood");
+    //clean up vectors
+    vvIvkWithScope.resize(0);
+    vvIronwoodEncryptedAction.resize(0);
+    vvPosition.resize(0);
+    vvHash.resize(0);
 
     return std::make_pair(noteData, viewingKeysToAdd);
 }
