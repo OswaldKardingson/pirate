@@ -70,10 +70,6 @@
 #include "komodo_defs.h"
 
 #include <assert.h>
-#include <algorithm>
-#include <exception>
-#include <functional>
-#include <memory>
 #include <random>
 
 #include <boost/algorithm/string/replace.hpp>
@@ -7076,93 +7072,6 @@ mapSproutNoteData_t CWallet::FindMySproutNotes(const CTransaction &tx) const
     return noteData;
 }
 
-struct SaplingNoteDecryptionWork
-{
-    SaplingIncomingViewingKey ivk;
-    KeyScope scope;
-    const sapling::Output* output;
-    uint32_t position;
-    uint256 hash;
-};
-
-/**
- * Run one wallet-scan batch with a bounded number of workers.
- *
- * The caller also processes one lane. If the OS refuses to create one of the
- * requested threads, any lanes which were not started are processed by the
- * caller instead. All successfully started threads are joined before this
- * function returns or propagates an exception.
- */
-static void RunWalletScanWorkers(
-    size_t workSize,
-    const std::function<void(size_t, size_t)>& worker,
-    const char* operation)
-{
-    if (workSize == 0) {
-        return;
-    }
-
-    // join() is an interruption point. Do not allow shutdown to unwind the
-    // owning stack while scan workers still reference its work items.
-    boost::this_thread::disable_interruption disableInterruption;
-
-    const size_t workerCount = std::min(
-        workSize,
-        static_cast<size_t>(std::max(maxProcessingThreads, 1)));
-
-    std::exception_ptr workerException;
-    boost::mutex workerExceptionMutex;
-    auto guardedWorker = [&](size_t lane) {
-        try {
-            worker(lane, workerCount);
-        } catch (...) {
-            boost::mutex::scoped_lock lock(workerExceptionMutex);
-            if (!workerException) {
-                workerException = std::current_exception();
-            }
-        }
-    };
-
-    std::vector<std::unique_ptr<boost::thread>> threads;
-    threads.reserve(workerCount - 1);
-
-    size_t firstUnstartedLane = 1;
-    std::exception_ptr creationException;
-    try {
-        for (; firstUnstartedLane < workerCount; ++firstUnstartedLane) {
-            threads.emplace_back(new boost::thread(guardedWorker, firstUnstartedLane));
-        }
-    } catch (const boost::thread_resource_error& error) {
-        LogPrintf(
-            "%s wallet scan could only start %u of %u workers (%s); "
-            "processing the remaining work on the caller thread\n",
-            operation,
-            static_cast<unsigned int>(firstUnstartedLane),
-            static_cast<unsigned int>(workerCount),
-            error.what());
-    } catch (...) {
-        creationException = std::current_exception();
-    }
-
-    if (!creationException) {
-        guardedWorker(0);
-        for (size_t lane = firstUnstartedLane; lane < workerCount; ++lane) {
-            guardedWorker(lane);
-        }
-    }
-
-    for (auto& thread : threads) {
-        thread->join();
-    }
-
-    if (creationException) {
-        std::rethrow_exception(creationException);
-    }
-    if (workerException) {
-        std::rethrow_exception(workerException);
-    }
-}
-
 /**
  * @brief Worker thread function for decrypting Ironwood notes
  * @param wallet Pointer to the wallet instance
@@ -7334,11 +7243,14 @@ std::pair<mapIronwoodNoteData_t, IronwoodIncomingViewingKeyMap> CWallet::FindMyI
 /**
  * @brief Worker thread function for decrypting Sapling notes
  * @param wallet Pointer to the wallet instance
- * @param work Immutable block-level decryption work
- * @param lane First work item assigned to this worker
- * @param stride Distance between work items assigned to this worker
+ * @param vIvk Vector of incoming viewing keys to try for decryption
+ * @param vOutputs Vector of Sapling outputs to decrypt
+ * @param vPosition Vector of output positions within transactions
+ * @param vHash Vector of transaction hashes corresponding to notes
+ * @param height Block height for validation context
  * @param noteData[out] Map to store successfully decrypted note data
  * @param viewingKeysToAdd[out] Map to store newly discovered viewing keys
+ * @param threadNumber Thread identifier for logging/debugging
  * 
  * Multi-threaded worker function that attempts to decrypt Sapling notes using
  * the provided incoming viewing keys. Successfully decrypted notes are added to
@@ -7347,25 +7259,31 @@ std::pair<mapIronwoodNoteData_t, IronwoodIncomingViewingKeyMap> CWallet::FindMyI
  */
 static void DecryptSaplingNoteWorker(
     const CWallet *wallet,
-    const std::vector<SaplingNoteDecryptionWork>& work,
-    size_t lane,
-    size_t stride,
+    const std::vector<std::pair<const SaplingIncomingViewingKey*, KeyScope>> vIvkWithScope,
+    const std::vector<const sapling::Output*> vSaplingOutput,
+    const std::vector<uint32_t> vPosition,
+    const std::vector<uint256> vHash,
+    const int &height,
     mapSaplingNoteData_t *noteData,
-    SaplingIncomingViewingKeyMap *viewingKeysToAdd)
+    SaplingIncomingViewingKeyMap *viewingKeysToAdd,
+    int threadNumber)
 {
-    for (size_t i = lane; i < work.size(); i += stride) {
-        const auto& item = work[i];
-        auto result = SaplingNotePlaintext::AttemptDecryptSaplingOutput(*item.output, item.ivk);
+    for (int i = 0; i < vIvkWithScope.size(); i++) {
+
+        SaplingIncomingViewingKey ivk = *vIvkWithScope[i].first;
+        KeyScope scope = vIvkWithScope[i].second;
+        
+        auto result = SaplingNotePlaintext::AttemptDecryptSaplingOutput(*vSaplingOutput[i], ivk);
         if (result) {
 
             SaplingPaymentAddress address;
-            assert(item.ivk.DeriveAddress(&address, result.value().d));
+            assert(ivk.DeriveAddress(&address, result.value().d));
 
             // We don't cache the nullifier here as computing it requires knowledge of the note position
             // in the commitment tree, which can only be determined when the transaction has been mined.
-            SaplingOutPoint op {item.hash, item.position};
+            SaplingOutPoint op {vHash[i], vPosition[i]};
             SaplingNoteData nd;
-            nd.ivk = item.ivk;
+            nd.ivk = ivk;
 
             //Cache Address and value - in Memory Only
             auto note = result.value();
@@ -7378,7 +7296,7 @@ static void DecryptSaplingNoteWorker(
                 //dust filter
                 {
                     LOCK(wallet->cs_wallet_threadedfunction);
-                    viewingKeysToAdd->insert(make_pair(address, make_pair(item.ivk, item.scope)));
+                    viewingKeysToAdd->insert(make_pair(address, make_pair(ivk, scope)));
                     noteData->insert(std::make_pair(op, nd));
                 }
             }
@@ -7407,41 +7325,88 @@ static void DecryptSaplingNoteWorker(
 std::pair<mapSaplingNoteData_t, SaplingIncomingViewingKeyMap> CWallet::FindMySaplingNotes(const std::vector<CTransaction> &vtx, int height) const
 {
     LOCK(cs_wallet);
-    (void) height;
 
     //Data to be collected
     mapSaplingNoteData_t noteData;
     SaplingIncomingViewingKeyMap viewingKeysToAdd;
 
-    // Keep the Rust-owned outputs alive until the entire block has been
-    // scanned; each work item below contains a pointer into one of these Vecs.
-    std::vector<rust::Vec<sapling::Output>> transactionOutputs;
-    transactionOutputs.reserve(vtx.size());
-    std::vector<SaplingNoteDecryptionWork> work;
+    //Create key+scope thread buckets
+    std::vector<std::pair<const SaplingIncomingViewingKey*, KeyScope>> vIvkWithScope;
+    std::vector<std::vector<std::pair<const SaplingIncomingViewingKey*, KeyScope>>> vvIvkWithScope;
+
+    //Create Output thread buckets
+    std::vector<const sapling::Output*> vSaplingOutput;
+    std::vector<std::vector<const sapling::Output*>> vvSaplingOutput;
+
+    //Create transaction position thread buckets
+    std::vector<uint32_t> vPosition;
+    std::vector<std::vector<uint32_t>> vvPosition;
+
+    //Create transaction hash thread buckets
+    std::vector<uint256> vHash;
+    std::vector<std::vector<uint256>> vvHash;
+
+    for (uint32_t i = 0; i < maxProcessingThreads; i++) {
+        vvIvkWithScope.emplace_back(vIvkWithScope);
+        vvSaplingOutput.emplace_back(vSaplingOutput);
+        vvPosition.emplace_back(vPosition);
+        vvHash.emplace_back(vHash);
+    }
 
     // Protocol Spec: 4.19 Block Chain Scanning (Sapling)
+    uint32_t t = 0;
     for (uint32_t j = 0; j < vtx.size(); j++) {
         //Transaction being processed
         uint256 hash = vtx[j].GetHash();
-        auto outputs = vtx[j].GetSaplingOutputs();
-        transactionOutputs.emplace_back(std::move(outputs));
-        const auto& vOutputs = transactionOutputs.back();
+        auto vOutputs = vtx[j].GetSaplingOutputs();
 
         for (uint32_t i = 0; i < vOutputs.size(); i++) {
-            // Create a work entry for every IVK with the current note.
+            auto output = &vOutputs[i];
+
+            //Create a thread entry for every ivk with the current note.
             for (auto it = setSaplingIncomingViewingKeys.begin(); it != setSaplingIncomingViewingKeys.end(); it++) {
-                work.push_back({it->first, it->second, &vOutputs[i], i, hash});
+                vvIvkWithScope[t].emplace_back(&(it->first), it->second);
+                vvPosition[t].emplace_back(i);
+                vvHash[t].emplace_back(hash);
+                vvSaplingOutput[t].emplace_back(output);
+
+                //Increment ivk vector
+                t++;
+                //reset if ivk vector is greater qty of threads being used
+                if (t >= vvIvkWithScope.size()) {
+                    t = 0;
+                }
             }
         }
+
+        std::vector<boost::thread*> decryptionThreads;
+        for (uint32_t i = 0; i < vvIvkWithScope.size(); i++) {
+            if(!vvIvkWithScope[i].empty()) {
+                decryptionThreads.emplace_back(new boost::thread(DecryptSaplingNoteWorker, this, vvIvkWithScope[i], vvSaplingOutput[i], vvPosition[i], vvHash[i], height, &noteData, &viewingKeysToAdd, i));
+            }
+        }
+
+        // Cleanup Threads
+        for (auto dthread : decryptionThreads) {
+            dthread->join();
+            delete dthread;
+        }
+
+        //Reset Vectors for next transaction
+        for (uint32_t i = 0; i < vvIvkWithScope.size(); i++) {
+            vvIvkWithScope[i].resize(0);
+            vvSaplingOutput[i].resize(0);
+            vvPosition[i].resize(0);
+            vvHash[i].resize(0);
+        }
+
     }
 
-    RunWalletScanWorkers(
-        work.size(),
-        [&](size_t lane, size_t stride) {
-            DecryptSaplingNoteWorker(
-                this, work, lane, stride, &noteData, &viewingKeysToAdd);
-        },
-        "Sapling");
+    //clean up vectors
+    vvIvkWithScope.resize(0);
+    vvSaplingOutput.resize(0);
+    vvPosition.resize(0);
+    vvHash.resize(0);
 
     return std::make_pair(noteData, viewingKeysToAdd);
 }
